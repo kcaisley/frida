@@ -5,8 +5,15 @@ from pathlib import Path
 
 import hdl21 as h
 import pytest
+from hypothesis import settings
 
 from flow.sweep import runner
+
+# property tests (Hypothesis) without a per-example deadline: on a shared machine, or in a run of
+# the whole suite, an example's first call (imports, caches) can take past Hypothesis's 200 ms and
+# fail a test whose property holds
+settings.register_profile("flow", deadline=None)
+settings.load_profile("flow")
 
 
 @pytest.fixture

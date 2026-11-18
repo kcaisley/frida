@@ -6,6 +6,7 @@
 
 # Python and tool caches
 .coverage
+.hypothesis/
 .complexipy_cache/
 .pytest_cache/
 .ruff_cache/

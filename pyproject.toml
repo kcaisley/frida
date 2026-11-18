@@ -40,6 +40,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "hypothesis==6.170.15",
     "ty>=0.0.63",
 ]
 
@@ -363,15 +364,18 @@ pytest = [
     "flow/csa/test_model.py",
     "flow/seqgen/test_analysis.py",
     "flow/seqgen/test_plots.py",
+    "flow/analysis/test_calc.py",
     "flow/circuit/test_sim.py",
     "flow/circuit/test_remote.py",
     "flow/circuit/test_spectre.py",
+    "flow/circuit/test_oppoint.py",
     "flow/scans/test_plldrp.py",
     "flow/sweep/test_sweep.py",
     "test/test_hooks.py",
     "test/test_adc_capdriver.py",
     "test/test_salogic.py",
     "test/test_spi_register.py",
+    "tools/test_verify.py",
 ]
 
 [tool.tex-fmt.install]

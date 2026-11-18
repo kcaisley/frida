@@ -4,8 +4,18 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from flow.analysis import calc
+
+# a sampled waveform for property tests: 2 to 40 samples, each a step forward of the axis (strictly
+# increasing) and a value, each within a few decades of one
+_samples = st.lists(
+    st.tuples(st.floats(1e-2, 1e2), st.floats(-1e3, 1e3)),
+    min_size=2,
+    max_size=40,
+)
 
 
 def test_crossings_and_delay_interpolate_events() -> None:
@@ -363,3 +373,16 @@ def test_delay_measure_counts_both_crossings_from_the_start() -> None:
     assert np.isnan(calc.delayMeasure(trigger, response, axis, value1=0.0, value2=5.0))
     # a single sample has no time average to default the thresholds to
     assert np.isnan(calc.delayMeasure([0.0], [1.0], [0.0]))
+
+
+@given(_samples)
+def test_the_running_integral_ends_at_the_integral_and_rises_by_each_intervals_mean(samples) -> None:
+    """A property of any sampled waveform (Hypothesis draws them): the running integral
+    (``iinteg``) starts at zero, ends at the definite integral (``integ``), and its slope over each
+    interval (``deriv``) is that interval's trapezoid, the mean of its two samples."""
+    axis = np.cumsum([step for step, _ in samples])
+    signal = np.asarray([value for _, value in samples])
+    running = calc.iinteg(signal, axis)
+    assert running[0] == 0.0
+    assert running[-1] == pytest.approx(calc.integ(signal, axis), rel=1e-9, abs=1e-9)
+    np.testing.assert_allclose(calc.deriv(running, axis), (signal[1:] + signal[:-1]) / 2, rtol=1e-6, atol=1e-6)

@@ -140,7 +140,8 @@ def test_every_analysis_of_a_run_reads_as_a_sweep(diagnostic_root, noise):
         else hs.Tran(tstop=20 * r * c, name="tran"),
     ]
     run_dir = diagnostic_root / "sweeps" / ("psfascii" if noise else "nutbin")
-    spectre.run(bench, attrs, run_dir)
+    # a noise analysis runs in classic Spectre alone (``spectre.refusal``)
+    spectre.run(bench, attrs, run_dir, fast=not noise)
     raw = run_dir / "netlist.raw"
     assert raw.is_dir() == noise
     meas = pipeline.read(raw, SimpleNamespace(params=None))
@@ -294,3 +295,99 @@ def test_varying_mom_capacitors_draw_pelgroms_mismatch_and_one_gradient_a_run(di
     assert relative["a"] == pytest.approx(1e-3, rel=0.15) and relative["b"] == pytest.approx(1e-3, rel=0.15)
     assert relative["c"] == pytest.approx(np.hypot(5e-4, 5e-3 / np.sqrt(2)), rel=0.15)
     assert abs(np.corrcoef(drawn["a"], drawn["b"])[0, 1]) < 0.2
+
+
+@pytest.mark.spectre
+@pytest.mark.parametrize("transient", (True, False))
+@pytest.mark.parametrize(("kit", "vdd"), [("tsmc65", 1.2), ("ihp130", 1.2), ("tsmc28", 0.9), ("tower180", 1.8)])
+def test_the_operating_point_checks_find_the_device_in_triode_the_forward_junction_and_the_overstress(
+    diagnostic_root, kit, vdd, transient
+):
+    """A kit's transistors on fixed voltages, its supply ``vdd``: an NMOS and a PMOS saturated (0.7
+    V of gate drive, V_DS two thirds of the supply) and a pair in triode (V_DS 50 mV); an NMOS whose
+    bulk is 0.4 V above its source and a PMOS whose well is 0.4 V below its source; an NMOS off with
+    the supply across it. In each kit as its model writes a PMOS's voltages (IHP's PSP 103 as an
+    NMOS's) and where it wraps its devices (a kit's wrapper subckt's one transistor, which ``oppoint.saves``
+    names), Spectre's values read back (``flow.pipeline.read``, PSF ASCII) from the operating point
+    alone and, with a transient, from its every point too give a positive saturation margin for
+    the saturated pair and a negative one for the triode pair, as Spectre's own region has them;
+    the two forward junctions alone past 0.3 V; and, against a run whose nominal supply is five
+    sixths of ``vdd`` (its limit 0.92 ``vdd``), the off NMOS alone overstressed, none against
+    ``vdd``'s own."""
+
+    import importlib
+    from types import SimpleNamespace
+
+    import hdl21 as h
+    import hdl21.sim as hs
+    from hdl21.primitives import MosType, MosVth, Vdc
+
+    from flow import pipeline
+    from flow.circuit import oppoint, spectre
+    from flow.circuit.oppoint import Junction, Region, Terminals
+    from flow.layout.devices.mosfet.netlist import mos
+
+    module = pytest.importorskip(f"pdk.{kit}")
+    install = importlib.import_module(f"pdk.{kit}.hdl21.site").install
+    h.pdk.set_default(module.pdk_logic)
+    bench = h.Module(name="OppointTb")
+    bench.VSS = h.Port()
+    drain = 2 * vdd / 3
+    levels = {"vdd": vdd, "gn": 0.7, "dn": drain, "dntri": 0.05, "gp": vdd - 0.7, "dp": vdd - drain}
+    levels |= {"dptri": vdd - 0.05, "bn": 0.4, "wp": vdd - 0.4}
+    for net, level in levels.items():
+        bench.add(h.Signal(name=net))
+        bench.add(Vdc(dc=level)(p=bench.get(net), n=bench.VSS), name=f"v{net}")
+    nmos = mos(tp=MosType.NMOS, vth=MosVth.STD, w=4, l=2)
+    pmos = mos(tp=MosType.PMOS, vth=MosVth.STD, w=4, l=2)
+    bench.Mn = nmos(d=bench.dn, g=bench.gn, s=bench.VSS, b=bench.VSS)
+    bench.Mntri = nmos(d=bench.dntri, g=bench.gn, s=bench.VSS, b=bench.VSS)
+    bench.Mp = pmos(d=bench.dp, g=bench.gp, s=bench.vdd, b=bench.vdd)
+    bench.Mptri = pmos(d=bench.dptri, g=bench.gp, s=bench.vdd, b=bench.vdd)
+    bench.Mnfwd = nmos(d=bench.dn, g=bench.gn, s=bench.VSS, b=bench.bn)
+    bench.Mpfwd = pmos(d=bench.dp, g=bench.gp, s=bench.vdd, b=bench.wp)
+    bench.Mnoff = nmos(d=bench.vdd, g=bench.VSS, s=bench.VSS, b=bench.VSS)
+    devices = oppoint.mos_devices(bench)
+    nmos_names, pmos_names = ("Mn", "Mntri", "Mnfwd", "Mnoff"), ("Mp", "Mptri", "Mpfwd")
+    assert devices == dict.fromkeys(nmos_names, MosType.NMOS) | dict.fromkeys(pmos_names, MosType.PMOS)
+    h.pdk.compile(bench)
+    includes = spectre.includes(install)
+    attrs = [
+        *includes,
+        *spectre.options(),
+        hs.Save(oppoint.saves(devices, bench, includes, prefix="xtop.")),
+        hs.Op(name="op"),
+        *([hs.Tran(tstop=1e-9, name="tran")] if transient else []),
+    ]
+    run_dir = diagnostic_root / "oppoint" / kit / ("tran" if transient else "op")
+    spectre.run(bench, attrs, run_dir)
+    assert (run_dir / "netlist.raw").is_dir()
+    meas = pipeline.read(run_dir / "netlist.raw", SimpleNamespace(params=None))
+    sources = {device: devices[device] for device in ("Mn", "Mntri", "Mp", "Mptri")}
+    for op in (meas.sweeps["op"], meas.sweeps["opdc"]):
+        found = oppoint.saturation(op, sources)
+        assert set(found.unsaturated) == {"Mntri", "Mptri"}
+        assert found.least_v["Mn"] > 0.15 and found.least_v["Mp"] > 0.15
+        # the triode pair: V_DS 50 mV short of a V_D,sat of the overdrive's order
+        assert -0.4 < found.least_v["Mntri"] < -0.05 and -0.4 < found.least_v["Mptri"] < -0.05
+        assert found.region == {
+            "Mn": (Region.SATURATION,),
+            "Mntri": (Region.TRIODE,),
+            "Mp": (Region.SATURATION,),
+            "Mptri": (Region.TRIODE,),
+        }
+    points = [meas.sweeps["op"], *([meas] if transient else [])]
+    if transient:
+        assert (
+            len(meas.time_s) > 1
+            and next(v for k, v in meas.v.items() if k.startswith("Mnoff")).shape == meas.time_s.shape
+        )
+    for point in points:
+        stress = oppoint.stress(point, devices, nominal_v=vdd)
+        assert stress.forward == {
+            "Mnfwd": (Junction.SOURCE, pytest.approx(0.4, abs=1e-6)),
+            "Mpfwd": (Junction.SOURCE, pytest.approx(0.4, abs=1e-6)),
+        }
+        assert stress.overstressed == {}
+        (pair, value), *others = oppoint.stress(point, devices, nominal_v=vdd * 5 / 6).overstressed.values()
+        assert not others and pair in (Terminals.GD, Terminals.DS) and value == pytest.approx(vdd, abs=1e-6)

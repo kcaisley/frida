@@ -1,6 +1,6 @@
 # References and notation
 
-The blocks' analyses, metrics and figures cite the textbook that defines what they compute. Five texts are the only sources a citation names, each by its key:
+The blocks' analyses, metrics and figures cite the textbook that defines what they compute. Five textbooks and three papers are the only sources a citation names, each by its key:
 
 | Key | Text |
 | --- | --- |
@@ -10,6 +10,16 @@ The blocks' analyses, metrics and figures cite the textbook that defines what th
 | `[Pelgrom]` | M. Pelgrom, *Analog-to-Digital Conversion*, 4th ed. |
 | `[Baker]` | R. J. Baker, *CMOS: Circuit Design, Layout, and Simulation*, 4th ed. |
 
+## Papers
+
+A paper is cited only where none of the five textbooks defines the quantity or the circuit: the double-tail latch, the modified double tail and the dynamic bias of a comparator.
+
+| Key | Text |
+| --- | --- |
+| `[Schinkel]` | D. Schinkel, E. Mensink, E. Klumperink, E. van Tuijl, B. Nauta, *A Low-Offset Double-Tail Latch-Type Voltage Sense Amplifier*, pp. 89–94: the extended paper of their *A Double-Tail Latch-Type Voltage Sense Amplifier with 18ps Setup+Hold Time*, ISSCC 2007, which it cites; its pages are the extended paper's. |
+| `[vanElzakker]` | M. van Elzakker et al., *A 10-bit Charge-Redistribution ADC Consuming 1.9 µW at 1 MS/s*, IEEE JSSC, vol. 45, no. 5, May 2010. |
+| `[Bindra]` | H. S. Bindra et al., *A 1.2-V Dynamic Bias Latch-Type Comparator in 65-nm CMOS With 0.4-mV Input Noise*, IEEE JSSC, 2018, the early-access version: its pages as printed there. |
+
 ## Citations
 
 A citation is a code comment beside (or directly above) the line that computes the quantity, a field or a figure, of this shape:
@@ -18,13 +28,13 @@ A citation is a code comment beside (or directly above) the line that computes t
 # [Razavi-Analog] Eq. (10.11), p. 413: phase margin
 ```
 
-The locator is the book's own equation, figure, section, example or table number, and the page is the page number printed on the page, not the PDF's. Where none of the five texts defines a quantity, the comment says so and defines it in one line, with where the definition comes from:
+The locator is the source's own equation, figure, section, example or table number, and the page is the page number printed on the page, not the PDF's. Where none of the sources defines a quantity, the comment says so and defines it in one line, with where the definition comes from:
 
 ```python
 # not in the reference texts: <one-line definition and where it comes from>
 ```
 
-A locator is written only after reading it on the page it names. Cite by locator only: never copy a book's text, figures or tables into the repository.
+A locator is written only after reading it on the page it names. Cite by locator only: never copy a source's text, figures or tables into the repository.
 
 ## Notation
 
