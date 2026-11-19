@@ -21012,7 +21012,7 @@
 				)
 			)
 		)
-		(property "Value" "15k"
+		(property "Value" "10k"
 			(at 0 1.43 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -21035,7 +21035,7 @@
 				)
 			)
 		)
-		(property "Description" "15k"
+		(property "Description" "10k"
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
@@ -21094,7 +21094,7 @@
 				)
 			)
 		)
-		(property "Resistance" "15k"
+		(property "Resistance" "10k"
 			(at 0 0 0)
 			(layer "F.SilkS")
 			(hide yes)

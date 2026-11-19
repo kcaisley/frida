@@ -20,7 +20,7 @@ export KICAD_PYTHON_INTERPRETER=$PWD/../kicad-python  # a wrapper that keeps pcb
 
 pcb build frida-scc-2p0.zen                       # check the design, write the netlist
 pcb bom frida-scc-2p0.zen                         # the bill of materials, generics matched to parts
-pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch
+pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch and its pages
 pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
 $KICAD_APPDIR/bin/python3.11 place_from_1p1.py    # frida-scc-1p1's outline and shared placement
 $KICAD_APPDIR/bin/python3.11 place_new.py         # the new parts, around them
@@ -28,8 +28,8 @@ $KICAD_APPDIR/bin/python3.11 route_from_1p1.py    # frida-scc-1p1's tracks and g
 ```
 
 The board file owns the geometry (placement, routing, outline); later `pcb layout` runs keep it
-and place only new parts, so the board and its project file in `eda/` are committed; the
-schematic and the netlist there are regenerated.
+and place only new parts, so the board and its project file in `eda/` are committed. The schematic is kept the same
+way: the tool repairs only what no longer matches the design, and leaves the drawing alone.
 
 `place_from_1p1.py` copies the outline and, for each part named in its table, the position,
 rotation and side of the part it replaces on frida-scc-1p1 (the tap resistors sit on the pads of
@@ -51,6 +51,15 @@ in `pyproject.toml` and fetched on first use.
 uv run --no-project --python 3.12 python ../freeroute.py eda/frida-scc-2p0.kicad_pcb --minutes 30
 ```
 
+## Schematic
+
+Page 1 is frida-scc-1p1's sheet as it was drawn (its wires, notes and jumper pictures), with the
+values and nets of this design; the parts that are new are on pages 2 to 5, in a block per
+function, each pin with the tool's stub and net label (connections there are by net name, between
+pages by global labels). `arrange_schematic.py` made it that way and says how in its heading; it
+runs again when parts are added. `kicad-cli sch export pdf eda/frida-scc-2p0.kicad_sch` prints
+all pages.
+
 ## Structure
 
 | File | What it holds |
@@ -71,7 +80,7 @@ uv run --no-project --python 3.12 python ../freeroute.py eda/frida-scc-2p0.kicad
 
 **Supplies.** One raw +5 V and one raw -5 V come in on the Mini-Fit Jr. An LT3045 each makes
 VDD_A, VDD_D, VDD_DAC and VDD_IO (1.2 V), 3.3 V for the analog parts and 2.5 V for the control
-logic; an LT3094 makes -1.5 V. Each chip rail has a jumper that takes it from a lab supply
+logic; an LT3094 makes -1 V. Each chip rail has a jumper that takes it from a lab supply
 instead, as before. Each chip rail's regulator reports its load current (3 mV per mA) to the
 probe matrix.
 
@@ -113,7 +122,8 @@ the THS4541's and BAV99's order codes.
 ## Open questions
 
 - The second RJ45: which BDAQ53 port and FPGA pins it gets (or the PMOD header instead).
-- The amplifier's supplies: 3.3 V and -1.5 V here; frida-scc-1p1's bench values are not recorded.
+- The amplifier's positive supply: 3.3 V here (the negative one is frida-scc-1p1's -1 V); its
+  bench value on frida-scc-1p1 is not recorded.
 - The level shifter's direction straps: both groups are pulled to A-to-B on frida-scc-1p1, with
   SDO in the second group.
 - The amplifier's output filter (499 ohm, 100 nF across: 1.6 kHz) passes ramps and DC but no

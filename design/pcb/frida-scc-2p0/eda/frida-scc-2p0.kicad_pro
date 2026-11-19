@@ -296,6 +296,30 @@
   "cvpcb": {
     "equivalence_files": []
   },
+  "diode": {
+    "schematic_sheets": [
+      {
+        "parent_file": "frida-scc-2p0.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 20.32 123.19)\n\t(size 40.64 5.08)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0.0000)\n\t)\n\t(uuid \"f21da2b0-348e-56e1-8a73-b94994dc6a41\")\n\t(property \"Sheetname\" \"Page 2: Supplies (1 of 2)\"\n\t\t(at 20.32 122.49 0)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left bottom)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"frida-scc-2p0_p2.kicad_sch\"\n\t\t(at 20.32 128.69 0)\n\t\t(hide yes)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left top)\n\t\t)\n\t)\n\t(instances\n\t\t(project \"frida-scc-2p0\"\n\t\t\t(path \"/513d9cc1-d27a-514d-a37c-2f1ca04dddfa\"\n\t\t\t\t(page \"2\")\n\t\t\t)\n\t\t\t(path \"/fa3d0b93-951b-4460-b2d5-04f3ffae1154\"\n\t\t\t\t(page \"2\")\n\t\t\t)\n\t\t)\n\t)\n)\n"
+      },
+      {
+        "parent_file": "frida-scc-2p0.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 20.32 130.81)\n\t(size 40.64 5.08)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0.0000)\n\t)\n\t(uuid \"f21da2b0-697b-50e2-a792-ea9a77a3eaeb\")\n\t(property \"Sheetname\" \"Page 3: Supplies (2 of 2)\"\n\t\t(at 20.32 130.11 0)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left bottom)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"frida-scc-2p0_p3.kicad_sch\"\n\t\t(at 20.32 136.31 0)\n\t\t(hide yes)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left top)\n\t\t)\n\t)\n\t(instances\n\t\t(project \"frida-scc-2p0\"\n\t\t\t(path \"/513d9cc1-d27a-514d-a37c-2f1ca04dddfa\"\n\t\t\t\t(page \"3\")\n\t\t\t)\n\t\t\t(path \"/fa3d0b93-951b-4460-b2d5-04f3ffae1154\"\n\t\t\t\t(page \"3\")\n\t\t\t)\n\t\t)\n\t)\n)\n"
+      },
+      {
+        "parent_file": "frida-scc-2p0.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 20.32 138.43)\n\t(size 40.64 5.08)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0.0000)\n\t)\n\t(uuid \"f21da2b0-cd85-57c4-829a-d96d599f91fb\")\n\t(property \"Sheetname\" \"Page 4: Signal source and second control link\"\n\t\t(at 20.32 137.73 0)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left bottom)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"frida-scc-2p0_p4.kicad_sch\"\n\t\t(at 20.32 143.93 0)\n\t\t(hide yes)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left top)\n\t\t)\n\t)\n\t(instances\n\t\t(project \"frida-scc-2p0\"\n\t\t\t(path \"/513d9cc1-d27a-514d-a37c-2f1ca04dddfa\"\n\t\t\t\t(page \"4\")\n\t\t\t)\n\t\t\t(path \"/fa3d0b93-951b-4460-b2d5-04f3ffae1154\"\n\t\t\t\t(page \"4\")\n\t\t\t)\n\t\t)\n\t)\n)\n"
+      },
+      {
+        "parent_file": "frida-scc-2p0.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 20.32 146.05)\n\t(size 40.64 5.08)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0.0000)\n\t)\n\t(uuid \"f21da2b0-f682-5364-8823-172e0b2fcd51\")\n\t(property \"Sheetname\" \"Page 5: Probe matrix\"\n\t\t(at 20.32 145.35 0)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left bottom)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"frida-scc-2p0_p5.kicad_sch\"\n\t\t(at 20.32 151.55 0)\n\t\t(hide yes)\n\t\t(show_name no)\n\t\t(do_not_autoplace no)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left top)\n\t\t)\n\t)\n\t(instances\n\t\t(project \"frida-scc-2p0\"\n\t\t\t(path \"/513d9cc1-d27a-514d-a37c-2f1ca04dddfa\"\n\t\t\t\t(page \"5\")\n\t\t\t)\n\t\t\t(path \"/fa3d0b93-951b-4460-b2d5-04f3ffae1154\"\n\t\t\t\t(page \"5\")\n\t\t\t)\n\t\t)\n\t)\n)\n"
+      }
+    ]
+  },
   "libraries": {
     "pinned_footprint_libs": [],
     "pinned_symbol_libs": []
@@ -334,7 +358,7 @@
         "priority": 0,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.18,
-        "tuning_profile": "",
+        "tuning_profile": "100Ohm Diff",
         "via_diameter": 0.6,
         "via_drill": 0.3
       },
@@ -345,7 +369,7 @@
         "priority": 1,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.18,
-        "tuning_profile": "",
+        "tuning_profile": "50Ohm SE",
         "via_diameter": 0.6,
         "via_drill": 0.3
       },
@@ -453,6 +477,25 @@
     "meta": {
       "version": 0
     },
-    "tuning_profiles_impedance_geometric": []
+    "tuning_profiles_impedance_geometric": [
+      {
+        "enable_time_domain_tuning": false,
+        "layer_entries": [],
+        "profile_name": "100Ohm Diff",
+        "target_impedance": 100.0,
+        "type": 1,
+        "via_overrides": [],
+        "via_prop_delay": 0
+      },
+      {
+        "enable_time_domain_tuning": false,
+        "layer_entries": [],
+        "profile_name": "50Ohm SE",
+        "target_impedance": 50.0,
+        "type": 0,
+        "via_overrides": [],
+        "via_prop_delay": 0
+      }
+    ]
   }
 }

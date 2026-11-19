@@ -7,7 +7,7 @@ ultralow-noise regulator, so the bench supply's noise stops here:
   supply can drive the rail as on frida-scc-1p1 (for supply sweeps).
 - V3P3A: 3.3 V for the amplifier's positive supply, the reference and the DAC.
 - V2P5: 2.5 V for the probe matrix and the control logic (the FPGA's levels).
-- VS_N: -1.5 V for the amplifier's and the buffer's negative supply, an LT3094.
+- VS_N: -1 V for the amplifier's and the buffers' negative supply (frida-scc-1p1's value), an LT3094.
 
 frida-scc-1p1 took 1.2 V, V+ and V- straight from the bench on this connector; here pin 3 (its
 V+) is the +5 V input, pin 1 (its V-) the -5 V input and pin 4 (its 1.2 V) is unused.
@@ -86,7 +86,7 @@ PinHeader(
 
 Regulator(name="REG_3V3A", vout="3.3V", VIN=V5P, VOUT=V3P3A, GND=GND)
 Regulator(name="REG_2V5", vout="2.5V", VIN=V5P, VOUT=V2P5, GND=GND)
-NegRegulator(name="REG_VS_N", vout_magnitude="1.5V", VIN=V5N, VOUT=VS_N, GND=GND)
+NegRegulator(name="REG_VS_N", vout_magnitude="1V", VIN=V5N, VOUT=VS_N, GND=GND)
 
 Resistor(name="R_MON_3V3A_TOP", value="10k", package="0402", P1=V3P3A, P2=MON_V3P3A)
 Resistor(name="R_MON_3V3A_BOT", value="10k", package="0402", P1=MON_V3P3A, P2=GND)
