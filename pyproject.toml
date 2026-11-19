@@ -436,6 +436,18 @@ sha256 = "27e4b4baa85c2181be6b219c22667ce138c20c0148dd2e047ba84dbda480dbb4"
 url = "https://kicad-downloads.s3.cern.ch/appimage/stable/kicad-{version}-x86_64.AppImage.tar"
 strip = 0
 
+# Autorouting for design/pcb (design/pcb/freeroute.py): FreeRouting, a Java archive run as it is,
+# on the Java 25 runtime it needs.
+[tool.freerouting.install]
+version = "2.3.0"
+sha256 = "3cf18d608437740bc497db6b8ef5888e2e60a08de0def20691d1bad0c0e0ee24"
+url = "https://github.com/freerouting/freerouting/releases/download/v{version}/freerouting-{version}.jar"
+
+[tool.temurin.install]
+version = "25.0.5.1+2"
+sha256 = "2edef9e4f81ec5ee426d023336d4cfbd7b4644e99884e7a73a6a867b70b17acf"
+url = "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jre_x64_linux_hotspot_25.0.5.1_2.tar.gz"
+
 # ---------------------------------------------------------------------------- HDL checks
 # The four HDL checks (verible-format, verible-lint, verilator-lint, slang-lint) and their
 # tools' pins, as in Basil's hdl-fmt-and-lint.

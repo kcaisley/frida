@@ -33,16 +33,14 @@ rotation and side of the part it replaces on frida-scc-1p1 (the tap resistors si
 the 1 kohm loads they replace). It also checks that the two boards' nets correspond one to one
 over those parts.
 
-Autorouting runs FreeRouting locally through the tool's `route` command. Releases 0.4.35 to
-0.4.60 have it and later ones do not, so it is called from 0.4.60; FreeRouting 2.3.0 (fetched by
-the tool) needs Java 25 or newer on `PATH`:
+Autorouting runs FreeRouting on this machine, driven directly (the `pcb` tool's own `route`
+command was removed after release 0.4.60): KiCad writes the board as a Specctra design,
+FreeRouting routes it, KiCad reads the result back. FreeRouting and its Java runtime are pinned
+in `pyproject.toml` and fetched on first use.
 
 ```bash
-export PATH=$PWD/../../../build/tools/temurin-25/jdk-25.0.5.1+2-jre/bin:$PATH  # a Temurin JRE, unpacked there
-pcb +0.4.60 route --engine freerouting --no-open -t 20 frida-scc-2p0.zen       # -t: minutes
+uv run --no-project --python 3.12 python ../freeroute.py eda/frida-scc-2p0.kicad_pcb --minutes 30
 ```
-
-Its other engine, DeepPCB, sends the board to a cloud service.
 
 ## Structure
 

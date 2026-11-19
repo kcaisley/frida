@@ -85,7 +85,7 @@ def install(tool: str) -> Path:
     version = spec["version"]
     url = spec["url"].format(version=version, date=version.replace("-", ""), underscored=version.replace(".", "_"))
     target.parent.mkdir(parents=True, exist_ok=True)
-    suffix = next((s for s in (".tar.xz", ".zip") if url.endswith(s)), ".tar.gz")
+    suffix = next((s for s in (".tar.xz", ".zip", ".jar") if url.endswith(s)), ".tar.gz")
     archive = target.with_name(target.name + suffix)
     print(f"Installing {tool} {spec['version']} into {target}", flush=True)
     subprocess.run(
@@ -102,7 +102,9 @@ def install(tool: str) -> Path:
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir()
     strip = int(spec.get("strip", 1))
-    if suffix == ".zip":  # tar cannot read a zip; its members' first `strip` path parts dropped
+    if suffix == ".jar":  # a Java archive is run as it is, under its own name
+        shutil.copy(archive, partial / url.rsplit("/", 1)[1])
+    elif suffix == ".zip":  # tar cannot read a zip; its members' first `strip` path parts dropped
         with zipfile.ZipFile(archive) as zipped:
             for member in zipped.infolist():
                 parts = Path(member.filename).parts[strip:]
