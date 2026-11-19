@@ -13983,7 +13983,7 @@
 				)
 			)
 		)
-		(property "Value" "51pF"
+		(property "Value" "100nF"
 			(at 0 1.16 0)
 			(layer "F.Fab")
 			(uuid "ba97fe9f-f890-4ba4-9f70-60c7a619772f")
@@ -29294,7 +29294,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "VS+"
+	(gr_text "VS-"
 		(at 134.9 117.1 90)
 		(layer "F.SilkS")
 		(uuid "a6fcc5f0-f1ac-413b-87ee-6d5305a86873")
@@ -29390,7 +29390,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "OCM"
+	(gr_text "AMP"
 		(at 164.7 79.6 90)
 		(layer "F.SilkS")
 		(uuid "321dca80-f0d4-4874-a17a-73adf94ef23d")
