@@ -213,7 +213,7 @@ SOURCE_CAPACITANCE_F = 100e-15
 KICKBACK_SOURCE = (1e6, 1e-12)
 # the stimuli, each a fraction of the PDK's core supply or an input in volts: the nominal common
 # mode and its sweep (3/8 to 5/8 of the supply), the supply sweep (90 and 110 % besides nominal:
-# never past the models' limits, which TSMC28's core devices check above 110 %), the small and
+# never past the models' limits, which some kits' core devices check above 110 %), the small and
 # large inputs (the slowest and fastest response)
 NOMINAL_CM = 13 / 24
 CM_SWEEP = (9 / 24, 11 / 24, 13 / 24, 15 / 24)

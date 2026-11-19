@@ -128,7 +128,7 @@ def test_a_known_warning_is_counted_apart_and_a_new_one_is_not(tmp_path: Path) -
     with step_log(tmp_path / "step.log") as counts:
         spectre = logging.getLogger("spectre")
         spectre.warning("WARNING (SPECTRE-592): Following parameters are disabled")
-        spectre.warning("WARNING (CMI-2753): xtop.dut.MN: Vgb(=1.08 V) has exceeded vgb_max(=990 mV).")
+        spectre.warning("WARNING (CMI-2753): xtop.dut.MN: Vgb(=2.5 V) has exceeded vgb_max(=2.2 V).")
     assert counts == {"spectre": {"WAIVED": 1, "WARNING": 1}}
     assert "SPECTRE-592" in (tmp_path / "step.log").read_text()
     assert waived("align.pnr.main", "2 LVS / DRC errors found !!!") is not None
