@@ -18,6 +18,7 @@ from dataclasses import replace
 import hdl21 as h
 from hdl21.primitives import MosType
 
+from flow.circuit.spectre import Accuracy
 from flow.pipeline import (
     Bound,
     Evidence,
@@ -44,6 +45,7 @@ from .analysis import (
     analyze_offset_noise,
     analyze_power,
     analyze_scurve,
+    analyze_stress,
     analyze_timing,
     metrics,
 )
@@ -58,6 +60,7 @@ from .params import (
     KICKBACK_SOURCE,
     LARGE_V,
     METASTABILITY_RUN_V,
+    METASTABILITY_V,
     NOISE_STROBE_S,
     NOISE_WEIGHT,
     NOMINAL_CM,
@@ -66,17 +69,21 @@ from .params import (
     SMALL_V,
     SUPPLY_SWEEP,
     Bias,
+    ClockDrive,
+    InputOrder,
     Latch,
     Params,
     TbParams,
 )
 from .plots import (
+    plot_delay_cm,
     plot_delay_supply_large,
     plot_delay_supply_small,
     plot_energy_supply,
     plot_metastability,
     plot_noise_cm,
     plot_offset_cm,
+    plot_output_delay,
     plot_scurve,
     plot_scurve_unresolved,
 )
@@ -341,43 +348,81 @@ def adc_14bit(pdk: Pdk) -> Problem:
 
 def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk`` at ``level``, by name (each run's
-    folder), the quick ones first. ``Level.SCREEN``, no transient noise (about 25 s): the
-    noise-free decisions over the input at the clock and at twice it (``metastability``,
-    ``metastability_check``: the delay near metastability, and whether the comparator decides in
-    time), three decisions at the small and the large input (delay, energy), one onto a DAC-like
-    source (kickback), and both inputs at each supply. ``Level.SEARCH`` adds the transient-noise
-    S-curve at the nominal common mode (noise, offset); ``Level.FULL`` the S-curves at the other
-    common modes. Its characterization is SPICE already: ``Level.CIRCUIT`` runs what ``FULL`` does."""
+    folder), the quick ones first. ``Level.SCREEN``, no transient noise: the noise-free decisions
+    over the input at the clock and at twice it (``metastability``, ``metastability_check``: the
+    delay near metastability, and whether the comparator decides in time) and with the held outputs
+    toggling (``outputs``: each input after the large one of either sign; their delay, and the
+    energy of a toggling decision), three decisions at
+    the small and the large input (delay, energy), three onto a DAC-like source (kickback, and what
+    it leaves for the next decision), the small input after a full-scale one of the other sign
+    (``recovery``), at the slow corner (``slow``), on the converter's clocks (``converter_clock``)
+    and at each common mode (``small_cm<n>``), both inputs at each supply, and two decisions at each
+    supply saving every device's values (``stress_<n>``: its junctions and terminal voltages).
+    ``Level.SEARCH`` adds the transient-noise S-curve at the nominal common mode (noise, offset);
+    ``Level.FULL`` the S-curves at the other common modes. Its characterization is SPICE already:
+    ``Level.CIRCUIT`` runs what ``FULL`` does. The delays near metastability run in classic Spectre
+    at its tightest tolerances, the kickback and the S-curves in classic Spectre too
+    (``TbParams.accuracy``)."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     # the nominal run: the supply, its common mode; each run changes what it measures
     nominal = TbParams(pdk=pdk, params=params, vdd=round(supply, 4), vin_cm_values_v=(round(NOMINAL_CM * supply, 4),))
+    small = replace(nominal, vin_diff_values_v=(SMALL_V,), conversions=3)
+    # [Razavi-ADC] Sec. 7.1, p. 130: the comparator designed at its worst corner, slow devices, a
+    # low supply (here the supply sweep's lowest) and 75 C
+    slow_vdd = SUPPLY_SWEEP[0] * supply
+    # the held outputs' delay: each of the delay curve's inputs and the small one, of either sign,
+    # after the large input of each sign in turn, so that one of its two decisions toggles the
+    # outputs whatever the offset
+    toggled = sorted({*METASTABILITY_V, SMALL_V} - {LARGE_V})
     benches = {
-        "metastability": replace(nominal, vin_diff_values_v=METASTABILITY_RUN_V),
+        "metastability": replace(nominal, vin_diff_values_v=METASTABILITY_RUN_V, accuracy=Accuracy.TIMING),
         "metastability_check": replace(
             nominal,
             vin_diff_values_v=METASTABILITY_RUN_V,
             reset_time_s=CHECK_CLOCK_S[0],
             evaluation_time_s=CHECK_CLOCK_S[1],
+            accuracy=Accuracy.TIMING,
         ),
-        "small": replace(nominal, vin_diff_values_v=(SMALL_V,), conversions=3),
+        "outputs": replace(
+            nominal,
+            vin_diff_values_v=(LARGE_V, -LARGE_V, *(v for value in toggled for v in (-value, value))),
+            input_order=InputOrder.AFTER_BOTH,
+            accuracy=Accuracy.TIMING,
+        ),
+        "small": small,
         "large": replace(nominal, vin_diff_values_v=(LARGE_V,), conversions=3),
         "kickback": replace(
-            nominal,
-            vin_diff_values_v=(SMALL_V,),
+            small,
             source_resistance_ohm=KICKBACK_SOURCE[0],
             source_capacitance_f=KICKBACK_SOURCE[1],
+            accuracy=Accuracy.SMALL_DIFFERENCE,
         ),
+        # the converter's largest input, its first decision's, ADC_FULL_SCALE of the supply
+        # differentially, before each small one of the other sign
+        "recovery": replace(
+            small,
+            vin_diff_values_v=(-round(ADC_FULL_SCALE * supply, 4), SMALL_V),
+            input_order=InputOrder.CYCLED,
+        ),
+        "slow": replace(
+            small,
+            vdd=round(slow_vdd, 4),
+            vin_cm_values_v=(round(NOMINAL_CM * slow_vdd, 4),),
+            corner=h.pdk.Corner.SLOW,
+            temperature_c=75.0,
+        ),
+        "converter_clock": replace(small, clock_drive=ClockDrive.CONVERTER),
     }
+    for fraction in CM_SWEEP:
+        if fraction != NOMINAL_CM:
+            benches[f"small_cm{round(fraction * 24)}"] = replace(small, vin_cm_values_v=(round(fraction * supply, 4),))
     for factor in SUPPLY_SWEEP:
         vdd = factor * supply
-        benches[f"supply_{round(factor * 100)}"] = TbParams(
-            pdk=pdk,
-            params=params,
-            vdd=round(vdd, 4),
-            vin_cm_values_v=(round(NOMINAL_CM * vdd, 4),),
-            vin_diff_values_v=(SMALL_V, LARGE_V),
-            conversions=2,
+        corner = TbParams(pdk=pdk, params=params, vdd=round(vdd, 4), vin_cm_values_v=(round(NOMINAL_CM * vdd, 4),))
+        benches[f"supply_{round(factor * 100)}"] = replace(corner, vin_diff_values_v=(SMALL_V, LARGE_V), conversions=2)
+        benches[f"stress_{round(factor * 100)}"] = replace(
+            corner, vin_diff_values_v=(-SMALL_V, SMALL_V), device_values=True, waveform_sample_interval_s=None
         )
     fractions = {Level.SCREEN: (), Level.SEARCH: (NOMINAL_CM,), Level.FULL: CM_SWEEP, Level.CIRCUIT: CM_SWEEP}[level]
     for fraction in sorted(fractions, key=lambda fraction: fraction != NOMINAL_CM):
@@ -386,9 +431,10 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
             vin_cm_values_v=(round(fraction * supply, 4),),
             vin_diff_values_v=SCURVE_V,
             conversions=SCURVE_DECISIONS,
-            input_order="shuffled",
+            input_order=InputOrder.SHUFFLED,
             noise=True,
             waveform_sample_interval_s=NOISE_STROBE_S,
+            accuracy=Accuracy.S_CURVE,
         )
     return benches
 
@@ -400,23 +446,33 @@ def results(measurements: dict[str, Meas]) -> Results:
     (``decides_in_time``), not raised: an optimization learns from it."""
 
     decisions = {name: analyze_decisions(meas) for name, meas in measurements.items()}
-    delays = {
-        name: analyze_delay(
-            measurements[name],
-            decisions=decisions[name],
-            timing=analyze_timing(measurements[name], decisions=decisions[name]),
-        )
+    cm_names = [f"small_cm{round(fraction * 24)}" for fraction in CM_SWEEP if fraction != NOMINAL_CM]
+    timings = {
+        name: analyze_timing(measurements[name], decisions=decisions[name])
         for name in (
             "metastability",
             "metastability_check",
+            "outputs",
             "small",
             "large",
+            "recovery",
+            "slow",
+            "converter_clock",
+            *cm_names,
             *(f"supply_{round(f * 100)}" for f in SUPPLY_SWEEP),
         )
+        if name in measurements
+    }
+    delays = {
+        name: analyze_delay(measurements[name], decisions=decisions[name], timing=timing)
+        for name, timing in timings.items()
     }
     metastability = {
-        name: analyze_metastability(measurements[name], delay=delays[name])
-        for name in ("metastability", "metastability_check")
+        name: analyze_metastability(
+            measurements[name], delay=delays[name], decisions=decisions[name], timing=timings[name]
+        )
+        for name in ("metastability", "metastability_check", "outputs")
+        if name in measurements
     }
     clock = analyze_clock_check(
         [measurements["metastability"], measurements["metastability_check"]],
@@ -431,12 +487,25 @@ def results(measurements: dict[str, Meas]) -> Results:
     nominal = analyze_offset_noise([decisions[nominal_run]]) if nominal_run in measurements else None
     scurve = analyze_scurve([decisions[nominal_run]]) if nominal_run in measurements else None
     supply = [delays[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP]
+    stress_names = [f"stress_{round(factor * 100)}" for factor in SUPPLY_SWEEP]
+    stress = (
+        analyze_stress([measurements[name] for name in stress_names])
+        if all(name in measurements for name in stress_names)
+        else None
+    )
+    by_cm = [delays[name] for name in cm_names if name in delays]
     plots = [
         plot_metastability(metastability["metastability"]),
         plot_delay_supply_small(supply),
         plot_delay_supply_large(supply),
         plot_energy_supply(analyze_power([measurements[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP])),
     ]
+    if "outputs" in metastability:
+        plots.insert(1, plot_output_delay(metastability["outputs"]))
+    if by_cm:
+        # the common modes in order, the nominal's the small run's
+        ordered = sorted([delays["small"], *by_cm], key=lambda delay: float(delay.vin_cm_v[0]))
+        plots.append(plot_delay_cm(ordered))
     if common_mode is not None:
         plots[1:1] = [plot_noise_cm(common_mode), plot_offset_cm(common_mode)]
     if scurve is not None:
@@ -454,6 +523,20 @@ def results(measurements: dict[str, Meas]) -> Results:
         common_mode=common_mode,
         nominal=nominal,
         scurve=scurve,
+        outputs=metastability.get("outputs"),
+        toggle=(
+            analyze_power([measurements["outputs"]], decisions=[decisions["outputs"]])
+            if "outputs" in measurements
+            else None
+        ),
+        recovery=delays.get("recovery"),
+        slow=delays.get("slow"),
+        common_mode_delay=by_cm or None,
+        converter=delays.get("converter_clock"),
+        converter_power=(
+            analyze_power([measurements["converter_clock"]]) if "converter_clock" in measurements else None
+        ),
+        stress=stress,
     )
     return Results(
         metrics=dataclasses.asdict(values),

@@ -23,6 +23,8 @@ import numpy as np
 from flow import pipeline
 from flow.pipeline import Analysis, MeasInfo, Wave, metric
 
+from .params import Validity
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisDecisions(Analysis):
@@ -52,10 +54,13 @@ class AnalysisDecisions(Analysis):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisTiming(Analysis):
-    """Each trial's clock-to-decision delay and settling, and whether it resolved."""
+    """Each trial's clock-to-decision delay (to the latch's half swing, ``clock_to_decision_s``; to
+    the held outputs' crossing, ``clock_to_output_s``, NaN where they did not change) and settling,
+    and whether it resolved."""
 
     trial_index: np.ndarray
     clock_to_decision_s: np.ndarray
+    clock_to_output_s: np.ndarray
     settling_s: np.ndarray
     unresolved: np.ndarray
 
@@ -64,25 +69,43 @@ class AnalysisTiming(Analysis):
 class AnalysisDelay(Analysis):
     """Comparator clock-to-decision delay over common mode and differential input.
 
-    ``delay_s`` has one row per common mode and one column per differential
-    input: the median delay of that point's resolved trials, NaN where none
-    resolved.
+    ``delay_s`` has one row per common mode and one column per differential input: the median
+    delay of that point's resolved trials that decided as its input's sign asks (any decision of a
+    zero input), NaN where none did; ``slowest_s`` the slowest of them; ``output_delay_s`` and
+    ``output_slowest_s`` the same to the held outputs (of the trials that changed them);
+    ``against_sign`` how many of the point's resolved trials decided against its input's sign.
+    A delay given without its trials has the median alone (``slowest_s`` and the rest None).
     """
 
     vin_cm_v: np.ndarray
     vin_diff_v: np.ndarray
     delay_s: np.ndarray
+    slowest_s: np.ndarray | None = None
+    output_delay_s: np.ndarray | None = None
+    output_slowest_s: np.ndarray | None = None
+    against_sign: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisMetastability(Analysis):
-    """The delay over the positive inputs of one common mode, smallest first, and the latch's
-    regeneration time constant: the delay's growth per e-fold fall of the input, between the two
-    smallest."""
+    """The delay over the positive inputs of one common mode, smallest first (``output_delay_s``:
+    to the held outputs); the latch's regeneration time constant, the delay's growth per e-fold fall
+    of the input less the systematic offset, and that offset (``offset_v``), fitted together to the
+    decisions near the offset; the delays over the input less the offset (``effective_v``,
+    |V - V_OS| ascending: to the latch, ``effective_delay_s``, and to the held outputs,
+    ``effective_output_s``, NaN where no decision there changed them; None without an offset); and
+    how many of the run's resolved decisions went against their programmed input's sign
+    (``against_sign``)."""
 
     input_v: np.ndarray
     delay_s: np.ndarray
     regeneration_tau_s: float
+    output_delay_s: np.ndarray | None = None
+    offset_v: float = float("nan")
+    effective_v: np.ndarray | None = None
+    effective_delay_s: np.ndarray | None = None
+    effective_output_s: np.ndarray | None = None
+    against_sign: int | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -103,16 +126,21 @@ class AnalysisClockCheck(Analysis):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisKickback(Analysis):
     """The inputs' largest excursion over the first decision from where they started, each input
-    alone (what a DAC's top plate sees) and their difference."""
+    alone (what a DAC's top plate sees) and their difference; and the difference's error the
+    decisions leave for the next ones, read as each later decision's clock edges reach the
+    comparator (before they kick the inputs themselves) against the programmed input
+    (``residual_diff_v``, the largest; NaN in a run of one decision)."""
 
     kickback_v: float
     kickback_diff_v: float
+    residual_diff_v: float = float("nan")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisScurve(Analysis):
-    """An S-curve's decisions per input: P(high) of the resolved ones (NaN where none resolved), the
-    fraction unresolved, and the fraction unresolved over every input."""
+    """An S-curve's decisions per input: the decision probability, the share of the resolved ones
+    high (NaN where none resolved), the fraction unresolved, and the fraction unresolved over every
+    input."""
 
     vin_diff_v: np.ndarray
     probability: np.ndarray
@@ -122,11 +150,34 @@ class AnalysisScurve(Analysis):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisPower(Analysis):
-    """The supply's average power over each run, and the energy of one decision at that power."""
+    """The supply's average power over each run, and the energy of one decision at that power (the
+    run's settled decisions, every input); each input's own (``point_energy_j``: a row a run, a
+    column an input of ``vin_diff_v``, NaN where the run has no settled decision there; None in a
+    power given without them)."""
 
     supply_v: np.ndarray
     average_power_w: np.ndarray
     energy_per_decision_j: np.ndarray
+    vin_diff_v: np.ndarray | None = None
+    point_energy_j: np.ndarray | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisStress(Analysis):
+    """Every transistor's junctions and terminal pairs over runs at the supply's corners
+    (``flow.circuit.oppoint.stress``): the largest forward bias of a junction (``forward_v``, its
+    device ``forward_device``), the largest voltage across a pair of terminals (``terminal_v``, its
+    device and pair), the limit a pair may reach (``limit_v``: the nominal supply times the largest
+    corner), and the devices past it or past ``flow.circuit.oppoint.FORWARD_BIAS_V`` forward."""
+
+    forward_v: float
+    forward_device: str
+    terminal_v: float
+    terminal_device: str
+    terminal_pair: str
+    limit_v: float
+    overstressed: tuple[str, ...]
+    forward: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,7 +191,7 @@ class AnalysisOffsetNoise(Analysis):
     offset_v: float
     noise_sigma_v: float
     decision_polarity: Literal[-1, 1]
-    validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
+    validity: Validity
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -149,7 +200,7 @@ class AnalysisCommonMode(Analysis):
     a row of ``vin_diff_v``, ``decision_probability`` and ``trial_count`` (NaN and 0 past its
     inputs).
 
-    ``stuck-low`` and ``stuck-high`` mark a curve pinned below 0.1 or above 0.9
+    ``Validity.STUCK_LOW`` and ``STUCK_HIGH`` mark a curve pinned below 0.1 or above 0.9
     probability whose expected transition, given by a valid neighboring common
     mode's offset, lies inside its swept input range.
     """
@@ -158,7 +209,7 @@ class AnalysisCommonMode(Analysis):
     offset_v: np.ndarray
     noise_sigma_v: np.ndarray
     decision_polarity: np.ndarray
-    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "unresolved", "stuck-low", "stuck-high"], ...]
+    validity: tuple[Validity, ...]
     vin_diff_v: np.ndarray
     decision_probability: np.ndarray
     trial_count: np.ndarray
@@ -176,7 +227,7 @@ class AnalysisSamplingNoise(Analysis):
     offset_v: np.ndarray
     noise_sigma_v: np.ndarray
     decision_polarity: np.ndarray
-    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "unresolved"], ...]
+    validity: tuple[Validity, ...]
     vin_diff_v: np.ndarray
     decision_probability: np.ndarray
     trial_count: np.ndarray
@@ -322,22 +373,107 @@ class AnalysisResponse(Analysis):
 class Metrics(pipeline.Metrics):
     """A comparator's numbers (``analysis.metrics``): the delays and energy at 0.5 mV and 100 mV, the
     0.1 mV delay and regeneration time constant, the kickback, the slowest small-input delay over the
-    supply and whether it decides within the clock, all from the screen's runs (``Level.SCREEN``);
-    the nominal common mode's noise and offset (None unless valid), the fraction of its decisions
-    unresolved (``Level.SEARCH``); the largest valid noise over the common mode (``Level.FULL``).
-    None where the runs of a level that measures it did not run."""
+    supply and whether it decides within the clock, all from the screen's runs (``Level.SCREEN``),
+    with, where their runs ran, the delays to the held outputs and the energy where they toggle, the
+    kickback left for the next decisions, the delay after a full-scale input, at the slow corner,
+    over the common mode and on the converter's clocks, the decisions against their input's sign,
+    and the devices' largest junction and terminal voltages; the nominal common mode's noise and
+    offset (NaN unless valid), the fraction of its decisions unresolved (``Level.SEARCH``); the
+    largest valid noise over the common mode (``Level.FULL``). None where the runs that measure it
+    did not run."""
 
-    delay_0p5mv_s: float = metric("Delay at 0.5 mV, the slowest of its decisions", "lower")
-    delay_100mv_s: float = metric("Delay at 100 mV, the slowest of its decisions", "lower")
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, the time from the clock's rising edge
+    # at V_DD/2 until |V_X - V_Y| reaches a set level (here half the supply)
+    delay_0p5mv_s: float = metric("Delay at 0.5 mV, the slowest of its decisions that follow the input's sign", "lower")
+    delay_100mv_s: float = metric("Delay at 100 mV, the slowest of its decisions that follow the input's sign", "lower")
+    # [Razavi-ADC] Eq. (7.6), p. 136: the delay near metastability, growing as the input falls
     delay_0p1mv_s: float = metric("Delay at 0.1 mV", "lower")
+    # [Razavi-ADC] Eq. (5.19), p. 78: the regeneration time constant; Eq. (7.6), p. 136: from the
+    # delay's shift over the log of the input less the offset (analysis._regeneration)
     regeneration_tau_s: float = metric("Regeneration time constant", "lower")
-    energy_0p5mv_j: float = metric("Energy per decision at 0.5 mV, the clock's drivers included", "lower")
-    energy_100mv_j: float = metric("Energy per decision at 100 mV, the clock's drivers included", "lower")
+    # [Baker] Eq. (11.15), p. 355: the power, V_DD times the supply's average current; a decision's
+    # energy that power over the clock's frequency
+    energy_0p5mv_j: float = metric(
+        "Energy per decision at 0.5 mV after 0.5 mV (the held outputs unchanged), the clock's drivers included",
+        "lower",
+    )
+    energy_100mv_j: float = metric(
+        "Energy per decision at 100 mV after 100 mV (the held outputs unchanged), the clock's drivers included",
+        "lower",
+    )
+    # [Razavi-ADC] Sec. 5.7.4, p. 88: kickback noise, the error the comparator's switching leaves
+    # at its input
     kickback_v: float = metric("Largest excursion of either input over a decision", "lower")
     kickback_diff_v: float = metric("Largest excursion of the input difference over a decision", "lower")
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, at each supply of the sweep
     delay_max_supply_s: float = metric("Slowest 0.5 mV delay over the supply", "lower")
+    # [Razavi-ADC] Eq. (7.7), p. 136: 10 uV decided n tau_reg ln 10 after 0.1 mV; not in the
+    # reference texts: every decision resolved and alike, the delays within 10 %, at twice the clock
     decides_in_time: bool | None = metric("Decides within the clock", "true", None)
+    # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred rms noise, the sigma of the Gaussian whose
+    # cumulative area gives the decisions' shares
     noise_v: float | None = metric("Input-referred noise at the nominal common mode", "lower", None)
-    offset_v: float | None = metric("Systematic offset at the nominal common mode", "none", None)
+    # [Razavi-ADC] Sec. 5.1, p. 71: the input-referred offset, the input at which the circuit balances
+    offset_v: float | None = metric(
+        "Systematic offset at the nominal common mode (NaN unless its S-curve locates it)", "none", None
+    )
+    # [Razavi-ADC] Sec. 6.2.1, p. 109: a metastable state, the output short of its level in the time
+    # allowed (here the latch short of half the supply apart when read)
     unresolved_fraction: float | None = metric("Fraction of the S-curve's decisions unresolved", "lower", None)
+    # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred noise, at each common mode of the sweep
     noise_max_v: float | None = metric("Largest valid noise over the common mode", "lower", None)
+    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, part of the converter's decision time;
+    # [Baker] Fig. 10.9, p. 333: timed to the output's 50 % point
+    delay_out_0p5mv_s: float | None = metric(
+        "Delay to the held outputs at 0.5 mV from the offset, the outputs toggling after 100 mV", "lower", None
+    )
+    delay_out_100mv_s: float | None = metric(
+        "Delay to the held outputs at 100 mV from the offset, the outputs toggling after 100 mV", "lower", None
+    )
+    energy_toggle_0p5mv_j: float | None = metric(
+        "Energy per decision at 0.5 mV toggling the held outputs (after 100 mV), the clock's drivers included",
+        "lower",
+        None,
+    )
+    # [Razavi-ADC] Sec. 7.8, p. 137: whether the kickback does harm depends on when it happens: what
+    # is left on the inputs when the next decision begins
+    kickback_residual_diff_v: float | None = metric(
+        "Input difference's error left as the next decisions' clock edges begin, on the 1 pF source", "lower", None
+    )
+    # [Razavi-ADC] Sec. 7.1, Fig. 7.2, pp. 129-130: dynamic offset, what a decision leaves behind
+    # for the next; [Pelgrom] Sec. 12.2.4, p. 620: hysteresis
+    delay_recovery_0p5mv_s: float | None = metric(
+        "Delay at 0.5 mV after a full-scale decision of the other sign, the slowest that follows the input's sign",
+        "lower",
+        None,
+    )
+    decisions_against_sign: int | None = metric(
+        "Delay benches' resolved decisions against their input's sign (0.5 and 100 mV, the supply, after full "
+        "scale, the delay over the input and to the held outputs)",
+        "lower",
+        None,
+    )
+    # [Razavi-ADC] Sec. 7.1, p. 130: the comparator designed at its slow corner, low supply and hot
+    delay_slow_0p5mv_s: float | None = metric(
+        "Delay at 0.5 mV at the slow corner, 75 C and 90 % supply, the slowest of its decisions", "lower", None
+    )
+    # [Razavi-ADC] Sec. 5.8.4, p. 98: the StrongArm's tail current, so its speed, set by the input
+    # common mode
+    delay_max_cm_s: float | None = metric("Slowest 0.5 mV delay over the common mode", "lower", None)
+    # not in the reference texts: the delay and energy on the converter's own clocks
+    # (flow.adc.subckt: clkb from clk through one inverter), as [Razavi-ADC] Sec. 7.3, p. 131 times it
+    delay_converter_0p5mv_s: float | None = metric(
+        "Delay at 0.5 mV on the converter's clocks (clkb from clk through its inverter)", "lower", None
+    )
+    energy_converter_0p5mv_j: float | None = metric(
+        "Energy per decision at 0.5 mV on the converter's clocks, clk's driver not counted", "lower", None
+    )
+    # [Razavi-Analog] Sec. 15.4.2, p. 641: a junction forward-biased by 300 mV conducts negligibly
+    forward_bias_max_v: float | None = metric(
+        "Largest forward bias of a device's junction over the supply's corners", "lower", None
+    )
+    # not in the reference texts: the largest voltage across a device's terminal pair over the
+    # supply's corners, which the guard bounds at the nominal supply times 1.1 (flow.circuit.oppoint)
+    terminal_max_v: float | None = metric(
+        "Largest voltage across a device's terminal pair over the supply's corners", "lower", None
+    )

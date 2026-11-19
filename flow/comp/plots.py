@@ -15,7 +15,7 @@ import numpy as np
 
 from flow.pipeline import Band, Heatmap, Marker, Plot, plot
 
-from .params import SUPPLY_SWEEP
+from .params import SMALL_V, SUPPLY_SWEEP, Validity
 from .types import (
     AnalysisCommonMode,
     AnalysisDelay,
@@ -33,6 +33,8 @@ from .types import (
 @plot
 def plot_metastability(metastability: AnalysisMetastability) -> Plot:
     """The delay over the input near metastability."""
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to |V_X - V_Y| at a set level;
+    # Eq. (7.6), p. 136: its growth as the input falls, tau_reg ln(alpha)
     return Plot(
         name="metastability",
         title="Delay over the input (nominal common mode)",
@@ -45,10 +47,56 @@ def plot_metastability(metastability: AnalysisMetastability) -> Plot:
 
 
 @plot
+def plot_output_delay(outputs: AnalysisMetastability) -> Plot:
+    """The delay to the held outputs over the input less the comparator's offset, each decision
+    toggling them (the programmed input where no offset was fitted)."""
+    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, part of the decision's; [Baker] Fig. 10.9,
+    # p. 333: a propagation delay, to the output's 50 % point; [Razavi-ADC] Sec. 5.1, p. 71: the
+    # offset, the input at which the comparator balances
+    if outputs.effective_v is not None and outputs.effective_output_s is not None:
+        inputs, delays, label = (
+            outputs.effective_v,
+            outputs.effective_output_s,
+            "Differential input less the offset (V)",
+        )
+    else:
+        delays = outputs.delay_s if outputs.output_delay_s is None else outputs.output_delay_s
+        inputs, label = outputs.input_v, "Differential input (V)"
+    return Plot(
+        name="output_delay",
+        title="Delay to the held outputs over the input (nominal common mode)",
+        x_label=label,
+        y_label="Clock-to-decision delay (s)",
+        x=[float(value) for value in inputs],
+        series={"delay": [float(value) for value in delays]},
+        x_log=True,
+    )
+
+
+@plot
+def plot_delay_cm(delays: Sequence[AnalysisDelay]) -> Plot:
+    """The delay at the small input over the common mode, the slowest of each run's decisions."""
+    # [Razavi-ADC] Sec. 5.8.4, p. 98: the StrongArm's tail current, so its speed, set by the input
+    # common mode
+    return Plot(
+        name="delay_cm",
+        title="Delay at 0.5 mV over the common mode",
+        x_label="Input common mode (V)",
+        y_label="Clock-to-decision delay (s)",
+        x=[float(delay.vin_cm_v[0]) for delay in delays],
+        series={
+            "delay": [float((delay.delay_s if delay.slowest_s is None else delay.slowest_s)[0, 0]) for delay in delays]
+        },
+    )
+
+
+@plot
 def plot_noise_cm(common_mode: AnalysisCommonMode) -> Plot:
     """The input-referred noise over the common mode (NaN where an S-curve gave no valid fit): a
     characterization's S-curves (``sweep.results``), or a lab campaign's captures, each common mode's
     (``python -m flow.plot comp <captures>``)."""
+    # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred rms noise, the sigma of the Gaussian whose
+    # cumulative area gives the decisions' shares
     return Plot(
         name="noise_cm",
         title="Input-referred noise over the common mode",
@@ -64,19 +112,21 @@ def plot_offset_cm(common_mode: AnalysisCommonMode) -> Plot:
     """The offset over the common mode (NaN where an S-curve gave no valid fit): a characterization's
     systematic offset alone (no mismatch is simulated), a capture's with its mismatch and its input's
     chain."""
+    # [Razavi-ADC] Sec. 5.1, p. 71: the input-referred offset, the input at which the circuit balances
     return Plot(
         name="offset_cm",
         title="Offset over the common mode",
         x_label="Input common mode (V)",
         y_label="Offset (V)",
         x=[float(value) for value in common_mode.vin_cm_v],
-        series={"offset": _valid(common_mode.offset_v, common_mode.validity)},
+        series={"offset": _located(common_mode.offset_v, common_mode.validity)},
     )
 
 
 @plot
 def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the small input over the supply (``SUPPLY_SWEEP``)."""
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to |V_X - V_Y| at a set level
     return Plot(
         name="delay_supply_0p5mv",
         title="Delay at 0.5 mV over the supply",
@@ -90,6 +140,7 @@ def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
 @plot
 def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the large input over the supply (``SUPPLY_SWEEP``)."""
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to |V_X - V_Y| at a set level
     return Plot(
         name="delay_supply_100mv",
         title="Delay at 100 mV over the supply",
@@ -102,33 +153,44 @@ def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
 
 @plot
 def plot_energy_supply(power: AnalysisPower) -> Plot:
-    """The energy per decision over the supply (``SUPPLY_SWEEP``, one run each)."""
+    """The energy per decision at the small input over the supply (``SUPPLY_SWEEP``, one run each:
+    each run's energy at 0.5 mV, ``AnalysisPower.point_energy_j``; a power given without each
+    input's, each run's own)."""
+    # [Baker] Eq. (11.15), p. 355: the power, V_DD times the supply's average current; a decision's
+    # energy that over the clock's frequency
+    energy = power.energy_per_decision_j
+    if power.point_energy_j is not None and power.vin_diff_v is not None:
+        energy = power.point_energy_j[:, int(np.argmin(np.abs(power.vin_diff_v - SMALL_V)))]
     return Plot(
         name="energy_supply",
-        title="Energy per decision over the supply",
+        title="Energy per decision at 0.5 mV over the supply",
         x_label="Supply over nominal",
         y_label="Energy per decision (J)",
         x=list(SUPPLY_SWEEP),
-        series={"energy": [float(value) for value in power.energy_per_decision_j]},
+        series={"energy": [float(value) for value in energy]},
     )
 
 
 @plot
 def plot_scurve(scurve: AnalysisScurve) -> Plot:
-    """P(high) of the resolved decisions at each input of the nominal S-curve."""
+    """The decision probability (the share of the resolved decisions high) at each input of the
+    nominal S-curve."""
+    # [Razavi-ADC] Eq. (6.62), p. 117: the decisions' shares at a constant input under noise
     return Plot(
         name="scurve",
-        title="Decision probability (nominal common mode, transient noise)",
+        title="Decision probability of the resolved decisions (nominal common mode, transient noise)",
         x_label="Differential input (V)",
-        y_label="P(high) of the resolved decisions",
+        y_label="Decision probability",
         x=[float(value) for value in scurve.vin_diff_v],
-        series={"P(high)": [float(value) for value in scurve.probability]},
+        series={"decision probability": [float(value) for value in scurve.probability]},
     )
 
 
 @plot
 def plot_scurve_unresolved(scurve: AnalysisScurve) -> Plot:
     """The fraction of the nominal S-curve's decisions unresolved at each input."""
+    # [Razavi-ADC] Sec. 6.2.1, p. 109: a metastable state, the output short of its level in the time
+    # allowed (here the latch short of half the supply apart when read)
     return Plot(
         name="scurve_unresolved",
         title="Unresolved decisions (nominal common mode, transient noise)",
@@ -144,17 +206,20 @@ def plot_offset_noise(offset: AnalysisOffsetNoise) -> Plot:
     """One common mode's S-curve, the probability of a high decision at each input; where its fit is
     valid, its offset marked and its noise shaded about it, a sigma either side (unlabelled: the
     title gives it, and a label centred on the offset would sit on the marker's)."""
-    valid = offset.validity == "valid"
+    # [Razavi-ADC] Eq. (6.63), p. 118: the noise, the sigma of the Gaussian whose cumulative area
+    # gives the decisions' shares; Sec. 5.1, p. 71: the offset, where the circuit balances
+    valid = offset.validity == Validity.VALID
+    located = offset.validity in (Validity.VALID, Validity.UNDERSAMPLED)
     low, high = offset.offset_v - offset.noise_sigma_v, offset.offset_v + offset.noise_sigma_v
     return Plot(
         name="offset_noise",
-        title=f"S-curve at {offset.vin_cm_v:.3g} V: offset {offset.offset_v * 1e3:.3g} mV, "
-        f"noise {offset.noise_sigma_v * 1e3:.3g} mV ({offset.validity})",
+        title=f"S-curve at {offset.vin_cm_v:.3g} V common mode: offset {offset.offset_v:.3g} V, "
+        f"noise {offset.noise_sigma_v:.3g} V ({offset.validity})",
         x_label="Differential input (V)",
         y_label="Decision probability",
         x=[float(value) for value in offset.vin_diff_v],
-        series={"P(high)": [float(value) for value in offset.decision_probability]},
-        x_markers=[Marker(float(offset.offset_v), "Offset")] if valid else [],
+        series={"decision probability": [float(value) for value in offset.decision_probability]},
+        x_markers=[Marker(float(offset.offset_v), "Offset")] if located else [],
         x_bands=[Band(float(low), float(high))] if valid else [],
     )
 
@@ -164,12 +229,14 @@ def plot_common_mode_scurves(common_mode: AnalysisCommonMode) -> Plot:
     """Each common mode's S-curve, a row each (the lowest at the bottom, a curve without a valid fit
     named by why): the probability of a high decision at each input of every curve, empty where a
     curve has no point there."""
+    # [Razavi-ADC] Eq. (6.62), p. 117: the decisions' shares at a constant input under noise, a
+    # curve per common mode
     return _scurves(
         "common_mode_scurves",
         "S-curves over the common mode",
-        "Input common mode",
+        "Input common mode (V)",
         [
-            _named(f"{cm:.3g} V", validity)
+            _named(f"{cm:.3g}", validity)
             for cm, validity in zip(common_mode.vin_cm_v, common_mode.validity, strict=True)
         ],
         common_mode.vin_diff_v,
@@ -181,6 +248,8 @@ def plot_common_mode_scurves(common_mode: AnalysisCommonMode) -> Plot:
 def plot_sampling_noise_scurves(sampling: AnalysisSamplingNoise) -> Plot:
     """Each curve's S-curve over the DAC's coupling (P/N % of VDD_DAC) and sampling mode, a row each
     (a curve without a valid fit named by why), as ``plot_common_mode_scurves`` draws them."""
+    # not in the reference texts: a curve per DAC coupling and sampling mode of the converter's
+    # captures, each as [Razavi-ADC] Eq. (6.62), p. 117 gives its shares
     return _scurves(
         "sampling_noise_scurves",
         "S-curves over the DAC's coupling",
@@ -195,8 +264,13 @@ def plot_sampling_noise_scurves(sampling: AnalysisSamplingNoise) -> Plot:
 def plot_sampling_offset(sampling: AnalysisSamplingNoise) -> Plot:
     """The offset of each curve over the DAC's coupling and sampling mode, a category each (NaN
     where its fit is not valid)."""
+    # [Razavi-ADC] Sec. 5.1, p. 71: the input-referred offset, the input at which the circuit balances
     return _by_coupling(
-        "sampling_offset", "Offset over the DAC's coupling", "Offset (V)", {"offset": sampling.offset_v}, sampling
+        "sampling_offset",
+        "Offset over the DAC's coupling",
+        "Offset (V)",
+        {"offset": _located(sampling.offset_v, sampling.validity)},
+        sampling,
     )
 
 
@@ -204,11 +278,12 @@ def plot_sampling_offset(sampling: AnalysisSamplingNoise) -> Plot:
 def plot_sampling_noise(sampling: AnalysisSamplingNoise) -> Plot:
     """The input-referred noise of each curve over the DAC's coupling and sampling mode, a category
     each (NaN where its fit is not valid)."""
+    # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred rms noise, the Gaussian's sigma
     return _by_coupling(
         "sampling_noise",
         "Input-referred noise over the DAC's coupling",
         "Input-referred noise (V)",
-        {"noise": sampling.noise_sigma_v},
+        {"noise": _valid(sampling.noise_sigma_v, sampling.validity)},
         sampling,
     )
 
@@ -218,6 +293,7 @@ def plot_scope_eye(edges: AnalysisScopeEdges) -> Plot:
     """The comparator's output at the bench's scope, every decision of every record folded at its
     COMP rise (``analyze_scope_edges``): each cell's share of them, by decade; where COMP is high
     shaded."""
+    # [Razavi-PLL] Fig. 2.14, p. 42: an eye diagram, the cycles superimposed against an ideal clock
     return Plot(
         name="scope_eye",
         title=f"Measured decision eye: {edges.records} records × {edges.decision_count} decisions",
@@ -234,6 +310,8 @@ def plot_scope_eye(edges: AnalysisScopeEdges) -> Plot:
 def plot_scope_timing(edges: AnalysisScopeEdges) -> Plot:
     """The comparator's output at the bench's scope over the conversion, every record from its B0
     COMP rise: each cell's share of them, by decade; where COMP is high shaded (``_decisions``)."""
+    # not in the reference texts: every record of a conversion superimposed from its first decision's
+    # clock rise, each cell's share of them (the eye of [Razavi-PLL] Fig. 2.14, p. 42, over a conversion)
     return Plot(
         name="scope_timing",
         title=f"Measured comparator over the conversion: {edges.records} records",
@@ -251,6 +329,7 @@ def plot_scope_response(edges: AnalysisScopeEdges) -> Plot:
     """The time from each decision's COMP rise to COMP_OUT's midpoint at the bench's scope (the
     pads, the board and the probes in it): each decision's delays as a column of the map, each
     cell's share of its timed transitions, and their median."""
+    # [Baker] Fig. 10.9, p. 333: propagation delay, between the 50 % points of input and output
     return _response(
         "scope_response",
         f"COMP_OUT's response at {edges.conversion_rate_hz / 1e6:g} MS/s (measured)",
@@ -267,14 +346,16 @@ def plot_sr_eye(eye: AnalysisEdgeEye) -> Plot:
     """A simulated converter's SR latch output (positive), every decision of every conversion folded
     at its clock's rise (``analyze_edge_eye``): each cell's share of them, by decade; where the clock
     is high shaded."""
-    return _eye("sr_eye", "SR latch", "SR latch P (V)", eye, eye.sr_eye)
+    # [Razavi-PLL] Fig. 2.14, p. 42: an eye diagram, the cycles superimposed against an ideal clock
+    return _eye("sr_eye", "SR latch", "SR latch positive output (V)", eye, eye.sr_eye)
 
 
 @plot
 def plot_xc_eye(eye: AnalysisEdgeEye) -> Plot:
     """A simulated converter's regenerative latch, |P - N| of its XC nodes, every decision of every
     conversion folded at its clock's rise, as ``plot_sr_eye`` draws the SR latch's."""
-    return _eye("xc_eye", "XC latch", "XC latch |P − N| (V)", eye, eye.xc_eye)
+    # [Razavi-PLL] Fig. 2.14, p. 42: an eye diagram, the cycles superimposed against an ideal clock
+    return _eye("xc_eye", "XC latch", "Magnitude of the latch's differential output (V)", eye, eye.xc_eye)
 
 
 @plot
@@ -282,14 +363,18 @@ def plot_sr_timing(eye: AnalysisEdgeEye) -> Plot:
     """A simulated converter's SR latch output (positive) over the conversion, every conversion from
     B0's clock rise: each cell's share of them, by decade; where the clock is high shaded
     (``_decisions``)."""
-    return _timing("sr_timing", "SR latch", "SR latch P (V)", eye, eye.sr_timing)
+    # not in the reference texts: every conversion superimposed from its first decision's clock rise
+    # (the eye of [Razavi-PLL] Fig. 2.14, p. 42, over a conversion)
+    return _timing("sr_timing", "SR latch", "SR latch positive output (V)", eye, eye.sr_timing)
 
 
 @plot
 def plot_xc_timing(eye: AnalysisEdgeEye) -> Plot:
     """A simulated converter's regenerative latch, |P - N| of its XC nodes, over the conversion, as
     ``plot_sr_timing`` draws the SR latch's."""
-    return _timing("xc_timing", "XC latch", "XC latch |P − N| (V)", eye, eye.xc_timing)
+    # not in the reference texts: every conversion superimposed from its first decision's clock rise
+    # (the eye of [Razavi-PLL] Fig. 2.14, p. 42, over a conversion)
+    return _timing("xc_timing", "XC latch", "Magnitude of the latch's differential output (V)", eye, eye.xc_timing)
 
 
 @plot
@@ -297,6 +382,8 @@ def plot_sr_response(response: AnalysisResponse) -> Plot:
     """A simulated converter's SR latch output: the time from each decision's clock rise until it is
     in the half of the rail its decision asks for (``analyze_response``; an output already there is
     held, not timed), each decision's as a column of the map, and their median."""
+    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay; [Baker] Fig. 10.9, p. 333: to the
+    # output's 50 % point
     return _response(
         "sr_response",
         f"SR latch response at {response.conversion_rate_hz / 1e6:.3g} MS/s (simulated, 50% VDD)",
@@ -313,6 +400,8 @@ def plot_xc_response(response: AnalysisResponse) -> Plot:
     """A simulated converter's regenerative latch: the time from each decision's clock rise until
     both of its XC nodes are past half the supply, each its own way, before the clock resets, as
     ``plot_sr_response`` draws the SR latch's."""
+    # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to its latch's nodes split; not in
+    # the reference texts: both nodes past half the supply, each its own way
     return _response(
         "xc_response",
         f"XC latch response at {response.conversion_rate_hz / 1e6:.3g} MS/s (simulated, both rails at 50% VDD)",
@@ -326,12 +415,19 @@ def plot_xc_response(response: AnalysisResponse) -> Plot:
 
 def _valid(values: np.ndarray, validity: Sequence[str]) -> list[float]:
     """``values`` where their fit is valid, NaN elsewhere."""
-    return [float(value) if ok == "valid" else math.nan for value, ok in zip(values, validity, strict=True)]
+    return [float(value) if ok == Validity.VALID else math.nan for value, ok in zip(values, validity, strict=True)]
+
+
+def _located(values: np.ndarray, validity: Sequence[str]) -> list[float]:
+    """Offsets ``values`` where their fit locates them (valid, or a transition too narrow for its
+    inputs: undersampled), NaN elsewhere."""
+    located = (Validity.VALID, Validity.UNDERSAMPLED)
+    return [float(value) if ok in located else math.nan for value, ok in zip(values, validity, strict=True)]
 
 
 def _named(name: str, validity: str) -> str:
     """A curve's name, with why its fit is not valid where it is not."""
-    return name if validity == "valid" else f"{name} ({validity})"
+    return name if validity == Validity.VALID else f"{name} ({validity})"
 
 
 def _couplings(sampling: AnalysisSamplingNoise) -> list[str]:
@@ -346,17 +442,17 @@ def _couplings(sampling: AnalysisSamplingNoise) -> list[str]:
 
 
 def _by_coupling(
-    name: str, title: str, y_label: str, quantity: dict[str, np.ndarray], sampling: AnalysisSamplingNoise
+    name: str, title: str, y_label: str, quantity: dict[str, list[float]], sampling: AnalysisSamplingNoise
 ) -> Plot:
-    """One fitted quantity of each curve of a sampling campaign (``quantity``: its name and values), a
-    category each, NaN where the fit is not valid."""
+    """One fitted quantity of each curve of a sampling campaign (``quantity``: its name and values,
+    NaN where its fit does not give it), a category each."""
     return Plot(
         name=name,
         title=title,
         x_label="Coupling P/N (% of VDD_DAC), mode",
         y_label=y_label,
         x=[float(index) for index in range(len(sampling.validity))],
-        series={label: _valid(values, sampling.validity) for label, values in quantity.items()},
+        series={label: [float(value) for value in values] for label, values in quantity.items()},
         x_labels=_couplings(sampling),
     )
 
@@ -390,7 +486,7 @@ def _scurves(
             x=[_six(edge) for edge in edges],
             y=[index - 0.5 for index in range(len(rows) + 1)],
             z=z,
-            label="P(high)",
+            label="Decision probability",
         ),
     )
 
@@ -442,10 +538,10 @@ def _response(
     return Plot(
         name=name,
         title=title if timed else f"{title}: none timed",
-        x_label="Decision (B0 first)",
+        x_label="Decision, B0 first",
         y_label=y_label,
         x=[float(index) for index in range(decisions)],
-        series={"Median": [_six(value) for value in median_s]},
+        series={"median response": [_six(value) for value in median_s]},
         x_ticks="step",
         heatmap=_map(np.arange(decisions + 1) - 0.5, edges_s, share, label) if timed else None,
     )

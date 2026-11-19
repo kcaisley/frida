@@ -127,22 +127,7 @@ def unit(label: str) -> str | None:
     return found.group(1) if found else None
 
 
-def marked(names, reasons: dict[str, str]):
-    """Each name, those in ``reasons`` marked as the suspected bug each names."""
-    return [
-        pytest.param(name, marks=pytest.mark.xfail(strict=True, reason=reasons[name])) if name in reasons else name
-        for name in names
-    ]
-
-
-PROBABILITY_LABEL = "comp-3: the S-curve's probability is labelled P(high), not Decision probability"
-MEDIAN_LABEL = "comp-4: a response map's curve is the series 'Median', not a quantity in lower case"
-INDEX_AXIS = "comp-5: a response map's decision axis reads 'Decision (B0 first)', a parenthesis that is no unit"
-
-
-@pytest.mark.parametrize(
-    "name", marked(sorted(FIGURES), dict.fromkeys(("scope_response", "sr_response", "xc_response"), INDEX_AXIS))
-)
+@pytest.mark.parametrize("name", sorted(FIGURES))
 def test_every_axis_is_in_an_si_base_unit_or_dimensionless(name: str) -> None:
     """Each axis label states an unscaled SI unit as the notation writes it, or none: a ratio, a
     share, a category (the figures of categories and indices: their rows or columns named)."""
@@ -168,12 +153,7 @@ def test_every_axis_is_in_an_si_base_unit_or_dimensionless(name: str) -> None:
         ("sampling_noise", None, NOISE),
         ("common_mode_scurves", DIFFERENTIAL_INPUT, None),
         ("sampling_noise_scurves", DIFFERENTIAL_INPUT, None),
-        pytest.param(
-            "scurve",
-            DIFFERENTIAL_INPUT,
-            PROBABILITY,
-            marks=pytest.mark.xfail(strict=True, reason=PROBABILITY_LABEL),
-        ),
+        ("scurve", DIFFERENTIAL_INPUT, PROBABILITY),
     ],
 )
 def test_the_records_and_the_captures_axes_are_the_notations(
@@ -186,30 +166,14 @@ def test_the_records_and_the_captures_axes_are_the_notations(
         assert figure.y_label == y_label
 
 
-@pytest.mark.parametrize(
-    "name",
-    marked(
-        sorted(name for name, figure in FIGURES.items() if figure.series),
-        {
-            "scurve": PROBABILITY_LABEL,
-            "offset_noise": PROBABILITY_LABEL,
-            **dict.fromkeys(("scope_response", "sr_response", "xc_response"), MEDIAN_LABEL),
-        },
-    ),
-)
+@pytest.mark.parametrize("name", sorted(name for name, figure in FIGURES.items() if figure.series))
 def test_every_series_is_named_by_its_quantity_in_lower_case(name: str) -> None:
     """docs/references.md, composing a name: "A series label is the quantity in lower case"."""
     for label in FIGURES[name].series:
         assert label == label.lower() and re.fullmatch(r"[a-z][a-z0-9 ,\-]*", label), label
 
 
-@pytest.mark.parametrize(
-    "name",
-    marked(
-        ("common_mode_scurves", "sampling_noise_scurves"),
-        dict.fromkeys(("common_mode_scurves", "sampling_noise_scurves"), PROBABILITY_LABEL),
-    ),
-)
+@pytest.mark.parametrize("name", ("common_mode_scurves", "sampling_noise_scurves"))
 def test_the_scurve_maps_colour_bar_is_the_decision_probability(name: str) -> None:
     heatmap = FIGURES[name].heatmap
     assert heatmap is not None and heatmap.label == PROBABILITY

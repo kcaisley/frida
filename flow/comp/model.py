@@ -5,10 +5,10 @@ the same ``Params`` in the PDK (``flow.comp.runs``, looked up by ``flow.sweep.lo
     bits = model.decide(vin_diff_v, rng, vin_cm_v=0.7)
 
 The characterization gives the input-referred noise and the systematic offset over the common
-mode (3/8 to 5/8 of the supply; the model interpolates them at the ADC's), the clock-to-decision
-delay over the input from 0.1 mV to 100 mV (its metastability: the ADC's decision is late where
-it exceeds the time the SAR sequence allows), and the supply energy per decision at 0.5 mV, the
-slowest response. A comparator whose nominal S-curve gives no fit has no noise and no model: more
+mode (3/8 to 5/8 of the supply; the model interpolates them at the ADC's), the delay from the clock
+to the held outputs the converter reads over the input less the offset the same run fitted (its
+metastability: the ADC's decision is late where it exceeds the time the SAR sequence allows), and
+the supply energy per decision at 0.5 mV, the slowest response. A comparator whose nominal S-curve gives no fit has no noise and no model: more
 than 1 % of its decisions unresolved at the characterization's clock (1 ns reset, 4 ns evaluation),
 or no monotonic transition within the +-3 mV the S-curve spans.
 
@@ -31,7 +31,7 @@ from scipy import constants
 
 from flow.sweep.lookup import characterized, detail
 
-from .params import COX_F_PER_UM2, JUNCTION_F_PER_UM, L_MIN_UM, W_MIN_UM, Latch, Params
+from .params import COX_F_PER_UM2, JUNCTION_F_PER_UM, L_MIN_UM, SMALL_V, W_MIN_UM, Latch, Params
 
 
 @dataclass(frozen=True)
@@ -42,9 +42,11 @@ class Model:
     params: Params
     noise_v: float  # input-referred RMS noise at the nominal common mode
     offset_v: float  # systematic only: the characterization has no mismatch
-    delay_s: float  # clock to decision at 0.5 mV
+    delay_s: float  # clock to the held outputs at an effective 0.5 mV (the delay table's)
     energy_j: float  # supply energy per decision at 0.5 mV
-    delay_table_v: tuple[float, ...]  # ascending input magnitudes of the measured delay
+    # the delay to the held outputs at ascending magnitudes of the effective input, the programmed
+    # input less the offset its run fitted (analysis.analyze_metastability)
+    delay_table_v: tuple[float, ...]
     delay_table_s: tuple[float, ...]
     cm_table_v: tuple[float, ...]  # common modes of the noise and offset S-curves
     noise_table_v: tuple[float, ...]  # NaN where that S-curve did not resolve
@@ -64,7 +66,8 @@ class Model:
         static_power_w = h.Param(dtype=float, desc="Static supply power", default=0.0)
         delay_table_v = h.Param(
             dtype=tuple[float, ...] | None,
-            desc="Ascending input magnitudes of a measured clock-to-decision delay (Model.of's); None never late",
+            desc="Ascending magnitudes of the effective input (less the offset) of a measured clock-to-decision "
+            "delay (Model.of's); None never late",
             default=None,
         )
         delay_table_s = h.Param(
@@ -78,15 +81,28 @@ class Model:
         noise = metrics.get("noise_v")
         if noise is None or not math.isfinite(noise):
             raise ValueError(f"the comparator in {pdk} has no resolved S-curve, so no noise to model: {params}")
+        offset_v = metrics.get("offset_v") or 0.0
+        # the record's delays to the held outputs by the input less the offset (a delay, not NaN,
+        # where a decision there toggled them)
+        curve = detail(record, "output_delay")
+        effective = sorted(
+            (float(x), float(delay))
+            for x, delay in zip(curve["x"], curve["series"]["delay"], strict=True)
+            if delay is not None and math.isfinite(delay) and float(x) > 0
+        )
+        if len(effective) < 2:
+            raise ValueError(f"the comparator in {pdk} has no delay curve to model: {params}")
+        table_v, table_s = tuple(x for x, _ in effective), tuple(delay for _, delay in effective)
+        curve_at = Model.Behavioral(delay_table_v=table_v, delay_table_s=table_s)
         return cls(
             pdk=pdk,
             params=params,
             noise_v=noise,
-            offset_v=metrics.get("offset_v") or 0.0,
-            delay_s=metrics["delay_0p5mv_s"],
+            offset_v=offset_v,
+            delay_s=float(_delay(curve_at, np.asarray([SMALL_V]))[0]),
             energy_j=metrics["energy_0p5mv_j"],
-            delay_table_v=tuple(detail(record, "metastability")["x"]),
-            delay_table_s=tuple(detail(record, "metastability")["series"]["delay"]),
+            delay_table_v=table_v,
+            delay_table_s=table_s,
             cm_table_v=tuple(detail(record, "noise_cm")["x"]),
             # an S-curve that did not resolve is null in the record: NaN here
             noise_table_v=tuple(math.nan if v is None else v for v in detail(record, "noise_cm")["series"]["noise"]),
@@ -95,9 +111,9 @@ class Model:
 
     @property
     def regeneration_tau_s(self) -> float:
-        """The latch's regeneration time constant: the delay's growth per e-fold fall of the input,
-        between the two smallest measured inputs."""
-        return (self.delay_table_s[0] - self.delay_table_s[1]) / math.log(self.delay_table_v[1] / self.delay_table_v[0])
+        """The latch's regeneration time constant: the delay's growth per e-fold fall of the
+        effective input, over the table's smallest (``_tau``)."""
+        return _tau(self.delay_table_v, self.delay_table_s)
 
     def behavioral(self, *, vin_cm_v: float | None = None) -> Model.Behavioral:
         """The behavioral ADC's comparator parameters at ``vin_cm_v`` (the nominal common mode where
@@ -126,16 +142,16 @@ class Model:
     def strongarm_noise(
         params: Params, vin_cm_v: float, *, vth_v: float = 0.3, gamma: float = 1.0, temperature_k: float = 300.0
     ) -> float:
-        """Estimate the StrongARM input-referred RMS noise, Razavi (SSC Magazine 2015) eq. (15).
+        """Estimate the StrongARM input-referred RMS noise from its sizing.
 
-        ``sigma^2 = r * (4 k T gamma / C_PQ + r * k T / (2 C_PQ))`` with
-        ``r = (V_GS - V_TH) / V_TH``. ``C_PQ`` is the diffusion of the input-pair
+        ``sigma^2 = r * (2 k T gamma / C_PQ + r * k T / (2 C_PQ))`` with
+        ``r = (V_GS - V_TH) / V_TH``: the input pair's noise integrated until the latch's NMOS
+        turn on, and the precharge's kT/C. ``C_PQ`` is the diffusion of the input-pair
         drain, latch-NMOS source, and reset device at each P/Q node plus the
         latch NMOS gate. Only ``diffpair_w``, ``latch_on_w``, ``latch_on_l`` and
         ``rst_w`` enter; the other sizes, the tail, the SR latch, and the Vth
-        flavors are not used. Against the SPICE comparator candidate sweep the
-        estimate runs a median 4.4 times high, so it ranks sizings loosely
-        rather than predicting noise.
+        flavors are not used, so it ranks sizings loosely rather than predicting noise
+        (readme.md: against the characterization).
         """
 
         if params.latch != Latch.STRONGARM or params.input_pair != MosType.NMOS:
@@ -147,7 +163,9 @@ class Model:
         )
         ratio = (vin_cm_v - vth_v) / vth_v
         kt = constants.k * temperature_k
-        return float(np.sqrt(ratio * (4 * kt * gamma / c_pq + ratio * kt / (2 * c_pq))))
+        # [Razavi-ADC] Eq. (6.59), p. 116: the StrongArm's input-referred noise, the input pair's
+        # (its two-sided 2kT gamma g_m, Eq. (6.48), p. 113) and the precharge's kT/C
+        return float(np.sqrt(ratio * (2 * kt * gamma / c_pq + ratio * kt / (2 * c_pq))))
 
     @staticmethod
     def compare(
@@ -178,18 +196,32 @@ class Model:
         return np.where(_delay(behavioral, overdrive_v) > window_s, held, decided)
 
 
+def _tau(table_v: tuple[float, ...], table_s: tuple[float, ...]) -> float:
+    """The regeneration time constant of a delay curve over ascending input magnitudes: minus the
+    slope of the delay against the log of the input, a least-squares line through those up to
+    3 mV (where the latch regenerates from a small imbalance; at least the three smallest)."""
+    # [Razavi-ADC] Eq. (7.6), p. 136: an input alpha times smaller delays the regeneration by
+    # tau_reg ln(alpha)
+    inputs = np.asarray(table_v, dtype=np.float64)
+    near = max(3, int(np.count_nonzero(inputs <= 3e-3)))
+    x = np.log(inputs[:near])
+    return -float(np.polyfit(x, np.asarray(table_s[:near], dtype=np.float64), 1)[0])
+
+
 def _delay(behavioral: Model.Behavioral, overdrive_v: np.ndarray) -> np.ndarray:
-    """Return the clock-to-decision delay at each input, from the measured curve.
+    """Return the clock-to-decision delay at each effective input (the input less the offset),
+    from the measured curve over its magnitude.
 
     The delay is interpolated over ln|v|; below the smallest measured input it
-    grows by the regeneration time constant of the two smallest points,
+    grows by the regeneration time constant of the smallest points (``_tau``),
     ``tau * ln(v_min / |v|)``, the latch's exponential growth; above the largest
     it holds. A zero input never decides.
     """
 
+    # [Razavi-ADC] Eq. (7.7), p. 136: the delay at an input 10^n smaller, n tau_reg ln 10 later
     table_v = np.asarray(behavioral.delay_table_v, dtype=np.float64)
     table_s = np.asarray(behavioral.delay_table_s, dtype=np.float64)
-    tau_s = (table_s[0] - table_s[1]) / np.log(table_v[1] / table_v[0])
+    tau_s = _tau(tuple(table_v), tuple(table_s))
     magnitude = np.abs(overdrive_v)
     with np.errstate(divide="ignore"):
         log_v = np.log(magnitude)

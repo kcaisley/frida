@@ -128,7 +128,7 @@ def test_a_runs_decisions_and_delays_are_read_on_the_simulators_own_steps() -> N
 
 
 def test_metastability_reads_the_regeneration_time_constant() -> None:
-    tb = TbParams(vin_diff_values_v=(0.1e-3, 1e-3, 10e-3))
+    tb = TbParams(vin_diff_values_v=(-0.1e-3, 0.1e-3, -1e-3, 1e-3, -10e-3, 10e-3))
     meas = run(tb, delay_s=lambda diff: 150e-12 + 30e-12 * math.log(10e-3 / diff))
     decisions = analyze_decisions(meas)
     delay = analyze_delay(meas, decisions=decisions, timing=analyze_timing(meas, decisions=decisions))
@@ -140,7 +140,9 @@ def test_the_clock_check_passes_a_comparator_the_longer_clock_does_not_change() 
     def check(evaluation_s: float, longer_s: float, slow_s: float):
         results = []
         for evaluation in (evaluation_s, longer_s):
-            tb = TbParams(vin_diff_values_v=(-0.1e-3, 0.1e-3, 0.3e-3, 1e-3), evaluation_time_s=evaluation)
+            tb = TbParams(
+                vin_diff_values_v=(-0.1e-3, 0.1e-3, -0.3e-3, 0.3e-3, -1e-3, 1e-3), evaluation_time_s=evaluation
+            )
             meas = run(tb, delay_s=lambda diff: slow_s * 0.1e-3 / diff)
             decisions = analyze_decisions(meas)
             delay = analyze_delay(meas, decisions=decisions, timing=analyze_timing(meas, decisions=decisions))
@@ -150,7 +152,7 @@ def test_the_clock_check_passes_a_comparator_the_longer_clock_does_not_change() 
 
     assert check(4e-9, 8e-9, 200e-12).decides_in_time
     # 10 uV extrapolated past the evaluation
-    slow = check(4e-9, 8e-9, 2e-9)
+    slow = check(4e-9, 8e-9, 3e-9)
     assert not slow.decides_in_time and "10 uV" in slow.reasons[-1]
 
 
@@ -183,7 +185,7 @@ def test_the_scurve_counts_unresolved_decisions_apart() -> None:
     np.testing.assert_allclose(scurve.unresolved_fraction, (1 / 3, 0.0))
     assert scurve.total_unresolved_fraction == pytest.approx(1 / 6)
     figure = plots.plot_scurve(scurve)
-    assert isinstance(figure, Plot) and figure.name == "scurve" and figure.series["P(high)"][0] == 0.0
+    assert isinstance(figure, Plot) and figure.name == "scurve" and figure.series["decision probability"][0] == 0.0
 
 
 def test_the_probit_fit_reads_the_noise_from_every_point() -> None:
@@ -252,6 +254,18 @@ def test_the_metrics_are_the_records_keys() -> None:
         "delay_max_supply_s",
         "unresolved_fraction",
         "decides_in_time",
+        "delay_out_0p5mv_s",
+        "delay_out_100mv_s",
+        "energy_toggle_0p5mv_j",
+        "kickback_residual_diff_v",
+        "delay_recovery_0p5mv_s",
+        "decisions_against_sign",
+        "delay_slow_0p5mv_s",
+        "delay_max_cm_s",
+        "delay_converter_0p5mv_s",
+        "energy_converter_0p5mv_j",
+        "forward_bias_max_v",
+        "terminal_max_v",
     }
     assert values.delay_0p5mv_s == pytest.approx(200e-12, abs=1e-12)
     assert Params() == delay.dut
@@ -490,11 +504,12 @@ def test_common_mode_context_classifies_only_exercised_stuck_outputs() -> None:
     def classify(*groups: list[AnalysisDecisions]):
         return analyze_common_mode([measurement for values in groups for measurement in values])
 
+    # one point inside the transition: its offset located, its noise not (undersampled)
     valid = group(0.6, (0.0, 0.5, 1.0))
     stuck_low = group(0.8, (0.0, 0.0, 0.0))
     stuck_high = group(1.0, (1.0, 1.0, 1.0))
     classified = classify(valid, stuck_low, stuck_high)
-    assert classified.validity == ("valid", "stuck-low", "stuck-high")
+    assert classified.validity == ("undersampled", "stuck-low", "stuck-high")
     np.testing.assert_allclose(classified.vin_cm_v, (0.6, 0.8, 1.0))
     # each common mode's S-curve, a row
     np.testing.assert_allclose(classified.decision_probability[0], (0.0, 0.5, 1.0))
@@ -502,7 +517,7 @@ def test_common_mode_context_classifies_only_exercised_stuck_outputs() -> None:
 
     assert classify(stuck_low).validity == ("unbracketed",)
     outside_neighbor_transition = group(0.8, (0.0, 0.0, 0.0), center_v=0.012)
-    assert classify(valid, outside_neighbor_transition).validity == ("valid", "unbracketed")
+    assert classify(valid, outside_neighbor_transition).validity == ("undersampled", "unbracketed")
 
     # Single-common-mode fits cannot report a stuck output; only the
     # common-mode analysis, which sees the neighbors, can.

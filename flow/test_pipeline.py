@@ -47,9 +47,12 @@ KNOWN_VIOLATIONS: set[str] = set()
 # generator's ALIGN placement, flow.layout.hdl21align.place); never both
 SIDE = {"model": r"Model", "layout": r"lay_out"}
 # a block's folder: the stages and its model (the eight a designer writes), layout.py where it lays
-# itself out, and nothing else but its package's __init__.py, its readme.md and a test_<file>.py a file
+# itself out, and nothing else but its package's __init__.py, its readme.md, a test_<file>.py a file
+# and its audit's tests across the stages (AUDIT_TESTS)
 FILES = (*STAGES, "model")
 OPTIONAL = ("layout",)
+# an audit's tests of the whole block: known answers, properties (Hypothesis), the figures' notation
+AUDIT_TESTS = ("test_known_answers", "test_properties", "test_plots_axes")
 
 UPPER = re.compile(r"[A-Z][A-Z0-9_]*")
 RUN_ID = re.compile(r"\d{8}_\d{6}")
@@ -137,7 +140,9 @@ def _problems(block: str) -> set[str]:
         stem = path.stem
         if path.name in ("__init__.py", "readme.md") or path.suffix == ".py" and stem in known:
             continue
-        if path.suffix == ".py" and stem.startswith("test_") and stem.removeprefix("test_") in known:
+        if path.suffix == ".py" and (
+            stem.startswith("test_") and stem.removeprefix("test_") in known or stem in AUDIT_TESTS
+        ):
             continue
         problems.add(f"{block}.{stem}: {replaced.get(stem, f'{path.name} is none of the block files {sorted(known)}')}")
     missing = [stage for stage in FILES if not (folder / f"{stage}.py").is_file()]

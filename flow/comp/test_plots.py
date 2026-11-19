@@ -96,7 +96,7 @@ def test_the_common_mode_figures_from_a_campaigns_captures(tmp_path: Path) -> No
     assert noise["x"] == offset["x"] == pytest.approx([0.6, 0.8, 1.0])
     assert noise["series"]["noise"] == pytest.approx([SIGMA_V] * 3, rel=0.25)
     assert offset["series"]["offset"] == pytest.approx([0.06e-3, 0.08e-3, 0.1e-3], abs=0.1e-3)
-    assert scurves["y_labels"] == ["0.6 V", "0.8 V", "1 V"]
+    assert scurves["y_labels"] == ["0.6", "0.8", "1"]
     heatmap = scurves["heatmap"]
     assert len(heatmap["x"]) == len(INPUTS_V) + 1 and heatmap["x"][0] < INPUTS_V[0] < heatmap["x"][1]
     assert heatmap["z"][0][0] == pytest.approx(0.0, abs=0.01) and heatmap["z"][2][-1] == pytest.approx(1.0, abs=0.01)
@@ -198,7 +198,8 @@ def test_the_campaigns_figures_keep_every_common_mode_and_coupling(tmp_path: Pat
     common = [campaign_curve("comp_common_mode", "track", cm, 10.0e-3) for cm in (0.6, 0.7, 0.8, 1.0)]
     common_mode = analyze_common_mode([item for curve in common for item in curve])
     scurves = plots.plot_common_mode_scurves(common_mode)
-    assert scurves.y_labels == ["0.6 V", "0.7 V", "0.8 V", "1 V"]
+    # each curve's one point inside its transition: undersampled, its offset located
+    assert scurves.y_labels == [f"{cm} (undersampled)" for cm in ("0.6", "0.7", "0.8", "1")]
     assert scurves.heatmap is not None and scurves.heatmap.x == pytest.approx([8.5e-3, 9.5e-3, 10.5e-3, 11.5e-3])
     assert scurves.heatmap.z == [[0.0, 0.5, 1.0]] * 4
     assert plots.plot_noise_cm(common_mode).x == pytest.approx([0.6, 0.7, 0.8, 1.0])
@@ -221,7 +222,11 @@ def test_the_campaigns_figures_keep_every_common_mode_and_coupling(tmp_path: Pat
             )
         ]
     )
-    names = [f"{coupling:g}/{100 - coupling:g} % {mode}" for coupling in couplings for mode in ("hold", "track")]
+    names = [
+        f"{coupling:g}/{100 - coupling:g} % {mode} (undersampled)"
+        for coupling in couplings
+        for mode in ("hold", "track")
+    ]
     sampling_scurves = plots.plot_sampling_noise_scurves(sampling)
     offset, noise = plots.plot_sampling_offset(sampling), plots.plot_sampling_noise(sampling)
     assert sampling_scurves.y_labels == offset.x_labels == noise.x_labels == names
@@ -238,7 +243,7 @@ def test_an_s_curve_marks_its_offset_and_shades_its_noise() -> None:
     curve = [capture(0, 0.7, v) for v in INPUTS_V]
     fit = analyze_offset_noise(curve)
     figure = plots.plot_offset_noise(fit)
-    assert list(figure.series) == ["P(high)"] and figure.x == pytest.approx(INPUTS_V)
+    assert list(figure.series) == ["decision probability"] and figure.x == pytest.approx(INPUTS_V)
     assert [(marker.at, marker.label) for marker in figure.x_markers] == [(fit.offset_v, "Offset")]
     assert [(band.low, band.high) for band in figure.x_bands] == [
         (pytest.approx(fit.offset_v - fit.noise_sigma_v), pytest.approx(fit.offset_v + fit.noise_sigma_v))
@@ -263,7 +268,7 @@ def test_the_comparators_output_in_a_converters_scope_records(tmp_path: Path, mo
     assert [(band.low, band.label) for band in eye.x_bands] == [(0.0, "COMP high")]
     assert [band.label for band in timing.x_bands] == [f"B{d}" if d % 4 == 0 else "" for d in range(17)]
     assert response.x_ticks == "step" and response.x == list(map(float, range(17)))
-    assert math.isnan(response.series["Median"][3]) and response.series["Median"][0] == pytest.approx(
+    assert math.isnan(response.series["median response"][3]) and response.series["median response"][0] == pytest.approx(
         5.5e-9, abs=0.1e-9
     )
     assert response.heatmap is not None and response.heatmap.x == pytest.approx(np.arange(18) - 0.5)
@@ -298,11 +303,11 @@ def test_a_simulated_converters_latches_over_each_decision(tmp_path: Path, monke
         "xc_response",
     ]
     assert figures[0].title == "Simulated decision eye of the SR latch: 2 conversions × 17 decisions"
-    assert figures[1].y_label == "XC latch |P − N| (V)"
+    assert figures[1].y_label == "Magnitude of the latch's differential output (V)"
     assert [band.label for band in figures[2].x_bands] == [f"B{d}" if d % 4 == 0 else "" for d in range(17)]
     assert all(figure.heatmap is not None for figure in figures)
     # a held decision has no response: its median is NaN
-    assert math.isnan(figures[4].series["Median"][1])
+    assert math.isnan(figures[4].series["median response"][1])
     for figure in figures:
         canvas(figure, tmp_path, monkeypatch)
 
@@ -318,5 +323,5 @@ def test_a_latch_with_no_timed_response_draws_its_median_alone(tmp_path: Path, m
     response = analyze_response(adc.analyze_conversions(replace(measurement, wave=replace(measurement.wave, v=stuck))))
     figure = plots.plot_xc_response(response)
     assert figure.title.endswith(": none timed") and figure.heatmap is None
-    assert all(math.isnan(value) for value in figure.series["Median"])
+    assert all(math.isnan(value) for value in figure.series["median response"])
     canvas(figure, tmp_path, monkeypatch)

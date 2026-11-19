@@ -305,10 +305,6 @@ def test_the_regeneration_time_constant_is_the_delays_growth_per_e_fold_fall_of_
     assert metastability.regeneration_tau_s == pytest.approx(25e-12, rel=1e-3)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="comp-6: tau_reg from the two smallest inputs alone takes a 50 uV offset for a 46 % slower latch",
-)
 def test_the_regeneration_time_constant_is_the_latchs_whatever_its_offset() -> None:
     """A latch of tau_reg 25 ps with a systematic offset of 50 uV (the readme's offsets reach
     0.2 mV): each decision's imbalance is proportional to V_in - V_OS, so its delay is t_0 + tau
@@ -467,9 +463,6 @@ def test_the_noise_is_the_input_at_which_a_sixth_of_the_decisions_go_wrong() -> 
     assert fit.noise_sigma_v == pytest.approx(sigma, rel=1e-3)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="comp-2: an off-centre S-curve's noise reads up to 50x too large and is called valid"
-)
 def test_an_scurve_the_grid_cannot_resolve_is_not_called_valid() -> None:
     """A 50 uV comparator with 1 mV of offset on the characterization's S-curve (``SCURVE_V``, its
     expected counts of ``SCURVE_DECISIONS``): its points at 0.5, 1 and 2 mV read 0, 1/2 and 1, the
@@ -846,9 +839,6 @@ def test_the_largest_noise_is_over_the_valid_common_modes_only_and_needs_more_th
     assert math.isnan(none.noise_max_v)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="comp-1: delay_0p5mv_s/delay_100mv_s are the median of the decisions, not the slowest"
-)
 def test_the_small_and_large_delays_are_the_slowest_of_their_decisions() -> None:
     """``Metrics.delay_0p5mv_s`` is "Delay at 0.5 mV, the slowest of its decisions" (and
     ``delay_100mv_s`` likewise): three decisions at 0.5 mV of 300 (the first, from the operating

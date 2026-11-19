@@ -3,9 +3,10 @@
 The testbench drives the comparator's inputs from a common mode and a differential source through
 the run's source resistance onto its source capacitance a side, clocks it, loads its outputs, and
 steps the inputs at each decision's cycle start (``TbParams.trial_point``). ``simulate`` runs it in
-Spectre (``+preset=mx``, one thread) and leaves Spectre's raw output on disk: the signals in
-``SAVES``, every ``TbParams.waveform_sample_interval_s`` (Spectre's step bounded to it), or on
-Spectre's own steps where the run asks for those.
+Spectre (Spectre X, ``+preset=mx``, one thread; classic Spectre where the run needs its accuracy,
+``TbParams.accuracy``) and leaves Spectre's raw output on disk: the signals in ``SAVES`` (and each
+device's operating-point values where the run asks for them), every
+``TbParams.waveform_sample_interval_s``, or on Spectre's own steps where the run asks for those.
 """
 
 import importlib
@@ -16,13 +17,13 @@ import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 
-from flow.circuit import spectre
+from flow.circuit import oppoint, spectre
 from flow.circuit.ports import testbench_from_ports
 from flow.layout.devices.device import active_pdk
 from flow.layout.devices.moscap.table import density as gate_density
 from flow.layout.devices.mosfet.netlist import mos
 
-from .params import CHARGE_METER, CHARGE_METER_F, TbParams
+from .params import CHARGE_METER, CHARGE_METER_F, ClockDrive, TbParams
 from .subckt import Nets, netlist
 
 # what each run saves: every port but the supplies, the nets marked to save inside the comparator,
@@ -48,7 +49,10 @@ METER = (
 
 def testbench(tb: TbParams) -> h.Module:
     """The comparator testbench of one run: the comparator ``tb.params`` at supply ``tb.vdd``, its
-    inputs stepped through ``tb.points`` in the order ``tb.trial_point``."""
+    inputs stepped through ``tb.points`` in the order ``tb.trial_point``, its clocks driven as
+    ``tb.clock_drive`` says: each from its own chain on the comparator's supply (``CHAINS``), or
+    clk's chain on a supply of its own, ``vdd_clock`` (no charge of it metered), and clkb from clk
+    through the converter's one inverter on the comparator's supply (``CONVERTER``)."""
 
     bench, connections = testbench_from_ports(
         "CompTb", {net.name: net for net in Nets.signals.values() if net.vis == h.Visibility.PORT}
@@ -61,8 +65,19 @@ def testbench(tb: TbParams) -> h.Module:
     bench.csrc_p = C(c=tb.source_capacitance_f)(p=bench.inp, n=bench.vss)
     bench.csrc_n = C(c=tb.source_capacitance_f)(p=bench.inn, n=bench.vss)
     chains, unit = _clock_chains(tb)
+    converter = tb.clock_drive is ClockDrive.CONVERTER
+    if converter:
+        bench.vdd_clock = h.Signal()
+        bench.vvdd_clock = Vdc(dc=tb.vdd)(p=bench.vdd_clock, n=bench.vss)
+        clk, clkb = connections[Nets.clk.name], connections[Nets.clkb.name]
+        width, length = tb.clkb_inverter
+        for tp, rail in ((MosType.PMOS, bench.vdd), (MosType.NMOS, bench.vss)):
+            bench.add(
+                mos(tp=tp, vth=tb.params.vth, w=width, l=length)(d=clkb, g=clk, s=rail, b=rail),
+                name=f"m{clkb.name}_inverter_{tp.name.lower()}",
+            )
     for port in Nets.signals.values():
-        if port.usage != h.Usage.CLOCK:
+        if port.usage != h.Usage.CLOCK or (converter and port is Nets.clkb):
             continue
         net = connections[port.name]
         # the source drives the chain's first inverter (or, without a chain, the clock itself); an
@@ -70,10 +85,11 @@ def testbench(tb: TbParams) -> h.Module:
         sizes = chains.get(port.name, [])
         driven = net if not sizes else bench.add(h.Signal(name=f"{net.name}_source"))
         complement = (port is Nets.clkb) != (len(sizes) % 2 == 1)
+        supply = bench.vdd_clock if converter else bench.vdd
         node = driven
         for index, size in enumerate(sizes):
             out = net if index == len(sizes) - 1 else bench.add(h.Signal(name=f"{net.name}_stage{index}"))
-            for tp, rail, units in ((MosType.PMOS, bench.vdd, unit[1]), (MosType.NMOS, bench.vss, unit[0])):
+            for tp, rail, units in ((MosType.PMOS, supply, unit[1]), (MosType.NMOS, bench.vss, unit[0])):
                 bench.add(
                     mos(tp=tp, vth=tb.params.vth, w=max(1, round(size * units)), l=1)(d=out, g=node, s=rail, b=rail),
                     name=f"m{net.name}_{index}_{tp.name.lower()}",
@@ -94,7 +110,9 @@ def testbench(tb: TbParams) -> h.Module:
     bench.cload_p = C(c=tb.output_load_f)(p=bench.outp, n=bench.vss)
     bench.cload_n = C(c=tb.output_load_f)(p=bench.outn, n=bench.vss)
     bench.dut = netlist(tb.params)(**connections)
-    # each decision's input, stepped at its cycle's start (in the reset)
+    # each decision's input, stepped over the first transition of its cycle, while the previous
+    # decision is still held (the source clock falls a transition into the cycle, the comparator's
+    # behind its chain later still); the previous decision was read before it
     schedule = [tb.points[point] for point in tb.trial_point]
     for name, values in (("vin_cm", [cm for cm, _ in schedule]), ("vin_diff", [diff for _, diff in schedule])):
         bench.add(
@@ -116,7 +134,8 @@ def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]
     widths, the active PDK's logic fingers. The last stage's input is ``clock_last_fanout`` times
     smaller than the clocked gates (their area times the PDK's measured gate capacitance, ``flow.layout.devices.moscap``),
     the stages before it shrinking by at most ``clock_fanout`` each to one unit inverter. No chains
-    without a fanout."""
+    without a fanout; as the converter drives the clocks (``ClockDrive.CONVERTER``), clk's alone, its
+    gates the converter's clkb inverter's too."""
 
     pdk = h.pdk.default()
     fingers = getattr(pdk, "MOS_FINGER_UNITS", None) or {"logic_n": 1, "logic_p": 2}
@@ -132,6 +151,9 @@ def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]
         if gate is not None and gate.name in load and hasattr(device, "tp"):
             kind = "n" if device.tp == MosType.NMOS else "p"
             load[gate.name] += float(device.w) * float(device.l) * density[kind]
+    if tb.clock_drive is ClockDrive.CONVERTER:
+        width, length = tb.clkb_inverter
+        load = {"clk": load["clk"] + width * length * (density["n"] + density["p"])}
     unit_f = unit[0] * density["n"] + unit[1] * density["p"]
     last = {name: max(1.0, value / float(tb.clock_last_fanout) / unit_f) for name, value in load.items()}
     count = 1 + max(math.ceil(math.log(size) / math.log(float(tb.clock_fanout)) - 1e-9) for size in last.values())
@@ -139,34 +161,51 @@ def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]
 
 
 def simulate(tb: TbParams, run_dir: Path) -> Path:
-    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient, in nutbin, on disk.
+    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient on disk (nutbin; PSF
+    ASCII where it saves device values).
 
-    Transient noise where ``tb.noise`` (down to the run's length, up to 25 GHz, seed 1); the output
-    strobed every ``tb.waveform_sample_interval_s``, the step bounded to it (Spectre's own steps
-    where None). One Spectre thread: a campaign runs one process per run.
+    Its models at ``tb.corner`` and ``tb.temperature_c``. Transient noise where ``tb.noise`` (down to
+    the run's length, up to ``tb.noise_fmax_hz``, seed 1); the output strobed every
+    ``tb.waveform_sample_interval_s`` (Spectre's own steps where None). A run that needs accuracy
+    (``tb.accuracy``) in classic Spectre at its conservative error preset, its step bounded to the
+    strobe (a timing run at the tolerances [Razavi-ADC] Sec. 7.6 sets too); every other in Spectre X, which bounds no
+    step. Each device's operating-point values saved where ``tb.device_values``. One Spectre thread:
+    a campaign runs one process per run.
     """
 
     pdk = importlib.import_module(f"pdk.{tb.pdk}")
     install = importlib.import_module(f"pdk.{tb.pdk}.hdl21.site").install
     run_dir.mkdir(parents=True, exist_ok=True)
     h.pdk.set_default(pdk.pdk_logic)
+    devices = oppoint.mos_devices(netlist(tb.params)) if tb.device_values else {}
     bench = testbench(tb)
     h.pdk.compile(bench)
-    options = {}
+    includes = spectre.includes(install, tb.corner)
+    classic = tb.accuracy is not None
+    options: dict[str, float | str] = {}
     if tb.waveform_sample_interval_s is not None:
-        options = {
-            "strobeperiod": tb.waveform_sample_interval_s,
-            "maxstep": tb.waveform_sample_interval_s,
-            "strobeoutput": "strobeonly",
-        }
+        options = {"strobeperiod": tb.waveform_sample_interval_s, "strobeoutput": "strobeonly"}
+        if classic:
+            options["maxstep"] = tb.waveform_sample_interval_s
+    if classic:
+        options["errpreset"] = "conservative"
     if tb.noise:
-        options.update(noisefmin=1.0 / tb.stop_s, noisefmax="25G", noiseseed=1)
+        options.update(noisefmin=1.0 / tb.stop_s, noisefmax=tb.noise_fmax_hz, noiseseed=1)
+    tolerances = []
+    if tb.accuracy is spectre.Accuracy.TIMING:
+        # [Razavi-ADC] Sec. 7.6, p. 136: the simulator's tolerances for a delay near metastability
+        # (delays a few picoseconds apart): reltol, vabstol (V), iabstol (A)
+        tolerances = [
+            hs.Options(name=name, value=value)
+            for name, value in (("reltol", 1e-6), ("vabstol", 1e-6), ("iabstol", 1e-12))
+        ]
     attrs = [
-        *spectre.includes(install),
-        *spectre.options(),
+        *includes,
+        *spectre.options(tb.temperature_c),
+        *tolerances,
         h.Literal(METER),
-        hs.Save([*SAVES, CHARGE_METER]),
+        hs.Save([*SAVES, CHARGE_METER, *oppoint.saves(devices, bench, includes)]),
         hs.Tran(tstop=tb.stop_s, name="tran", noise=tb.noise, options=options),
     ]
-    spectre.run(bench, attrs, run_dir)
+    spectre.run(bench, attrs, run_dir, fast=not classic, accuracy=tb.accuracy)
     return run_dir / "netlist.raw"
