@@ -50,7 +50,7 @@ from klayout import db
 
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, write_plan
-from flow.layout.step import free_rows
+from flow.layout.step import supply_lines, under_array
 from flow.logs import run_logged
 from flow.sweep.lookup import laid_out
 from flow.sweep.runner import ROOT
@@ -231,6 +231,8 @@ _RAIL_UM, _RAIL_SPACE_UM = 1.0, 0.5
 _UTILIZATION = 0.6
 # no cell within this much (um, whole sites) beside a block: its implants and wells reach past it
 _HALO_UM = 1.0
+# a bridge from a block's rail line to the rows' rail reaches this far into the block, over the line
+_BRIDGE_IN_UM = 0.1
 
 
 def _path(path: Path) -> str:
@@ -391,12 +393,13 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
     cut an obstruction but its pins. Geometry in the outline's frame, its lower left corner at the
     origin (the layout's own origin at ``offset_um``).
 
-    A block with rows left free under its capacitors (``free``, ``flow.layout.step.free_rows``:
-    capdac's side where its capacitors stack over the rows) is two blocks, its bands of drivers
-    below and above those rows (``parts``: ``<macro>_lo``, the layout's whole cell, and
-    ``<macro>_hi``, an empty one), each with the pins and obstructions within it; what it has over
-    the free rows from the second metal up is given as routing obstructions (``obstructions``: the
-    LEF layer and box), so the cells stand there and route below the capacitors."""
+    A block with rows left free under its capacitors (``free``, ``_free``: capdac's side, its
+    region under the array) is two blocks, its bands of drivers below and above those rows
+    (``parts``: ``<macro>_lo``, the layout's whole cell, and ``<macro>_hi``, an empty one), each
+    with the pins and obstructions within it; what it has over the free rows is given as routing
+    obstructions (``obstructions``: the LEF layer and box), its supplies' rail lines alone left
+    open, so the cells stand there (``under_um``, the region its layout leaves free) and route
+    below the capacitors where the metal there is free (``logic_under``), else are its decaps."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     names = _lef_layers(_technology(pdk)[1][0])
     layout = db.Layout()
@@ -447,8 +450,8 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         """The abstract of the block within ``box``: its pins and obstructions there (a ``hidden``
         pin's metal an obstruction), and its shapes past ``box``'s sides where ``beyond`` says (left
         and right, below, above: its rails' and wells' overhang, which its neighbours must keep
-        clear of), its frame's origin ``at`` (the outline's lower left corner), its layout
-        ``foreign`` at ``origin``."""
+        clear of), its frame's origin ``at`` (the
+        outline's lower left corner), its layout ``foreign`` at ``origin``."""
         reach = round(10.0 / dbu)
         side, below, above = beyond
         clip = db.Region(
@@ -501,6 +504,7 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         "offset_um": (-um(origin.x), -um(origin.y)),
         "layers": sorted({metal for by_layer in pins.values() for metal in by_layer}),
         "free": bool(free),
+        "rail_ends": _rail_ends(pins, use, outline, origin, dbu),
     }
     if not free:
         text, named = part(macro, outline, top.name, origin)
@@ -525,14 +529,23 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
     ]
     info["empty"] = f"{macro}_empty"
     info["free_um"] = (um(y0 - origin.y), um(y1 - origin.y))
-    # over the free rows: every metal from the second up and every cut above it, as routing
-    # obstructions (the first metal there is the bands' rails, the cells' own)
-    middle = db.Region(db.Box(outline.left, y0, outline.right, y1))
+    x0, x1 = (round(value / dbu) for value in free["under_x_um"])
+    u0, u1 = (round(value / dbu) for value in free["under_y_um"])
+    info["under_um"] = (um(x0 - origin.x), um(u0 - origin.y), um(x1 - origin.x), um(u1 - origin.y))
+    info["logic_under"] = free["logic"]
+    # over the free rows: the side's every metal and cut as routing obstructions but its supplies'
+    # rail lines (the rows' rails meet them), so that the cells stand there and route below it
+    beside = round(10.0 / dbu)  # with what it has past its left and right edges there
+    middle = db.Region(db.Box(outline.left - beside, y0, outline.right + beside, y1))
+    rails = db.Region()
+    for supply in use:
+        rails += pins.get(supply, {}).get("M1", db.Region())
     obstructions = []
     for layer, (lef_name, _direction) in names.items():
-        if layer in ("M1", "CO", "V1"):
-            continue
-        for polygon in (layer_shapes[layer] & middle).decompose_trapezoids_to_region(db.Polygon.TD_htrapezoids).each():
+        shapes = layer_shapes[layer] & middle
+        if layer == "M1":
+            shapes -= rails
+        for polygon in shapes.decompose_trapezoids_to_region(db.Polygon.TD_htrapezoids).each():
             box = polygon.bbox()
             obstructions.append(
                 (
@@ -553,6 +566,50 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
     )
     info["walls"] = sorted((um(box.bbox().left - origin.x), um(box.bbox().right - origin.x)) for box in across)
     return [lo_text, hi_text], info
+
+
+def _rail_ends(
+    pins: dict[str, dict[str, db.Region]], use: dict[str, str], outline: db.Box, origin: db.Point, dbu: float
+) -> list[tuple[str, str, float, float]]:
+    """Where a block's supply rail lines (its supplies' first-metal pins) meet its outline's left
+    or right edge: each line's supply, the side, and its bottom and top there (um, the outline's
+    frame: the line's own width in a slice at the edge, not what it joins inside), for a bridge to
+    the rows' rail beside it (pdngen keeps the rows' rails a space from a block's pins, its own
+    supply's too)."""
+    slice_ = round(_BRIDGE_IN_UM / dbu)
+    ends = []
+    for supply in use:
+        rails = pins.get(supply, {}).get("M1", db.Region())
+        for side, x0 in (("left", outline.left), ("right", outline.right - slice_)):
+            reach = round(1.0 / dbu)  # a rail on the outline's bottom or top edge, whole
+            at_edge = rails & db.Region(db.Box(x0, outline.bottom - reach, x0 + slice_, outline.top + reach))
+            for polygon in at_edge.merged().each():
+                box = polygon.bbox()
+                if box.width() == slice_:  # the line crosses the slice: it runs to the edge
+                    ends.append((supply, side, (box.bottom - origin.y) * dbu, (box.top - origin.y) * dbu))
+    return sorted(ends)
+
+
+def _free(gds: Path, pdk: str) -> dict[str, Any] | None:
+    """The rows a DAC side leaves to the converter's cells, from its layout's records
+    (``flow.layout.step``): the region under its array its layout leaves free below the shield
+    (``under_array``), the rows around it between the side's two rail lines nearest it
+    (``supply_lines``: its bands of drivers below and above), and whether the cells' routes have the
+    second and third metals there (``logic``; else only decaps and fillers stand there). None where
+    the side has no array or no rail line on either side of it."""
+    under, lines = under_array(gds, pdk), supply_lines(gds, pdk)
+    if not under or not lines:
+        return None
+    below = [line["y_um"] for line in lines if line["y_um"] <= under["y_um"][0] + 1e-6]
+    above = [line["y_um"] for line in lines if line["y_um"] >= under["y_um"][1] - 1e-6]
+    if not below or not above:
+        return None
+    return {
+        "y_um": (max(below), min(above)),
+        "under_x_um": tuple(under["x_um"]),
+        "under_y_um": tuple(under["y_um"]),
+        "logic": {"M2", "M3"} <= set(under["free"]),
+    }
 
 
 def _verilog_view(adc: h.Module, pdk: str, blocks: dict[str, list[tuple[str, str, list[str]]]]) -> h.Module:
@@ -695,12 +752,12 @@ def _floorplan(
     controls at its bottom, each side's preset values beside its free rows (``pins``).
 
     Every block stands in the cells' rows, its rails on theirs (its bottom on a row whose rail is
-    its own bottom rail's), the comparator and its samplers abutting, so that no stretch of a row
-    between them is cut off from the rails. The cells fill the rows the blocks leave: where a side's
-    capacitors stack over its rows (``_abstract``), its free rows too, between its two bands of
-    drivers (``obstructions``: what the side has over them, translated and mirrored with it);
-    elsewhere the middle column alone. The column is as narrow as the comparator and its samplers
-    and the cells at ``_UTILIZATION`` of their rows allow."""
+    its own bottom rail's). The cells fill the rows the blocks leave, the middle column and each
+    side's rows under its array between its two bands of drivers (``_abstract``; ``obstructions``:
+    what the side has over them, translated and mirrored with it): its logic there too where the
+    second and third metals are free under the array (``stacked``), else decaps and fillers alone
+    (``decap_only``: blocked while the logic is placed). The column is as narrow as the comparator
+    and its samplers and the logic at ``_UTILIZATION`` of its rows allow."""
     _name, site_w, row_h = site
     cap, comp, samp = blocks["cap"], blocks["comp"], blocks["samp"]
     up = lambda value, step: math.ceil(round(value / step, 6)) * step
@@ -708,7 +765,8 @@ def _floorplan(
     rail_w, rail_space = straps
     pair = 2 * rail_w + rail_space
     rail = up(pair + 6 * site_w, site_w)  # the column of a pair of rails, three sites either side
-    stacked = cap["free"]
+    split = cap["free"]  # the side two bands of drivers, rows between them
+    stacked = split and cap["logic_under"]  # the cells' logic in those rows too, else decaps alone
     halo = up(_HALO_UM, site_w)  # cell-free beside a block, its implants and wells past its outline
     narrowest = comp["w_um"] + 2 * samp["w_um"] + 2 * site_w + 2 * halo + 2 * site_w
     blocked = comp["w_um"] * comp["h_um"] + 2 * samp["w_um"] * samp["h_um"]
@@ -751,11 +809,32 @@ def _floorplan(
         if name.startswith("xdac") and block["free"]:  # a band of the side's drivers
             height = block["free_um"][0] if name.endswith("_lo") else block["h_um"] - block["free_um"][1]
         halos += [(x - halo, y, x, y + height), (x + block["w_um"], y, x + block["w_um"] + halo, y + height)]
-    if stacked:  # no cell under a side's walls across its free rows (``_abstract``), a site either side
+    decap_only = []
+    if split:  # no cell under a side's walls across its free rows (``_abstract``), a site either side
         lo, hi = y0 + cap["free_um"][0], y0 + cap["free_um"][1]
-        for a, c in cap.get("walls", []):
-            a, c = down(a - site_w, site_w), up(c + site_w, site_w)
-            halos += [(x_p + a, lo, x_p + c, hi), (x_n + width - c, lo, x_n + width - a, hi)]
+        keep_out = [(down(a - site_w, site_w), lo, up(c + site_w, site_w), hi) for a, c in cap.get("walls", [])]
+        # nor outside the region its layout leaves free (its plates' landings), on whole rows and sites
+        ua, ub, uc, ud = cap["under_um"]
+        a, c = max(0.0, up(ua, site_w)), min(width, down(uc, site_w))
+        b, d = max(lo, y0 + up(ub, row_h)), min(hi, y0 + down(ud, row_h))
+        keep_out += [box for box in ((0.0, lo, width, b), (0.0, d, width, hi)) if box[3] > box[1]]
+        keep_out += [box for box in ((0.0, b, a, d), (c, b, width, d)) if box[2] > box[0]]
+        for e, f, g, k in keep_out:
+            halos += [(x_p + e, f, x_p + g, k), (x_n + width - g, f, x_n + width - e, k)]
+        if not stacked:  # decaps alone there: no cell while the logic is placed, then the fill
+            decap_only = [(x_p + a, b, x_p + c, d), (x_n + width - c, b, x_n + width - a, d)]
+    # each block's rail lines joined to the rows' rails beside it, across the halo
+    bridges = []
+    origins = {"xdac_p": placed[f"xdac_p{cap['parts'][0][0]}"], "xdac_n": placed[f"xdac_n{cap['parts'][0][0]}"]}
+    origins |= {name: placed[name] for name in ("xcomp", "xsamp_p", "xsamp_n")}
+    for name, (x, y, orient) in origins.items():
+        block = cap if name.startswith("xdac") else comp if name == "xcomp" else samp
+        for supply, side, bottom, top in block.get("rail_ends", []):
+            if orient == "MY":
+                side = "right" if side == "left" else "left"
+            edge = x if side == "left" else x + block["w_um"]
+            reach, into = (edge - halo, edge + _BRIDGE_IN_UM) if side == "left" else (edge - _BRIDGE_IN_UM, edge + halo)
+            bridges.append((supply, reach, y + bottom, into, y + top))
     # no cell in the rails' columns: between the rails and the die's edge a cell reaches nothing
     halos += [(0.0, y0, x_p, die_h), (x_n + cap["w_um"], y0, die_w, die_h)]
     return {
@@ -763,6 +842,8 @@ def _floorplan(
         "core": (0.0, y0, die_w, y0 + cap["h_um"]),
         "blocks": placed,
         "halos": halos,
+        "decap_only": decap_only,
+        "bridges": bridges,
         "obstructions": obstructions,
         # each pair of rails three sites in from the die's edge: its first rail's middle (pdngen's
         # offset, from the core's left edge; it snaps a rail to its layer's tracks)
@@ -808,7 +889,8 @@ make_tracks
 ###########################################################################
 # 3. The blocks, fixed on the rows: the DAC's sides as the outline, the comparator and its
 #    samplers at the top of the column between them; no cell within a few sites beside a block;
-#    over a side's free rows, its capacitors as routing obstructions
+#    over a side's free rows, its capacitors as routing obstructions, and those rows held for the
+#    decaps where no route may use their metal
 
 foreach entry $blocks {
   lassign $entry name x y orient
@@ -821,6 +903,11 @@ foreach entry $blocks {
 foreach box $halos {
   lassign $box x0 y0 x1 y1
   odb::dbBlockage_create $block [dbu $x0] [dbu $y0] [dbu $x1] [dbu $y1]
+}
+set held {}
+foreach box $decap_only {
+  lassign $box x0 y0 x1 y1
+  lappend held [odb::dbBlockage_create $block [dbu $x0] [dbu $y0] [dbu $x1] [dbu $y1]]
 }
 foreach box $obstructions {
   lassign $box layer x0 y0 x1 y1
@@ -845,6 +932,12 @@ add_pdn_connect -grid core -layers [list $cell_rail_layer $rail_layer]
 # a rail between two blocks reaches no strap: the blocks' own rails, which it meets, carry it
 pdn::allow_repair_channels 1
 pdngen
+# a block's rail lines bridged to the rows' rails, which pdngen keeps a space from its pins
+foreach bridge $bridges {
+  lassign $bridge net x0 y0 x1 y1
+  set wire [odb::dbSWire_create [$block findNet $net] ROUTED]
+  odb::dbSBox_create $wire [[ord::get_db_tech] findLayer $cell_rail_layer] [dbu $x0] [dbu $y0] [dbu $x1] [dbu $y1] FOLLOWPIN
+}
 
 ###########################################################################
 # 5. The pins on the DAC's outline: the converter's inputs at the top of the column, each side's
@@ -868,11 +961,15 @@ foreach {edge range} [list top $x0-$x1 bottom $x0-$x1 left $y0-$y1 right $y0-$y1
 place_pins -hor_layers $pin_hor -ver_layers $pin_ver
 
 ###########################################################################
-# 6. The cells: placed in the rows the blocks leave, legalized, the gaps filled
+# 6. The cells: placed in the rows the blocks leave, legalized, the gaps and the decaps' rows filled
 
 global_placement -density $density
 detailed_placement
-filler_placement $fillers
+# the rows under an array whose metal no route may use: the decaps and fillers alone; every gap
+# the library's decaps where the kit names them (the widest that fits, its one-site filler closing
+# the gap; one pass, a second sees no cell the first placed), else its fillers
+foreach blockage $held { odb::dbBlockage_destroy $blockage }
+filler_placement [expr {[llength $decaps] ? [concat $decaps $one_site] : $fillers}]
 check_placement -verbose
 
 ###########################################################################
@@ -921,7 +1018,7 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
         ("cap", "capdac", params.cdac),
     ):
         gds = ROOT / laid_out(name, pdk, part)["gds"]
-        free = free_rows(gds, pdk) if block == "cap" else None
+        free = _free(gds, pdk) if block == "cap" else None
         texts, info = _abstract(gds, pdk, f"adc_{block}", free)
         blocks[block] = info
         abstracts += texts
@@ -959,6 +1056,8 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
         "site": site[0],
         "blocks": [(name, *where) for name, where in plan["blocks"].items()],
         "halos": plan["halos"],
+        "decap_only": plan["decap_only"],
+        "bridges": plan["bridges"],
         "obstructions": plan["obstructions"],
         "vdd_pins": f"^({power}|vdd)$",
         "vss_pins": f"^({ground}|vss)$",
@@ -975,9 +1074,13 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
         "pin_x": plan["pins"]["x"],
         "pin_y": plan["pins"]["y"],
         "pin_hor": lef["M3"],
-        "pin_ver": vertical,
+        # the pins along the top and bottom on the fourth metal where it runs vertically, above the
+        # second the cells of the rows at the edge reach their pins on
+        "pin_ver": lef["M4"] if "M4" in lef and layers["M4"][1] == "VERTICAL" else vertical,
         "density": min(0.9, _UTILIZATION + 0.1),
-        "fillers": _fillers(pdk, stdcell_lef),
+        "decaps": list(getattr(tech, "STD_DECAPS", ())),  # the kit's library decaps, if it names them
+        "one_site": tech.STD_FILL,
+        "fillers": [name for name in _fillers(pdk, stdcell_lef) if name not in getattr(tech, "STD_DECAPS", ())],
         "routing": f"{lef['M2']}-{lef[f'M{max(top_metal, 3)}']}",
     }
     script = "".join(f"set {name} {_tcl(value)}\n" for name, value in variables.items()) + _FLOW

@@ -165,7 +165,7 @@ def test_a_block_with_free_rows_is_two_bands_and_obstructions(tmp_path: Path) ->
     """Rows left free under a block's capacitors: two blocks, its bands below and above them (the
     pins within each; the layout with the lower one, the upper one empty), what it has over them
     from the second metal up routing obstructions, so that the cells may stand there."""
-    free = {"y_um": [3.78, 18.9]}
+    free = {"y_um": [3.78, 18.9], "under_x_um": (0.0, 1.92), "under_y_um": (3.78, 18.9), "logic": True}
     (lo, hi), info = layout._abstract(_block_gds(tmp_path, free=True), "ihp130", "adc_cap", free)
     assert info["free"] and info["free_um"] == pytest.approx((3.78, 18.9))
     assert [(suffix, macro, y, pins) for suffix, macro, y, pins in info["parts"]] == [
@@ -177,11 +177,14 @@ def test_a_block_with_free_rows_is_two_bands_and_obstructions(tmp_path: Path) ->
     layers = {layer for layer, *_box in info["obstructions"]}
     assert layers == {"Metal2", "Metal3", "Metal4"}  # not the first metal: the bands' rails, the cells' own
     assert info["walls"] == [pytest.approx((1.7, 1.8))]
+    assert info["under_um"] == pytest.approx((0.0, 3.78, 1.92, 18.9)) and info["logic_under"]
     assert ("Metal2", 0.6, 9.0, 0.8, 12.0) in [(lay, *(round(v, 4) for v in box)) for lay, *box in info["obstructions"]]
 
 
-def _blocks(free: bool) -> dict:
-    """The floorplan's blocks, sizes in TSMC65's grid (0.2 um sites, 1.8 um rows)."""
+def _blocks(free: bool, logic: bool = True) -> dict:
+    """The floorplan's blocks, sizes in TSMC65's grid (0.2 um sites, 1.8 um rows); with ``free``
+    rows the region under the array a site short of the side's edges and of its upper band, the
+    cells' logic there too (``logic``) or decaps alone."""
     cap = {"w_um": 16.4, "h_um": 37.8, "free": free, "parts": [("", "adc_cap", 0.0, [])]}
     if free:
         cap |= {
@@ -189,6 +192,8 @@ def _blocks(free: bool) -> dict:
             "parts": [("_lo", "adc_cap_lo", 0.0, []), ("_hi", "adc_cap_hi", 34.2, [])],
             "obstructions": [("M4", 1.0, 6.0, 2.0, 30.0)],
             "walls": [(0.3, 0.4)],
+            "under_um": (0.1, 5.4, 16.3, 33.0),
+            "logic_under": logic,
         }
     return {
         "cap": cap,
@@ -197,15 +202,19 @@ def _blocks(free: bool) -> dict:
     }
 
 
-@pytest.mark.parametrize("free", (True, False), ids=("stacked", "beside"))
-def test_the_floorplan_is_frida1s_on_the_grid(free: bool) -> None:
+@pytest.mark.parametrize(
+    ("free", "logic"), ((True, True), (True, False), (False, True)), ids=("stacked", "decaps", "beside")
+)
+def test_the_floorplan_is_frida1s_on_the_grid(free: bool, logic: bool) -> None:
     """The DAC's sides the outline, the N side mirrored, a column between them as narrow as the
     comparator and its samplers and the cells allow; the comparator at its top, a sampler a site
     either side; every block on the sites and on a row of its own bottom rail; a cell-free halo
-    beside each block, in the rails' columns and under the sides' walls; the rails outside the
-    sides; the die the DAC's height, the pins on its edges; the sides' obstructions mirrored."""
+    beside each block, in the rails' columns, under the sides' walls and outside the region under
+    an array; that region held for the decaps where the logic may not route there; the rails
+    outside the sides; the die the DAC's height, the pins on its edges; the sides' obstructions
+    mirrored."""
     site = ("core", 0.2, 1.8)
-    plan = layout._floorplan(_blocks(free), 300.0, site)
+    plan = layout._floorplan(_blocks(free, logic), 300.0, site)
     blocks = plan["blocks"]
     die_w = plan["die"][2]
     on = lambda value, step: abs(value / step - round(value / step)) < 1e-6
@@ -226,14 +235,29 @@ def test_the_floorplan_is_frida1s_on_the_grid(free: bool) -> None:
     assert plan["die"][3] == pytest.approx(37.8) and plan["core"][1] == 0.0  # no margin above or below
     x0, x1 = plan["pins"]["x"]
     assert p[0] + 16.4 < x0 < samp_p[0] and samp_n[0] + 2.8 < x1 < n[0]  # the column's edges
-    assert plan["pins"]["y"] == (pytest.approx((5.4, 34.2)) if free else ())
-    walls = 2 if free else 0
+    assert plan["pins"]["y"] == (pytest.approx((5.4, 34.2)) if free and logic else ())
+    # a wall and the margins of the region under the array (above it and beside it), each side
+    walls = 2 * (1 + 3) if free else 0
     assert len(plan["halos"]) == 2 * len(blocks) + 2 + walls
     assert (0.0, 0.0, p[0], 37.8) in plan["halos"]  # the left rails' column
     if free:
         halos = [tuple(round(v, 4) for v in box) for box in plan["halos"]]
         assert (round(p[0], 4), 5.4, round(p[0] + 0.6, 4), 34.2) in halos  # a wall, a site either side
         assert (round(n[0] + 16.4 - 0.6, 4), 5.4, round(n[0] + 16.4, 4), 34.2) in halos  # mirrored
+        assert (round(p[0], 4), 32.4, round(p[0] + 16.4, 4), 34.2) in halos  # above the region, on rows
+        assert (round(p[0], 4), 5.4, round(p[0] + 0.2, 4), 32.4) in halos  # beside it, on sites
+        held = [tuple(round(v, 4) for v in box) for box in plan["decap_only"]]
+        assert held == (
+            []
+            if logic
+            else [
+                (round(p[0] + 0.2, 4), 5.4, round(p[0] + 16.2, 4), 32.4),
+                (round(n[0] + 0.2, 4), 5.4, round(n[0] + 16.2, 4), 32.4),
+            ]
+        )
+        if not logic:  # the logic in the column alone: a wider one
+            wide = lambda logic: layout._floorplan(_blocks(True, logic), 900.0, site)["gap_um"]
+            assert wide(False) > wide(True)
     if free:
         assert ("M4", p[0] + 1.0, plan["core"][1] + 6.0, p[0] + 2.0, plan["core"][1] + 30.0) in plan["obstructions"]
         mirrored = [box for box in plan["obstructions"] if box[1] > die_w / 2]
