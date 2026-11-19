@@ -442,7 +442,9 @@ def tools(toy, monkeypatch):
     monkeypatch.setattr(signoff, "drc", drc)
     monkeypatch.setattr(signoff, "lvs", lvs)
     monkeypatch.setattr(step, "extracted", extracted)
-    monkeypatch.setitem(sys.modules, "pdk.toypdk.layout.tech", SimpleNamespace(LAYERS={"M1": (1, 0)}))
+    monkeypatch.setitem(
+        sys.modules, "pdk.toypdk.layout.tech", SimpleNamespace(LAYERS={"M1": (1, 0)}, PIN_TEXT={"M1": (1, 2)})
+    )
     return SimpleNamespace(calls=calls, engines=engines, state=state)
 
 

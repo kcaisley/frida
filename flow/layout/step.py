@@ -124,6 +124,8 @@ def supply_lines(gds: Path, pdk: str) -> list[dict[str, Any]] | None:
     top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
     m1 = db.Region(top.begin_shapes_rec(layout.layer(*tech.LAYERS["M1"]))).merged()
     texts = top.shapes(layout.layer(*tech.PIN_TEXT["M1"]))
+    if not any(s.is_text() and s.text.string.lower() in ("vdd", "vss") for s in texts.each()):
+        return None
     edge = top.bbox()
     um, rail = layout.dbu, tech.RAIL
     lines: dict[int, dict[str, Any]] = {}
