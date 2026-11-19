@@ -1,0 +1,104 @@
+"""
+ASIC_FRIDA_65A
+
+Imported from frida-scc-1p1.
+"""
+
+CLK_COMP_N = io(Net)
+CLK_COMP_P = io(Net)
+CLK_INIT_N = io(Net)
+CLK_INIT_P = io(Net)
+CLK_LOGIC_N = io(Net)
+CLK_LOGIC_P = io(Net)
+CLK_SAMP_N = io(Net)
+CLK_SAMP_P = io(Net)
+COMP_OUT_P = io(Net)
+COMP_OUT_N = io(Net)
+PAD = io(Ground)
+RST_B = io(Net)
+SPI_CS_B = io(Net)
+SPI_SCLK = io(Net)
+SPI_SDI = io(Net)
+SPI_SDO = io(Net)
+VDD_A = io(Power)
+VDD_D = io(Power)
+VDD_DAC = io(Power)
+VDD_IO = io(Power)
+VIN_N = io(Net)
+VIN_P = io(Net)
+VSS_A_2 = io(Ground)
+VSS_A_28 = io(Ground)
+VSS_DAC = io(Ground)
+VSS_D_20 = io(Ground)
+VSS_D_22 = io(Ground)
+VSS_D_23 = io(Ground)
+VSS_IO = io(Ground)
+
+Component(
+    name="ASIC_FRIDA_65A",
+    skip_bom=True,  # the FRIDA-1 die, wire-bonded to the board
+    properties={"Value": "ASIC FRIDA 65A", "schematic_description": ""},
+    symbol=Symbol(library="ASIC_FRIDA_65A.kicad_sym"),
+    pin_defs={
+        "VDD_A": "1",
+        "SPI_SDO": "10",
+        "SPI_CS_B": "11",
+        "COMP_OUT_P": "12",
+        "COMP_OUT_N": "13",
+        "VSS_IO": "14",
+        "VDD_IO": "15",
+        "CLK_LOGIC_N": "16",
+        "CLK_LOGIC_P": "17",
+        "CLK_COMP_N": "18",
+        "CLK_COMP_P": "19",
+        "VSS_A__2": "2",
+        "VSS_D__20": "20",
+        "VDD_D": "21",
+        "VSS_D__22": "22",
+        "VSS_D__23": "23",
+        "VIN_N": "24",
+        "VIN_P": "25",
+        "VSS_DAC": "26",
+        "VDD_DAC": "27",
+        "VSS_A__28": "28",
+        "PAD": "29",
+        "CLK_INIT_P": "3",
+        "CLK_INIT_N": "4",
+        "CLK_SAMP_P": "5",
+        "CLK_SAMP_N": "6",
+        "RST_B": "7",
+        "SPI_SCLK": "8",
+        "SPI_SDI": "9",
+    },
+    pins={
+        "VDD_A": VDD_A,
+        "SPI_SDO": SPI_SDO,
+        "SPI_CS_B": SPI_CS_B,
+        "COMP_OUT_P": COMP_OUT_P,
+        "COMP_OUT_N": COMP_OUT_N,
+        "VSS_IO": VSS_IO,
+        "VDD_IO": VDD_IO,
+        "CLK_LOGIC_N": CLK_LOGIC_N,
+        "CLK_LOGIC_P": CLK_LOGIC_P,
+        "CLK_COMP_N": CLK_COMP_N,
+        "CLK_COMP_P": CLK_COMP_P,
+        "VSS_A__2": VSS_A_2,
+        "VSS_D__20": VSS_D_20,
+        "VDD_D": VDD_D,
+        "VSS_D__22": VSS_D_22,
+        "VSS_D__23": VSS_D_23,
+        "VIN_N": VIN_N,
+        "VIN_P": VIN_P,
+        "VSS_DAC": VSS_DAC,
+        "VDD_DAC": VDD_DAC,
+        "VSS_A__28": VSS_A_28,
+        "PAD": PAD,
+        "CLK_INIT_P": CLK_INIT_P,
+        "CLK_INIT_N": CLK_INIT_N,
+        "CLK_SAMP_P": CLK_SAMP_P,
+        "CLK_SAMP_N": CLK_SAMP_N,
+        "RST_B": RST_B,
+        "SPI_SCLK": SPI_SCLK,
+        "SPI_SDI": SPI_SDI,
+    },
+)

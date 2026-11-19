@@ -1,0 +1,18 @@
+"""
+BAV99
+
+Imported from frida-scc-1p1.
+"""
+
+A = io(Net)
+K_1 = io(Net)
+K_3 = io(Net)
+
+Component(
+    name="BAV99",
+    part=Part(mpn="BAV99", manufacturer="Nexperia"),
+    properties={"Value": "BAV99", "schematic_description": "BAV99 High-speed switching diodes, SOT-23"},
+    symbol=Symbol(library="BAV99.kicad_sym"),
+    pin_defs={"K__1": "1", "A": "2", "K__3": "3"},
+    pins={"K__1": K_1, "A": A, "K__3": K_3},
+)

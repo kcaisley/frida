@@ -1,0 +1,22 @@
+"""
+A resistive pick-off on one LVDS pair for the probe matrix: each leg through R into a 50 ohm
+path that the matrix keeps terminated whether the tap is selected or not.
+
+frida-scc-1p1 loaded each clock leg with 1 kohm to ground (R2 to R9) and passed it through a pin
+of a 2.54 mm header. Here the same 1 kohm is the tap: 953 ohm in series with the 50 ohm path, a
+20:1 divider, on 0402 pads on the line with no header pin.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+r_series = config(
+    str, default="953", help="Series resistor per leg; with the 50 ohm path it sets the load and the ratio"
+)
+
+LINE = io(DiffPair, help="The LVDS pair, tapped on the line")
+TAP = io(DiffPair, help="To the probe matrix (50 ohm per leg)")
+
+Resistor(name="R_P", value=r_series, package="0402", P1=LINE.P, P2=TAP.P)
+Resistor(name="R_N", value=r_series, package="0402", P1=LINE.N, P2=TAP.N)

@@ -1,0 +1,20 @@
+"""
+SMA_Molex_733910070
+
+Imported from frida-scc-1p1.
+"""
+
+EXT = io(Net)
+IN = io(Net)
+
+Component(
+    name="SMA_Molex_733910070",
+    part=Part(mpn="73391-0070", manufacturer="Molex"),
+    properties={
+        "Value": "SMA Molex 733910070",
+        "schematic_description": "coaxial connector (BNC, SMA, SMB, SMC, Cinch/RCA, ...)",
+    },
+    symbol=Symbol(library="SMA_Molex_733910070.kicad_sym"),
+    pin_defs={"In": "1", "Ext": "2"},
+    pins={"In": IN, "Ext": EXT},
+)

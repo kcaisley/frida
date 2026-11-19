@@ -1,0 +1,11 @@
+#!/bin/sh
+# KiCad's bundled Python for the `pcb` tool (KICAD_PYTHON_INTERPRETER). The KiCad AppImage's
+# launcher replaces PYTHONPATH with its own, which drops the entries `pcb` adds for its layout
+# scripts; they are carried across in PCB_PYTHONPATH and put back on sys.path.
+# KICAD_APPDIR: the unpacked AppImage (build/tools/kicad-<version>/AppDir).
+PCB_PYTHONPATH="$PYTHONPATH" exec "${KICAD_APPDIR:?set KICAD_APPDIR}/bin/python3.11" -c '
+import os, runpy, sys
+sys.path[:0] = [p for p in os.environ.get("PCB_PYTHONPATH", "").split(":") if p]
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+' "$@"

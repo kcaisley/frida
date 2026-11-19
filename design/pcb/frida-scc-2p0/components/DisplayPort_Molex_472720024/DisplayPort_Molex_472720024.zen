@@ -1,0 +1,89 @@
+"""
+47272-0024
+
+Imported from frida-scc-1p1.
+"""
+
+MH1 = io(Net)
+MH2 = io(Net)
+MH3 = io(Net)
+MH4 = io(Net)
+P1 = io(Net)
+P10 = io(Net)
+P11 = io(Net)
+P12 = io(Net)
+P13 = io(Net)
+P14 = io(Net)
+P15 = io(Net)
+P16 = io(Net)
+P17 = io(Net)
+P18 = io(Net)
+P19 = io(Net)
+P2 = io(Net)
+P20 = io(Net)
+P3 = io(Net)
+P4 = io(Net)
+P5 = io(Net)
+P6 = io(Net)
+P7 = io(Net)
+P8 = io(Net)
+P9 = io(Net)
+
+Component(
+    name="DisplayPort_Molex_472720024",
+    part=Part(mpn="47272-0024", manufacturer="Molex"),
+    properties={"Value": "DisplayPort Molex 472720024", "schematic_description": ""},
+    symbol=Symbol(library="DisplayPort_Molex_472720024.kicad_sym"),
+    pin_defs={
+        "1": "1",
+        "10": "10",
+        "11": "11",
+        "12": "12",
+        "13": "13",
+        "14": "14",
+        "15": "15",
+        "16": "16",
+        "17": "17",
+        "18": "18",
+        "19": "19",
+        "2": "2",
+        "20": "20",
+        "3": "3",
+        "4": "4",
+        "5": "5",
+        "6": "6",
+        "7": "7",
+        "8": "8",
+        "9": "9",
+        "MH1": "MH1",
+        "MH2": "MH2",
+        "MH3": "MH3",
+        "MH4": "MH4",
+    },
+    pins={
+        "1": P1,
+        "10": P10,
+        "11": P11,
+        "12": P12,
+        "13": P13,
+        "14": P14,
+        "15": P15,
+        "16": P16,
+        "17": P17,
+        "18": P18,
+        "19": P19,
+        "2": P2,
+        "20": P20,
+        "3": P3,
+        "4": P4,
+        "5": P5,
+        "6": P6,
+        "7": P7,
+        "8": P8,
+        "9": P9,
+        "MH1": MH1,
+        "MH2": MH2,
+        "MH3": MH3,
+        "MH4": MH4,
+    },
+)

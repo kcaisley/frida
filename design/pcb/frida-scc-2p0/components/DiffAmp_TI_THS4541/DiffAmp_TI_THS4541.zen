@@ -1,0 +1,44 @@
+"""
+DiffAmp_TI_THS4541
+
+Imported from frida-scc-1p1.
+"""
+
+IN_NEG = io(Net)
+IN_POS = io(Net)
+OUT_NEG = io(Net)
+OUT_POS = io(Net)
+PD_N = io(Net)
+VOCM = io(Net)
+VS_NEG = io(Power)
+VS_POS = io(Power)
+
+Component(
+    name="DiffAmp_TI_THS4541",
+    part=Part(mpn="THS4541IRUNR", manufacturer="Texas Instruments"),
+    properties={
+        "Value": "DiffAmp TI THS4541",
+        "schematic_description": "Low-Power, Low-Distortion, Fully-Differential I/O Amplifier",
+    },
+    symbol=Symbol(library="DiffAmp_TI_THS4541.kicad_sym"),
+    pin_defs={
+        "OUT-": "1",
+        "VS+": "10",
+        "PD_N": "3",
+        "IN+": "4",
+        "VS-": "5",
+        "IN-": "6",
+        "VOCM": "7",
+        "OUT+": "9",
+    },
+    pins={
+        "OUT-": OUT_NEG,
+        "VS+": VS_POS,
+        "PD_N": PD_N,
+        "IN+": IN_POS,
+        "VS-": VS_NEG,
+        "IN-": IN_NEG,
+        "VOCM": VOCM,
+        "OUT+": OUT_POS,
+    },
+)

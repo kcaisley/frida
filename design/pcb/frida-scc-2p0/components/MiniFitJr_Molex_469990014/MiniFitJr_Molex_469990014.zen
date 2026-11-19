@@ -1,0 +1,22 @@
+"""
+MiniFitJr_Molex_469990014
+
+Imported from frida-scc-1p1.
+"""
+
+P1 = io(Net)
+P2 = io(Net)
+P3 = io(Net)
+P4 = io(Net)
+
+Component(
+    name="MiniFitJr_Molex_469990014",
+    part=Part(mpn="46999-0014", manufacturer="Molex"),
+    properties={
+        "Value": "MiniFitJr Molex 469990014",
+        "schematic_description": "Molex Mini-Fit Jr 2x02 power connector, 4 circuits, snap-in plastic peg PCB lock, horizontal",
+    },
+    symbol=Symbol(library="MiniFitJr_Molex_469990014.kicad_sym"),
+    pin_defs={"1": "1", "2": "2", "3": "3", "4": "4"},
+    pins={"1": P1, "2": P2, "3": P3, "4": P4},
+)

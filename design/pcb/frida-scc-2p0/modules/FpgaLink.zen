@@ -1,0 +1,142 @@
+"""
+The two cables to the BDAQ53 FPGA board, as on frida-scc-1p1:
+
+- DisplayPort: the four LVDS clocks in, COMP_OUT back, the board thermistor on the two
+  configuration pins, and the cable's power pin.
+- RJ45: SPI, reset and the amplifier's power-down at the FPGA's levels (VDD_BDAQ), level-shifted
+  to the chip's VDD_IO by an SN74AXC8T245.
+
+Open (see README): all eight RJ45 wires and all DisplayPort lanes are in use, so the new SPI
+devices (DAC, probe matrix) have no chip select of their own yet.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Thermistor = Module("@stdlib/generics/Thermistor.zen")
+DisplayPort = Module("../components/DisplayPort_Molex_472720024/DisplayPort_Molex_472720024.zen")
+Rj45 = Module("../components/RJ45_Molex_446200002/RJ45_Molex_446200002.zen")
+LevelShifter = Module("../components/TI_LevelShifter_SN74AXC8T245RJWR/TI_LevelShifter_SN74AXC8T245RJWR.zen")
+
+CLK_INIT = io(DiffPair)
+CLK_SAMP = io(DiffPair)
+CLK_COMP = io(DiffPair)
+CLK_LOGIC = io(DiffPair)
+COMP_OUT = io(DiffPair)
+
+# Chip side of the level shifter (VDD_IO levels)
+SPI_CS_B = io(Net)
+SPI_SCLK = io(Net)
+SPI_SDI = io(Net)
+SPI_SDO = io(Net)
+RST_B = io(Net)
+
+AMP_PD_EXT = io(Net, help="Amplifier power-down request at VDD_BDAQ levels")
+
+VDD_BDAQ = io(Power, help="The FPGA board's I/O supply, from the RJ45")
+V_DP = io(Power, help="The DisplayPort cable's power pin")
+VDD_IO = io(Power)
+GND = io(Ground)
+
+EARTH = Ground("EARTH")  # the DisplayPort shell
+NTC_A = Net()
+NTC_B = Net()
+
+DisplayPort(
+    name="J_DP",
+    P1=CLK_COMP.P,
+    P2=GND,
+    P3=CLK_COMP.N,
+    P4=CLK_LOGIC.P,
+    P5=GND,
+    P6=CLK_LOGIC.N,
+    P7=COMP_OUT.N,
+    P8=GND,
+    P9=COMP_OUT.P,
+    P10=CLK_SAMP.N,
+    P11=GND,
+    P12=CLK_SAMP.P,
+    P13=NTC_A,
+    P14=NTC_B,
+    P15=CLK_INIT.N,
+    P16=GND,
+    P17=CLK_INIT.P,
+    P18=NotConnected(),
+    P19=V_DP,
+    P20=NotConnected(),
+    MH1=EARTH,
+    MH2=EARTH,
+    MH3=EARTH,
+    MH4=EARTH,
+)
+
+# The shell to ground through 10 kohm and 100 nF
+Resistor(name="R_SHELL", value="10k", package="0402", P1=EARTH, P2=GND)
+Capacitor(name="C_SHELL", value="100nF", package="0402", P1=EARTH, P2=GND)
+
+# TODO(owner): the thermistor's value; frida-scc-1p1's schematic names none
+Thermistor(
+    name="TH_BOARD", value="10k", package="0402", mpn="NCP15XH103F03RC", manufacturer="Murata", P1=NTC_A, P2=NTC_B
+)
+
+SPI_CS_B_EXT = Net()
+SPI_SCLK_EXT = Net()
+SPI_SDI_EXT = Net()
+SPI_SDO_EXT = Net()
+RST_B_EXT = Net()
+
+Rj45(
+    name="J_CTRL",
+    P1=SPI_SDO_EXT,
+    P2=SPI_CS_B_EXT,
+    P3=SPI_SDI_EXT,
+    P4=SPI_SCLK_EXT,
+    P5=RST_B_EXT,
+    P6=AMP_PD_EXT,
+    P7=GND,
+    P8=VDD_BDAQ,
+)
+
+DIR1 = Net()
+DIR2 = Net()
+OE_N = Net()
+
+LevelShifter(
+    name="U_SHIFT",
+    A1=RST_B_EXT,
+    A2=SPI_SCLK_EXT,
+    A3=SPI_SDI_EXT,
+    A4=SPI_CS_B_EXT,
+    A5=SPI_SDO_EXT,
+    A6=NotConnected(),
+    A7=NotConnected(),
+    A8=NotConnected(),
+    B1=RST_B,
+    B2=SPI_SCLK,
+    B3=SPI_SDI,
+    B4=SPI_CS_B,
+    B5=SPI_SDO,
+    B6=GND,
+    B7=GND,
+    B8=GND,
+    DIR1=DIR1,
+    DIR2=DIR2,
+    OE_N=OE_N,
+    VCCA=VDD_BDAQ,
+    VCCB_22=VDD_IO,
+    VCCB_23=VDD_IO,
+    GND_11=GND,
+    GND_12=GND,
+)
+
+# Direction straps as frida-scc-1p1 has them: both groups pulled to VDD_BDAQ (A to B).
+# TODO(owner): SDO sits in group 2 (bits 5 to 8) and travels B to A; check DIR2 against the lab.
+Resistor(name="R_DIR1", value="10k", package="0402", P1=VDD_BDAQ, P2=DIR1)
+Resistor(name="R_DIR2", value="10k", package="0402", P1=VDD_BDAQ, P2=DIR2)
+Resistor(name="R_OE", value="10k", package="0402", P1=OE_N, P2=GND)
+
+Capacitor(name="C_BDAQ_1U", value="1uF", package="0402", P1=VDD_BDAQ, P2=GND)
+Capacitor(name="C_BDAQ_100N", value="100nF", package="0402", P1=VDD_BDAQ, P2=GND)
+Capacitor(name="C_IO_1U", value="1uF", package="0402", P1=VDD_IO, P2=GND)
+Capacitor(name="C_IO_100N", value="100nF", package="0402", P1=VDD_IO, P2=GND)

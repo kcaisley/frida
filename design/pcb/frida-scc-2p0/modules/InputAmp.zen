@@ -1,0 +1,186 @@
+"""
+The analog input: three SMAs (IN+, IN-, VOCM), the jumper network, the THS4541 fully differential
+amplifier, the output filter and the clamps, ported from frida-scc-1p1 with its values.
+
+New here: SRC, the on-board signal source, joins the IN+ side through a jumper, beside the SMA.
+
+Jumper positions (2.54 mm headers, a jumper joins an odd pin to the even pin beside it):
+- J_SE:    1-2 the IN- SMA drives the negative side (differential); 3-4 50 ohm to ground instead
+           (single-ended source on IN+).
+- J_TERM:  3-4 terminates IN+ with 54.9 ohm, 5-6 the negative side; 1-2 and 7-8 park the jumpers.
+- J_GAIN:  3-4 and 5-6 choose the fitted 499 ohm input resistors; 1-2 and 7-8 the unfitted pair.
+- J_VOCM:  3-4 and 5-6 make VOCM VDD_DAC/2 from the 1 kohm divider; open, the VOCM SMA sets it.
+- J_VIN:   3-4 and 5-6 the amplifier drives the chip; 1-2 and 7-8 the SMAs drive it directly.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+PinHeader = Module("@stdlib/generics/PinHeader.zen")
+SolderJumper = Module("@stdlib/generics/SolderJumper.zen")
+Sma = Module("../components/SMA_Molex_733910070/SMA_Molex_733910070.zen")
+Ths4541 = Module("../components/DiffAmp_TI_THS4541/DiffAmp_TI_THS4541.zen")
+Bav99 = Module("../components/BAV99/BAV99.zen")
+Bss84 = Module("../components/BSS84/BSS84.zen")
+
+VIN = io(DiffPair, help="To the chip's input pads")
+SRC = io(Net, help="The on-board signal source, single-ended")
+VOCM = io(Net, help="The amplifier's output common mode; also a probe node")
+AMP_OUT = io(DiffPair, help="The amplifier's outputs before the filter; a probe node")
+
+AMP_PD_EXT = io(Net, help="Power-down request at VDD_BDAQ levels, low = amplifier on")
+VDD_BDAQ = io(Power)
+VS_P = io(Power, help="Amplifier positive supply")
+VS_N = io(Power, help="Amplifier negative supply")
+VDD_DAC = io(Power, help="The chip's reference rail: the clamps' upper rail and the VOCM divider's top")
+GND = io(Ground)
+
+# ---------------------------------------------------------------- sources and their terminations
+
+IN_P_EXT = Net()  # the IN+ SMA
+IN_N_EXT = Net()  # the IN- SMA
+NEG_SRC = Net()  # what drives the negative side: the IN- SMA or 50 ohm to ground
+SE_TERM = Net()
+TERM_P = Net()
+TERM_N = Net()
+
+Sma(name="J_INP", IN=IN_P_EXT, EXT=GND)
+Sma(name="J_INN", IN=IN_N_EXT, EXT=GND)
+Sma(name="J_VOCM_IN", IN=VOCM, EXT=GND)
+
+PinHeader(name="J_SRC", pins=2, rows=1, mount="THT", P1=SRC, P2=IN_P_EXT)
+
+PinHeader(name="J_SE", pins=2, rows=2, mount="THT", P1=IN_N_EXT, P2=NEG_SRC, P3=SE_TERM, P4=NEG_SRC)
+Resistor(name="R_SE", value="50", package="0402", P1=SE_TERM, P2=GND)
+
+PinHeader(
+    name="J_TERM",
+    pins=4,
+    rows=2,
+    mount="THT",
+    P1=TERM_P,
+    P2=GND,
+    P3=TERM_P,
+    P4=IN_P_EXT,
+    P5=TERM_N,
+    P6=NEG_SRC,
+    P7=TERM_N,
+    P8=GND,
+)
+Resistor(name="R_TERM_P", value="54.9", package="0402", P1=TERM_P, P2=GND)
+Resistor(name="R_TERM_N", value="54.9", package="0402", P1=TERM_N, P2=GND)
+
+# ---------------------------------------------------------------- amplifier, gain 1 (499 / 499)
+
+AMP_INP = Net()  # the THS4541's IN+
+AMP_INN = Net()  # the THS4541's IN-
+G_P_ALT = Net()
+G_P = Net()
+G_N = Net()
+G_N_ALT = Net()
+AMP_PD_N = Net()
+
+PinHeader(
+    name="J_GAIN",
+    pins=4,
+    rows=2,
+    mount="THT",
+    P1=G_P_ALT,
+    P2=AMP_INP,
+    P3=G_P,
+    P4=AMP_INP,
+    P5=G_N,
+    P6=AMP_INN,
+    P7=G_N_ALT,
+    P8=AMP_INN,
+)
+Resistor(name="R_G_P", value="499", package="0402", P1=G_P, P2=IN_P_EXT)
+Resistor(name="R_G_N", value="499", package="0402", P1=G_N, P2=NEG_SRC)
+Resistor(name="R_G_P_ALT", value="499", package="0402", dnp=True, P1=G_P_ALT, P2=IN_P_EXT)
+Resistor(name="R_G_N_ALT", value="499", package="0402", dnp=True, P1=G_N_ALT, P2=NEG_SRC)
+
+Ths4541(
+    name="U_AMP",
+    IN_POS=AMP_INP,
+    IN_NEG=AMP_INN,
+    OUT_POS=AMP_OUT.P,
+    OUT_NEG=AMP_OUT.N,
+    VOCM=VOCM,
+    PD_N=AMP_PD_N,
+    VS_POS=VS_P,
+    VS_NEG=VS_N,
+)
+
+# Feedback: OUT- to IN+ and OUT+ to IN-
+Resistor(name="R_F_P", value="499", package="0402", P1=AMP_OUT.N, P2=AMP_INP)
+Capacitor(name="C_F_P", value="51pF", package="0402", P1=AMP_OUT.N, P2=AMP_INP)
+Resistor(name="R_F_N", value="499", package="0402", P1=AMP_OUT.P, P2=AMP_INN)
+Capacitor(name="C_F_N", value="51pF", package="0402", P1=AMP_OUT.P, P2=AMP_INN)
+
+for name, rail in [("P", VS_P), ("N", VS_N)]:
+    Capacitor(name="C_VS_" + name + "_BULK", value="47uF", package="1206", P1=rail, P2=GND)
+    Capacitor(name="C_VS_" + name + "_1U", value="1uF", package="0402", P1=rail, P2=GND)
+    Capacitor(name="C_VS_" + name + "_100N_1", value="100nF", package="0402", P1=rail, P2=GND)
+    Capacitor(name="C_VS_" + name + "_100N_2", value="100nF", package="0402", P1=rail, P2=GND)
+
+# Power-down: a PMOS turns the FPGA's active-low request into PD_N between VDD_BDAQ and VS-
+Bss84(name="Q_PD", G=AMP_PD_EXT, S=VDD_BDAQ, D=AMP_PD_N)
+Resistor(name="R_PD_PU", value="10k", package="0402", P1=VDD_BDAQ, P2=AMP_PD_EXT)
+Resistor(name="R_PD_PD", value="10k", package="0402", P1=AMP_PD_N, P2=VS_N)
+
+# ---------------------------------------------------------------- output common mode
+
+VOCM_TOP = Net()
+VOCM_BOT = Net()
+
+PinHeader(
+    name="J_VOCM",
+    pins=4,
+    rows=2,
+    mount="THT",
+    P1=GND,
+    P2=VOCM_TOP,
+    P3=VOCM,
+    P4=VOCM_TOP,
+    P5=VOCM,
+    P6=VOCM_BOT,
+    P7=GND,
+    P8=VOCM_BOT,
+)
+Resistor(name="R_VOCM_TOP", value="1k", package="0402", P1=VOCM_TOP, P2=VDD_DAC)
+Resistor(name="R_VOCM_BOT", value="1k", package="0402", P1=VOCM_BOT, P2=GND)
+Capacitor(name="C_VOCM_1U", value="1uF", package="0402", P1=VOCM, P2=GND)
+Capacitor(name="C_VOCM_100N", value="100nF", package="0402", P1=VOCM, P2=GND)
+
+# ---------------------------------------------------------------- output filter and chip input
+
+FILT = DiffPair("FILT")  # after the 499 ohm series resistors, 100 nF across (1.6 kHz)
+
+Resistor(name="R_OUT_P", value="499", package="0402", P1=AMP_OUT.P, P2=FILT.P)
+Resistor(name="R_OUT_N", value="499", package="0402", P1=AMP_OUT.N, P2=FILT.N)
+Capacitor(name="C_OUT", value="100nF", package="0402", P1=FILT.N, P2=FILT.P)
+
+PinHeader(
+    name="J_VIN",
+    pins=4,
+    rows=2,
+    mount="THT",
+    P1=IN_N_EXT,
+    P2=VIN.N,
+    P3=FILT.N,
+    P4=VIN.N,
+    P5=FILT.P,
+    P6=VIN.P,
+    P7=IN_P_EXT,
+    P8=VIN.P,
+)
+
+# Clamps to GND and VDD_DAC on each chip input, joined by a solder jumper (open as built)
+CLAMP_P = Net()
+CLAMP_N = Net()
+
+Bav99(name="D_CLAMP_P", A=VDD_DAC, K_1=GND, K_3=CLAMP_P)
+Bav99(name="D_CLAMP_N", A=VDD_DAC, K_1=GND, K_3=CLAMP_N)
+SolderJumper(name="JP_CLAMP_P", style="Open", variant="RoundedPad", P1=VIN.P, P2=CLAMP_P)
+SolderJumper(name="JP_CLAMP_N", style="Open", variant="RoundedPad", P1=CLAMP_N, P2=VIN.N)

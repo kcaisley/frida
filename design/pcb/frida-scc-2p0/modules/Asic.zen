@@ -1,0 +1,79 @@
+"""
+The FRIDA-1 die on its bond pads, with what has to sit beside it: each clock pair's 100 ohm
+termination, each rail's decoupling, and the reset pull-up.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+AsicFrida65A = Module("../components/ASIC_FRIDA_65A/ASIC_FRIDA_65A.zen")
+
+# The sequencer's four clocks in, the comparator's decisions out (LVDS)
+CLK_INIT = io(DiffPair)
+CLK_SAMP = io(DiffPair)
+CLK_COMP = io(DiffPair)
+CLK_LOGIC = io(DiffPair)
+COMP_OUT = io(DiffPair)
+
+# Analog input
+VIN = io(DiffPair)
+
+# Configuration (VDD_IO levels)
+SPI_CS_B = io(Net)
+SPI_SCLK = io(Net)
+SPI_SDI = io(Net)
+SPI_SDO = io(Net)
+RST_B = io(Net)
+
+VDD_A = io(Power)
+VDD_D = io(Power)
+VDD_DAC = io(Power)
+VDD_IO = io(Power)
+GND = io(Ground)
+
+AsicFrida65A(
+    name="U_ASIC",
+    CLK_INIT_P=CLK_INIT.P,
+    CLK_INIT_N=CLK_INIT.N,
+    CLK_SAMP_P=CLK_SAMP.P,
+    CLK_SAMP_N=CLK_SAMP.N,
+    CLK_COMP_P=CLK_COMP.P,
+    CLK_COMP_N=CLK_COMP.N,
+    CLK_LOGIC_P=CLK_LOGIC.P,
+    CLK_LOGIC_N=CLK_LOGIC.N,
+    COMP_OUT_P=COMP_OUT.P,
+    COMP_OUT_N=COMP_OUT.N,
+    VIN_P=VIN.P,
+    VIN_N=VIN.N,
+    SPI_CS_B=SPI_CS_B,
+    SPI_SCLK=SPI_SCLK,
+    SPI_SDI=SPI_SDI,
+    SPI_SDO=SPI_SDO,
+    RST_B=RST_B,
+    VDD_A=VDD_A,
+    VDD_D=VDD_D,
+    VDD_DAC=VDD_DAC,
+    VDD_IO=VDD_IO,
+    VSS_A_2=GND,
+    VSS_A_28=GND,
+    VSS_DAC=GND,
+    VSS_D_20=GND,
+    VSS_D_22=GND,
+    VSS_D_23=GND,
+    VSS_IO=GND,
+    PAD=GND,
+)
+
+# Clock terminations, as close to the bond pads as the pads allow (4 to 6 mm on frida-scc-1p1)
+for name, pair in [("INIT", CLK_INIT), ("SAMP", CLK_SAMP), ("COMP", CLK_COMP), ("LOGIC", CLK_LOGIC)]:
+    Resistor(name="R_TERM_" + name, value="100", package="0402", P1=pair.P, P2=pair.N)
+
+# Decoupling: bulk, 1 uF and two 100 nF per rail, as on frida-scc-1p1
+for name, rail in [("A", VDD_A), ("D", VDD_D), ("DAC", VDD_DAC), ("IO", VDD_IO)]:
+    Capacitor(name="C_" + name + "_BULK", value="47uF", package="1206", P1=rail, P2=GND)
+    Capacitor(name="C_" + name + "_1U", value="1uF", package="0402", P1=rail, P2=GND)
+    Capacitor(name="C_" + name + "_100N_1", value="100nF", package="0402", P1=rail, P2=GND)
+    Capacitor(name="C_" + name + "_100N_2", value="100nF", package="0402", P1=rail, P2=GND)
+
+Resistor(name="R_RST_PU", value="10k", package="0402", P1=VDD_IO, P2=RST_B)

@@ -1,0 +1,89 @@
+"""
+TI_LevelShifter_SN74AXC8T245RJWR
+
+Imported from frida-scc-1p1.
+"""
+
+A1 = io(Net)
+A2 = io(Net)
+A3 = io(Net)
+A4 = io(Net)
+A5 = io(Net)
+A6 = io(Net)
+A7 = io(Net)
+A8 = io(Net)
+B1 = io(Net)
+B2 = io(Net)
+B3 = io(Net)
+B4 = io(Net)
+B5 = io(Net)
+B6 = io(Net)
+B7 = io(Net)
+B8 = io(Net)
+DIR1 = io(Net)
+DIR2 = io(Net)
+GND_11 = io(Ground)
+GND_12 = io(Ground)
+OE_N = io(Net)
+VCCA = io(Power)
+VCCB_22 = io(Power)
+VCCB_23 = io(Power)
+
+Component(
+    name="TI_LevelShifter_SN74AXC8T245RJWR",
+    part=Part(mpn="SN74AXC8T245RJWR", manufacturer="Texas Instruments"),
+    properties={"Value": "TI LevelShifter SN74AXC8T245RJWR", "schematic_description": ""},
+    symbol=Symbol(library="TI_LevelShifter_SN74AXC8T245RJWR.kicad_sym"),
+    pin_defs={
+        "DIR1": "1",
+        "DIR2": "10",
+        "GND__11": "11",
+        "GND__12": "12",
+        "B8": "13",
+        "B7": "14",
+        "B6": "15",
+        "B5": "16",
+        "B4": "17",
+        "B3": "18",
+        "B2": "19",
+        "A1": "2",
+        "B1": "20",
+        "OE_N": "21",
+        "VCCB__22": "22",
+        "VCCB__23": "23",
+        "VCCA": "24",
+        "A2": "3",
+        "A3": "4",
+        "A4": "5",
+        "A5": "6",
+        "A6": "7",
+        "A7": "8",
+        "A8": "9",
+    },
+    pins={
+        "DIR1": DIR1,
+        "DIR2": DIR2,
+        "GND__11": GND_11,
+        "GND__12": GND_12,
+        "B8": B8,
+        "B7": B7,
+        "B6": B6,
+        "B5": B5,
+        "B4": B4,
+        "B3": B3,
+        "B2": B2,
+        "A1": A1,
+        "B1": B1,
+        "OE_N": OE_N,
+        "VCCB__22": VCCB_22,
+        "VCCB__23": VCCB_23,
+        "VCCA": VCCA,
+        "A2": A2,
+        "A3": A3,
+        "A4": A4,
+        "A5": A5,
+        "A6": A6,
+        "A7": A7,
+        "A8": A8,
+    },
+)

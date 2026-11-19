@@ -1,0 +1,19 @@
+"""
+BSS84 P-channel MOSFET (SOT-23, pins G S D)
+
+Imported from frida-scc-1p1.
+"""
+
+D = io(Net)
+G = io(Net)
+S = io(Net)
+
+Component(
+    name="BSS84",
+    footprint=File("SOT-23.kicad_mod"),
+    part=Part(mpn="BSS84", manufacturer="onsemi"),
+    properties={"Value": "BSS84", "schematic_description": "P-MOSFET transistor, gate/source/drain"},
+    symbol=Symbol(library="BSS84.kicad_sym"),
+    pin_defs={"G": "1", "S": "2", "D": "3"},
+    pins={"G": G, "S": S, "D": D},
+)

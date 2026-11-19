@@ -1,0 +1,89 @@
+"""
+frida-scc-2p0: the FRIDA single-chip card, revision 2.0.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Asic = Module("modules/Asic.zen")
+FpgaLink = Module("modules/FpgaLink.zen")
+InputAmp = Module("modules/InputAmp.zen")
+LvdsTap = Module("modules/LvdsTap.zen")
+
+GND = Ground()
+VDD_A = Power(voltage="1.2V")
+VDD_D = Power(voltage="1.2V")
+VDD_DAC = Power(voltage="1.2V")
+VDD_IO = Power(voltage="1.2V")
+VDD_BDAQ = Power()
+V_DP = Power()
+VS_P = Power()
+VS_N = Power()
+
+CLK_INIT = DiffPair(impedance="100Ohm")
+CLK_SAMP = DiffPair(impedance="100Ohm")
+CLK_COMP = DiffPair(impedance="100Ohm")
+CLK_LOGIC = DiffPair(impedance="100Ohm")
+COMP_OUT = DiffPair(impedance="100Ohm")
+VIN = DiffPair()
+AMP_OUT = DiffPair()
+VOCM = Net()
+SRC = Net()
+SPI_CS_B = Net()
+SPI_SCLK = Net()
+SPI_SDI = Net()
+SPI_SDO = Net()
+RST_B = Net()
+AMP_PD_EXT = Net()
+
+Asic(
+    name="ASIC",
+    CLK_INIT=CLK_INIT,
+    CLK_SAMP=CLK_SAMP,
+    CLK_COMP=CLK_COMP,
+    CLK_LOGIC=CLK_LOGIC,
+    COMP_OUT=COMP_OUT,
+    VIN=VIN,
+    SPI_CS_B=SPI_CS_B,
+    SPI_SCLK=SPI_SCLK,
+    SPI_SDI=SPI_SDI,
+    SPI_SDO=SPI_SDO,
+    RST_B=RST_B,
+    VDD_A=VDD_A,
+    VDD_D=VDD_D,
+    VDD_DAC=VDD_DAC,
+    VDD_IO=VDD_IO,
+    GND=GND,
+)
+FpgaLink(
+    name="LINK",
+    CLK_INIT=CLK_INIT,
+    CLK_SAMP=CLK_SAMP,
+    CLK_COMP=CLK_COMP,
+    CLK_LOGIC=CLK_LOGIC,
+    COMP_OUT=COMP_OUT,
+    SPI_CS_B=SPI_CS_B,
+    SPI_SCLK=SPI_SCLK,
+    SPI_SDI=SPI_SDI,
+    SPI_SDO=SPI_SDO,
+    RST_B=RST_B,
+    AMP_PD_EXT=AMP_PD_EXT,
+    VDD_BDAQ=VDD_BDAQ,
+    V_DP=V_DP,
+    VDD_IO=VDD_IO,
+    GND=GND,
+)
+InputAmp(
+    name="INPUT",
+    VIN=VIN,
+    SRC=SRC,
+    VOCM=VOCM,
+    AMP_OUT=AMP_OUT,
+    AMP_PD_EXT=AMP_PD_EXT,
+    VDD_BDAQ=VDD_BDAQ,
+    VS_P=VS_P,
+    VS_N=VS_N,
+    VDD_DAC=VDD_DAC,
+    GND=GND,
+)
+
+Board(name="frida-scc-2p0", layers=4, path="eda", schematic=True)
