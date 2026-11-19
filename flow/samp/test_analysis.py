@@ -323,3 +323,180 @@ def test_a_sine_outside_the_settled_levels_fits_no_aperture() -> None:
     hold = analyze_hold([rc_run(TB, tau_s=50e-9)])
     sine = analyze_sine([ideal_run(tb)], track=track, hold=hold)
     assert math.isnan(sine.aperture_s[0]) and math.isnan(sine.model_error_v[0])
+
+
+def level_run(tb: TbParams, *, tau_rise_s: float, tau_fall_s: float, pedestal_v: float = 0.0, feedthrough: float = 0.0):
+    """A run of ``tb`` as the level runs drive it (sim.testbench's two input pulses in series: one
+    stepping in mid-hold, one in mid-track, over a clock edge's time each) into a first-order
+    switch closed between the clock's mid-supply crossings: closed, the output follows the input
+    with ``tau_rise_s`` while below it and ``tau_fall_s`` while above; as it opens it jumps by
+    ``pedestal_v``; open, it follows ``feedthrough`` of the input's change. A sample every
+    picosecond."""
+    period, high, edge = float(tb.clock_period_s), float(tb.clock_high_time_s), float(tb.clock_transition_time_s)
+    vdd, vin, hold_v, track_v = float(tb.vdd), float(tb.input_voltage), float(tb.input_step_v), float(tb.track_step_v)
+    time_s = np.arange(0.0, tb.stop_s, 1e-12)
+
+    def pulse(amplitude: float, delay: float, width: float) -> np.ndarray:
+        phase = np.mod(time_s - delay, 2 * period)
+        up = np.clip(phase / edge, 0.0, 1.0) - np.clip((phase - edge - width) / edge, 0.0, 1.0)
+        return amplitude * (np.where(time_s < delay, 0.0, up) - 0.5)
+
+    data = vin + pulse(hold_v, high + (period - high) / 2, period) + pulse(track_v, (edge + high) / 2, period - edge)
+    phase = np.mod(time_s, period)
+    clock = vdd * (np.clip(phase / edge, 0.0, 1.0) - np.clip((phase - edge - high) / edge, 0.0, 1.0))
+    closed = (phase >= edge / 2) & (phase < edge + high + edge / 2)
+    output = np.empty_like(time_s)
+    value, opened, was_closed = float(data[0]), float(data[0]), False
+    for index in range(len(time_s)):
+        if closed[index]:
+            tau = tau_rise_s if data[index] >= value else tau_fall_s
+            value = data[index] + (value - data[index]) * math.exp(-1e-12 / tau)
+            output[index] = value
+        else:
+            if was_closed:
+                value, opened = value + pedestal_v, float(data[index])
+            output[index] = value + feedthrough * (data[index] - opened)
+        was_closed = bool(closed[index])
+    return Meas(
+        group=None,
+        index=None,
+        dut=tb.params,
+        info=INFO,
+        param=tb,
+        time_s=time_s,
+        v={"clk": clock, "clk_b": vdd - clock, "vin": data, "vout": output},
+        i={"vdd": np.zeros_like(time_s)},
+    )
+
+
+LEVEL_TB = TbParams(input_voltage=0.6, input_step_v=0.01, track_step_v=0.01)
+
+
+def test_a_level_run_steps_onto_its_level_in_mid_track_and_reads_the_closed_switchs_time_constant() -> None:
+    """The level runs' input: 10 mV below the level until mid-track, on it until mid-hold, 10 mV
+    above until the next mid-track, on it again: every track phase ends on the level, reached from
+    below and from above in turn. A switch with tau 100 ps on a rising step and 200 ps on a falling
+    one: the slower direction's, 200 ps, into 1 pF R_on = 200 ohm. The step is a 50 ps ramp that
+    starts 2.5 ns before the instant the track error is read at (a clock edge before the clock's
+    falling crossing): a first-order response leaves s (tau / T)(e^(T / tau) - 1) e^(-t / tau) =
+    10 mV x 4 x (e^0.25 - 1) x e^-12.5 = 42.3 nV on the falling steps."""
+    run = level_run(LEVEL_TB, tau_rise_s=100e-12, tau_fall_s=200e-12)
+    falls = [k * 10e-9 + 5.05e-9 for k in range(1, 5)]
+    assert np.interp(falls, run.time_s, run.v["vin"]) == pytest.approx(0.6, abs=1e-9)
+    assert np.interp([2e-9, 12e-9, 22e-9], run.time_s, run.v["vin"]) == pytest.approx([0.59, 0.61, 0.59], abs=1e-9)
+    track = analyze_track([run])
+    assert track.tau_s[0] == pytest.approx(200e-12, rel=0.01)
+    assert track.ron_ohm[0] == pytest.approx(200.0, rel=0.01)
+    assert track.track_error_v[0] == pytest.approx(0.01 * 4 * (math.exp(0.25) - 1) * math.exp(-12.5), rel=0.01)
+    assert analyze_track([level_run(LEVEL_TB, tau_rise_s=300e-12, tau_fall_s=200e-12)]).tau_s[0] == pytest.approx(
+        300e-12, rel=0.01
+    )
+
+
+def test_a_pedestal_larger_than_the_step_does_not_move_the_time_constant() -> None:
+    """A switch that leaves -15 mV as it opens: each track phase starts 15 mV (and the 10 mV the
+    input has since stepped) from where it settles before the step in mid-track, more than that
+    step's own 10 mV. The time constant is read from the step, not from the phase's start: 200 ps."""
+    run = level_run(LEVEL_TB, tau_rise_s=200e-12, tau_fall_s=200e-12, pedestal_v=-15e-3)
+    track = analyze_track([run])
+    assert track.tau_s[0] == pytest.approx(200e-12, rel=0.01) and track.ron_ohm[0] == pytest.approx(200.0, rel=0.01)
+
+
+def test_a_level_runs_hold_reads_the_step_off_the_level() -> None:
+    """The input sits on the level as the clock falls and leaves it by 10 mV in mid-hold: the
+    pedestal (-2 mV) from the hold's first half, the feedthrough (1e-3) over that step."""
+    hold = analyze_hold(
+        [level_run(LEVEL_TB, tau_rise_s=100e-12, tau_fall_s=100e-12, pedestal_v=-2e-3, feedthrough=1e-3)]
+    )
+    assert hold.pedestal_v[0] == pytest.approx(-2e-3, abs=1e-6)
+    assert hold.feedthrough[0] == pytest.approx(1e-3, rel=1e-3)
+
+
+def _with_gate(run: Meas, settles_s: float, *, low: float = 0.5, high: float = 1.1) -> Meas:
+    """``run`` with a boosted gate saved: ``low`` above the input for ``settles_s`` from each
+    track phase's start (never where NaN: it ramps from ``low`` to ``high`` over the whole phase),
+    then ``high`` above it; 0 V while holding."""
+    tb = run.param
+    period, high_s, edge = float(tb.clock_period_s), float(tb.clock_high_time_s), float(tb.clock_transition_time_s)
+    phase = np.mod(run.time_s, period)
+    tracking = (phase >= edge / 2) & (phase < edge + high_s + edge / 2)
+    ramp = low + (high - low) * np.clip((phase - edge / 2) / (edge + high_s), 0.0, 1.0)
+    drive = ramp if math.isnan(settles_s) else np.where(phase - edge / 2 < settles_s, low, high)
+    return replace(run, v={**run.v, "gate": np.where(tracking, run.v["vin"] + drive, 0.0)})
+
+
+def test_the_time_constant_waits_for_the_gate_drive_to_settle() -> None:
+    """A bootstrap whose gate stands 0.5 V above its input for the first 600 ps of each track phase
+    and 1.1 V from then on, the output settling with 300 ps before and 100 ps after (the switch
+    closes on a 100 mV step): the on switch's time constant is the settled 100 ps, R_on = 100 ohm,
+    where the error's 1/e and 1/e^2 points (300 ps and 600 ps: neither after the gate settles) are
+    300 ps apart, which a gate that settles at once reads."""
+    tb = TbParams(input_step_v=0.1, periods=4)
+    run = rc_run(tb, tau_s=300e-12)
+    time_s, output = run.time_s, run.v["vout"].copy()
+    for k in range(tb.periods):
+        start, change = k * tb.clock_period_s, k * tb.clock_period_s + 600e-12
+        after = (time_s >= change) & (time_s < start + tb.clock_high_time_s)
+        level = run.v["vin"][after][0]
+        left = float(np.interp(change, time_s, output)) - level
+        output[after] = level + left * np.exp(-(time_s[after] - change) / 100e-12)
+    two_rates = replace(run, v={**run.v, "vout": output})
+    settled = analyze_track([_with_gate(two_rates, 600e-12)])
+    assert settled.tau_s[0] == pytest.approx(100e-12, abs=2e-12)
+    assert settled.ron_ohm[0] == pytest.approx(100.0, rel=0.02)
+    at_once = analyze_track([_with_gate(two_rates, 0.0)])
+    assert at_once.tau_s[0] == pytest.approx(300e-12, abs=3e-12)
+
+
+def test_an_output_settled_before_its_gate_drive_gives_no_time_constant() -> None:
+    """A switch whose output settles with 50 ps while its gate drive takes 600 ps to reach its
+    value: by then the error is e^-12 of its largest, under e^-4, and what is left of it says
+    nothing of the switch: no time constant. With the gate drive there after 150 ps (e^-3) it is
+    read from there: 50 ps."""
+    tb = TbParams(input_step_v=0.1, periods=4)
+    run = rc_run(tb, tau_s=50e-12)
+    late = analyze_track([_with_gate(run, 600e-12)])
+    assert math.isnan(late.tau_s[0]) and math.isnan(late.ron_ohm[0])
+    assert analyze_track([_with_gate(run, 150e-12)]).tau_s[0] == pytest.approx(50e-12, abs=2e-12)
+
+
+def test_a_gate_drive_that_never_settles_gives_no_time_constant() -> None:
+    """A gate still rising as the clock starts to fall (a ramp over the whole phase from 0.5 V to
+    1.1 V: 2 % of its end value is reached only in the last 4 % of it): no time constant, no on-resistance, though the
+    output itself settles (tau 200 ps)."""
+    tb = TbParams(input_step_v=0.1, periods=4)
+    track = analyze_track([_with_gate(rc_run(tb, tau_s=200e-12), math.nan)])
+    assert math.isnan(track.tau_s[0]) and math.isnan(track.ron_ohm[0]) and math.isnan(track.bandwidth_hz[0])
+    assert track.track_error_v[0] < 1e-6
+
+
+def test_the_full_scale_step_is_the_converters_own_worst_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flow.adc's converter: 10 MS/s (a 100 ns period, 12.5 ns of it tracking), 0.7 V common mode
+    and +-0.47 V a side at full scale, of 1.2 V. The step: 0.94 V (0.23 V to 1.17 V) about 0.7 V in
+    mid-hold, over 2 / (pi f_s) = 63.66 ns, so its slope, 0.94 V / 63.66 ns = 1.4765e7 V/s, is a
+    full-scale sine's at Nyquist, 2 pi x 5 MHz x 0.47 V; at the highest supply the same, 1.1 times
+    as large (1.32 V: 0.77 V, 1.034 V). Both save every transistor's values. 26 runs."""
+    monkeypatch.setattr(runs.importlib, "import_module", lambda name: SimpleNamespace(install=_Install()))
+    benches = runs.testbenches("tsmc65", Params())
+    assert len(benches) == 26
+    step = benches["acquire"]
+    assert (step.vdd, step.input_voltage, step.input_step_v) == pytest.approx((1.2, 0.7, 0.94))
+    assert (step.clock_period_s, step.clock_high_time_s) == (ADC_PERIOD_S, ADC_TRACK_S) == (100e-9, 12.5e-9)
+    assert step.input_transition_time_s == pytest.approx(63.662e-9, rel=1e-4)
+    assert step.input_step_v / step.input_transition_time_s == pytest.approx(2 * math.pi * 5e6 * 0.47, rel=1e-4)
+    assert step.oppoint and step.track_step_v == 0.0
+    highest = benches["acquire_110"]
+    assert (highest.vdd, highest.input_voltage, highest.input_step_v) == pytest.approx((1.32, 0.77, 1.034))
+    assert highest.input_transition_time_s == step.input_transition_time_s and highest.oppoint
+    # the level, supply and corner runs step a 120th of the supply in mid-track and in mid-hold,
+    # tracking 10 ns (5 ns for the gate drive to settle, 5 ns to read the time constant over) of 15 ns
+    for name in ("vin_1", "vin_6", "supply_90", "supply_110", "slow", "fast", "hot", "skew"):
+        assert benches[name].track_step_v == benches[name].input_step_v == pytest.approx(0.01)
+        assert (benches[name].clock_high_time_s, benches[name].clock_period_s) == pytest.approx((10e-9, 15e-9))
+    # the highest level, 1.195 V, steps half as far: its input reaches the 1.2 V supply and no further
+    top = benches["vin_top"]
+    assert (top.input_voltage, top.input_step_v, top.track_step_v) == pytest.approx((1.195, 0.005, 0.005))
+    assert top.input_voltage + top.track_step_v == pytest.approx(top.vdd)
+    assert all(tb.input_voltage - tb.track_step_v > 0 for tb in benches.values())
+    for name in ("droop", "droop_hot", "sine_1", "sine_15", "dac_low", "dac_cm"):
+        assert benches[name].track_step_v == benches[name].input_step_v == 0.0

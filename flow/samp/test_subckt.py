@@ -4,13 +4,14 @@ structures FRIDA lays out, its rows top first."""
 
 import hdl21 as h
 import pytest
+from hdl21.primitives import MosVth
 from pydantic import ValidationError
 
 from flow import pipeline
 from flow.layout.hdl21align import issues, module_plan, pnr_input
 
 from . import runs
-from .params import BOTTOM_LIFT, Params, SwitchType
+from .params import Params, SwitchType
 from .subckt import netlist
 
 
@@ -32,74 +33,67 @@ def test_dummies_clock_opposite_their_switch() -> None:
 
 def test_bootstrap_boosts_the_nmos_gate() -> None:
     """[Razavi-ADC] Fig. 3.41(b), p. 48: M5 (Mpre) and M3 (Mgate) PMOS, their n-wells on P
-    (Sec. 3.8.2, p. 48); M2 (Mbot_in) an NMOS gated by the boosted node; the gate's pull-down M6
-    under the cascode M7 gated by vdd (a second cascode, gated by P, above it); M3's gate at the
-    bottom plate while tracking (through a PMOS on the complementary clock) and at vdd while
-    holding; M5 eight helpers wide, M2 a helper wide and long; dummies against
-    the edges' kicks on Q, on M3's gate and on M6's drain."""
-    m = netlist(Params(switch_type=SwitchType.BOOTSTRAP))
+    (Sec. 3.8.2, p. 48); M2 (Mbot_in) an NMOS gated by the boosted node, as long as the design
+    says; the gate's pull-down M6 under the cascode M7 gated by vdd and a second cascode above it,
+    gated by P, with a diode-connected device between the two and a device gated by vdd across
+    that one, all of the switch's threshold and a helper wide; M3's gate at the bottom
+    plate while tracking (through a PMOS on the complementary clock) and at vdd while holding; M5
+    eight helpers wide; dummies against the clock edges on M3's gate and on M6's drain, none on
+    the bottom plate."""
+    m = netlist(Params(switch_type=SwitchType.BOOTSTRAP, bot_l=14))
     assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP") and not hasattr(m, "Mtg_p")
     assert m.Mgate.conns == {"d": m.gate, "g": m.gate_ctl, "s": m.boot_top, "b": m.boot_top}
     assert m.Mpre.conns == {"d": m.vdd, "g": m.gate, "s": m.boot_top, "b": m.boot_top}
     assert m.Mcap.conns == {"d": m.boot_bot, "g": m.boot_top, "s": m.boot_bot, "b": m.vss}
     assert m.Mbot_in.conns == {"d": m.boot_bot, "g": m.gate, "s": m.vin, "b": m.vss}
-    assert m.Mbot.conns["d"] is m.boot_bot and m.Mbot.conns["g"] is m.clk_b
-    assert m.Mgate_top.conns == {"d": m.gate, "g": m.boot_top, "s": m.gate_mid, "b": m.vss}
+    assert m.Mbot.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.vss, "b": m.vss}
+    assert m.Mgate_top.conns == {"d": m.gate, "g": m.boot_top, "s": m.gate_top, "b": m.vss}
+    assert m.Mgate_drop.conns == {"d": m.gate_top, "g": m.gate_top, "s": m.gate_mid, "b": m.vss}
+    assert m.Mgate_pass.conns == {"d": m.gate_top, "g": m.vdd, "s": m.gate_mid, "b": m.vss}
     assert m.Mgate_cas.conns == {"d": m.gate_mid, "g": m.vdd, "s": m.gate_off, "b": m.vss}
     assert m.Mgate_off.conns == {"d": m.gate_off, "g": m.clk_b, "s": m.vss, "b": m.vss}
     assert m.Mctl_p.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.vdd, "b": m.vdd}
     assert m.Mctl_on.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
-    assert m.Mpre.of.params.w == 8 * 4 and m.Mbot_in.of.params.w == 4 and not hasattr(m, "Mctl_n")
-    assert m.Mbot_dummy.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.boot_bot, "b": m.vss}
+    assert m.Mpre.of.params.w == 8 * 4 and not hasattr(m, "Mctl_n") and not hasattr(m, "Mbot_dummy")
+    assert (m.Mbot_in.of.params.w, m.Mbot_in.of.params.l) == (4, 14)
+    for name in ("Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off"):
+        device = getattr(m, name).of.params
+        assert (device.w, device.l, device.vth) == (4, 1, MosVth.LOW)
     assert m.Mctl_dummy.conns == {"d": m.gate_ctl, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
     assert m.Mgate_off_dummy.conns == {"d": m.gate_off, "g": m.clk, "s": m.gate_off, "b": m.vss}
 
 
-def test_every_bootstrap_of_the_space_boosts_its_gate_by_at_least_0_9_vdd_by_area() -> None:
-    """[Razavi-ADC] Eq. (3.70), p. 50: V_b' = C_b / (C_b + C_G1 + C_G2 + C_p) V_DD, at least
-    0.9 V_DD: every bootstrap the runs name has a boost capacitor of 32 times its switch's gate
-    area and 128 times its helpers' width more (C_p grows with the precharge device, eight helpers
-    wide)."""
-    found = [
-        params
-        for run in (runs.scaled, runs.long_channel, runs.boost_ladder)
-        for space in run.spaces("tsmc65").values()
-        for params in [space.base]
-        if params.switch_type is SwitchType.BOOTSTRAP
-    ] + [runs.bootstrap.build()]
-    assert found
-    for params in found:
-        assert params.cap_w * params.cap_l == 32 * params.mos_w * params.mos_l + 128 * params.boot_w
-
-
-def test_every_bootstrap_lifts_its_bottom_plate_no_faster_than_the_rule() -> None:
-    """The bottom-plate switch's resistance over the switch's ((L / W) over (mos_l / mos_w)) times
-    the boost capacitor's area reaches ``BOTTOM_LIFT`` at the shortest length that does: 8 units
-    for the 32-unit bootstrap, 64 for the 8-unit one, 2 for the 160-unit rung, 10 at twice the
-    length."""
-    found = [
-        params
-        for run in (runs.scaled, runs.long_channel, runs.boost_ladder)
-        for space in run.spaces("tsmc65").values()
-        for params in [space.base]
-        if params.switch_type is SwitchType.BOOTSTRAP
-    ]
-
-    def lift(params: Params, length: int) -> float:
-        return length / params.boot_w * params.mos_w / params.mos_l * params.cap_w * params.cap_l
-
-    lengths = {params: _module(params).Mbot_in.of.params.l for params in [*found, runs.bootstrap.build()]}
-    for params in found:
-        length = lengths[params]
-        assert lift(params, length) >= BOTTOM_LIFT and (length == 1 or lift(params, length - 1) < BOTTOM_LIFT)
-    by_size = {(params.mos_w, params.mos_l): lengths[params] for params in found}
-    assert by_size[(32, 1)] == lengths[runs.bootstrap.build()] == 8
-    assert (by_size[(8, 1)], by_size[(160, 1)], by_size[(32, 2)]) == (64, 2, 10)
+def test_every_device_on_the_boosted_nodes_is_one_the_capacitor_rule_counts() -> None:
+    """The boosted nodes are ``gate`` (A) and ``boot_top`` (P), joined by Mgate while tracking. The
+    rule (``params._boosted_f``) counts MN's and Mbot_in's gates, Mpre's gate and Mgate_top's
+    drain; Mcap's gate is C_b itself; Mgate's and Mpre's sources and wells and Mgate_top's gate
+    hold no charge the capacitor must give (they sit on the boosted nodes on both sides, or on a
+    node that follows them): no other device touches the two nodes."""
+    m = netlist(runs.bootstrap.build())
+    on = {
+        (name, terminal)
+        for name, instance in m.instances.items()
+        for terminal, net in instance.conns.items()
+        if net is m.gate or net is m.boot_top
+    }
+    assert on == {
+        ("MN", "g"),
+        ("Mbot_in", "g"),
+        ("Mpre", "g"),
+        ("Mpre", "s"),
+        ("Mpre", "b"),
+        ("Mgate", "d"),
+        ("Mgate", "s"),
+        ("Mgate", "b"),
+        ("Mgate_top", "d"),
+        ("Mgate_top", "g"),
+        ("Mcap", "g"),
+    }
 
 
 def test_the_parameters_refuse_what_does_not_build() -> None:
     """A size below one unit, and a dummy (half its switch) on a switch narrower than two units."""
-    for fields in ({"mos_w": 0}, {"cap_l": 0}, {"dummy": True, "mos_w": 1}):
+    for fields in ({"mos_w": 0}, {"cap_l": 0}, {"bot_l": 0}, {"dummy": True, "mos_w": 1}):
         with pytest.raises(ValidationError):
             Params(**fields)
     assert Params(dummy=True, mos_w=2).mos_w == 2
@@ -130,7 +124,7 @@ def test_the_named_structures_rows() -> None:
         "bootstrap": [
             ["Mpre", "Mgate", "Mctl_p", "Mctl_on", "Mctl_dummy"],
             ["Mcap"],
-            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mbot_dummy"],
+            ["Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot"],
             ["Mn", "Mbot_in"],
         ],
     }

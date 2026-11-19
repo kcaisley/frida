@@ -16,14 +16,16 @@ from flow.pipeline import Analysis
 class AnalysisTrack(Analysis):
     """Sampler tracking at each measured point.
 
-    ``tau_s`` is the time constant of the track phase's settling, from the output's error to the
-    input falling to 1/e of its largest (at the clock's rise, or after the closing switch's kick)
-    to its falling to 1/e^2, the median over the input's rising steps or
-    over the falling ones, the slower; ``ron_ohm`` that over the load capacitance (the switch's own
-    capacitance adds to it, so it bounds the resistance from above); ``bandwidth_hz``
-    1/(2 pi tau); ``track_error_v`` |output - input| as the clock starts to fall, the median over
-    the rising steps or over the falling ones, the larger. NaN where the output never settles that
-    far.
+    ``tau_s`` is the on switch's time constant: the time the output's error to the input takes to
+    fall by a factor e, from the later of its 1/e point (of its largest in the phase: at the
+    input's step inside the phase, else at the clock's rise or after the closing switch's kick) and
+    the instant the switch's gate drive has settled (within ``params.VGS_SETTLED`` of its value as
+    tracking ends), the median over the input's rising steps or over the falling ones, the slower;
+    ``ron_ohm`` that over the load capacitance (the switch's own capacitance adds to it, so it
+    bounds the resistance from above); ``bandwidth_hz`` 1/(2 pi tau); ``track_error_v`` |output -
+    input| as the clock starts to fall, the median over the rising steps or over the falling ones,
+    the larger. NaN where the gate drive never settles, where the error has all but gone by then
+    (under ``params.ERROR_SETTLED`` of its largest) or where it does not fall that far after.
     """
 
     # [Razavi-Analog] Eq. (13.31), p. 552: tau = R_on C_H, the sampler's time constant

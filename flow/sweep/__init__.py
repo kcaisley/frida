@@ -49,6 +49,7 @@ import hdl21 as h
 # instances always held, stays in their rows.
 ADDED_DEFAULTS: dict[tuple[str, str], object] = {
     ("flow.capdac.params.Params", "weights"): None,  # an array's own weights (a fabricated one's)
+    ("flow.samp.params.Params", "bot_l"): 1,  # a bootstrap's bottom-plate switch's length
 }
 
 

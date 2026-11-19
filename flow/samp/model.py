@@ -4,8 +4,9 @@ the same ``Params`` in the PDK (``flow.samp.runs``, looked up by ``flow.sweep.lo
     model = samp.model.Model.of("tsmc65", samp.Params())
     params = model.behavioral(load_f=1.2e-12)
 
-The characterization's on-resistance over the input level (into 1 pF, the gate at the supply)
-sets the tracking lag of each side, ``R(v) C dv/dt``, and its pedestal over the input level what
+The characterization's on-resistance over the input level (the closed switch's, its gate drive
+settled, into 1 pF) sets the tracking lag of each side, ``R(v) C dv/dt``, and its pedestal over
+the input level what
 the opening switch leaves on each side; its sines' held samples the sampling instant's shift with
 the input (the aperture); the held kT/C noise follows from each side's load, and the aperture
 jitter is assumed (the clock is not characterized). An input level the characterization never
@@ -52,7 +53,11 @@ class Model:
     aperture_s: float = 0.0  # the sampling instant's shift, aperture_s + aperture_s_per_v * v later
     aperture_s_per_v: float = 0.0
     evidence: str | None = None  # the record's: prelayout or postlayout
-    jitter_s: float = 2e-12  # ASSUMED RMS aperture jitter of the on-chip clock (as FRIDA-2's behavioral scans)
+    # not in the reference texts: an ASSUMED RMS aperture jitter of the on-chip clock, 2 ps (as
+    # FRIDA-2's behavioral scans take it); the clock is not characterized here
+    # Terms: Delta T of [Razavi-ADC] Eq. (3.86), p. 55, one draw for both sides (``sample``).
+    # Holds for: an assumption until the clock path is characterized.
+    jitter_s: float = 2e-12
 
     @h.paramclass
     class Behavioral:
@@ -76,6 +81,10 @@ class Model:
         p_conductance_s_per_v = h.Param(
             dtype=float | None, desc="PMOS triode conductance per volt of overdrive; None derives it", default=None
         )
+        # not in the reference texts: rough thresholds (0.35 V) for the triode conductances where
+        # no characterization is given (``resistance``)
+        # Terms: V_TH of MN (``n_threshold_v``) and |V_TH| of MP (``p_threshold_v``).
+        # Holds for: a rough estimate: constant over the input (no body effect).
         n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
         p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
         jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
@@ -107,7 +116,10 @@ class Model:
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
         record = characterized("samp", pdk, params, simulate=simulate)
         curve = detail(record, "ron_vin")
-        # a level the characterization never settled at (None, or NaN) is an open switch
+        # not in the reference texts: a level the characterization shows no time constant at (None,
+        # or NaN) is an open switch, R = infinity
+        # Terms: R the record's ron_vin curve (flow.samp.analysis.analyze_track).
+        # Holds for: a level outside the settled input range (an NMOS above V_DD - V_TH).
         ron = [math.inf if y is None or not math.isfinite(y) else float(y) for y in curve["series"]["on-resistance"]]
         pedestal = detail(record, "pedestal_vin")
         found = [
@@ -134,7 +146,12 @@ class Model:
         """The behavioral ADC's sampler parameters for a top-plate load of ``load_f`` per side: the
         differential kT/C noise of the two plates, sqrt(2 k T / C), each side's scaled to its own
         load in ``sample``."""
-        # [Razavi-ADC] Eq. (3.55), p. 39: sqrt(kT/C) a plate; Sec. 3.6, p. 41: 2kT/C differentially
+        # [Razavi-ADC] Eq. (3.55), p. 39: V_n,out,rms = sqrt(kT / C) on a sampling capacitor; Sec. 3.6,
+        # p. 41: two of them differentially, sqrt(2 k T / C)
+        # Terms: C ``load_f``, a side's top-plate load (the array's capacitance on vout); T
+        #   ``temperature_k``.
+        # Ours against the source: none; each side's own load rescales its share in ``sample``.
+        # Holds for: a switch whose bandwidth passes its own thermal noise (R_on drops out).
         return Model.Behavioral(
             noise_v=float(np.sqrt(2 * constants.k * temperature_k / load_f)),
             noise_load_f=load_f,
@@ -149,6 +166,10 @@ class Model:
 
     def hold(self, vin, slope, *, load_f: dict[str, float], gate_v: float, rng: np.random.Generator):
         """Each side's held voltage (``Model.sample``), its noise that of its own load."""
+        # not in the reference texts: the noise is computed for the two sides' mean load and each
+        # side's share rescaled to its own in ``sample`` (sqrt(C_mean / C_side))
+        # Terms: C_mean the mean of ``load_f``'s two sides (their top-plate loads).
+        # Holds for: two sides of nearly equal load (the rescaling is exact for each side alone).
         mean_load = float(np.mean(list(load_f.values())))
         return self.sample(
             self.params, self.behavioral(load_f=mean_load), vin, slope, load_f=load_f, gate_v=gate_v, rng=rng
@@ -163,6 +184,13 @@ class Model:
         thresholds are behavioral parameters.
         """
 
+        # [Razavi-ADC] Eq. (3.23), p. 27: R_on = 1 / (mu_n C_ox (W / L)(V_GS - V_TH)): the conductance
+        # a volt of overdrive is k' W / L
+        # Terms: W / L MN's (MP's), mos_w W_MIN_UM over mos_l L_MIN_UM; k' = mu C_ox the rough
+        #   NMOS_K_A_PER_V2 and PMOS_K_A_PER_V2.
+        # Ours against the source: no velocity saturation or mobility degradation: a rough value,
+        #   used only where no characterization is given.
+        # Holds for: deep triode (the output near the input).
         aspect = params.mos_w * W_MIN_UM / (params.mos_l * L_MIN_UM)
         nmos = (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
         n_s = NMOS_K_A_PER_V2 * aspect if params.switch_type in nmos else 0.0
@@ -191,16 +219,26 @@ class Model:
                     f"characterized levels {float(levels.min()):.4g} to {float(levels.max()):.4g} V"
                 )
             measured = np.asarray(behavioral.ron_table_ohm, dtype=np.float64)
+            # not in the reference texts: between two measured levels the resistance is linear in
+            # the input; next to an open level (infinite R) the conductance is, so that it falls to
+            # zero there instead of the resistance jumping
+            # Terms: the levels and R the record's ron_vin curve (flow.samp.analysis.analyze_track).
+            # Holds for: an input inside the characterized levels (refused outside them).
             with np.errstate(divide="ignore", invalid="ignore"):
                 direct = np.interp(vin_v, levels, measured)
                 toward_open = 1.0 / np.interp(vin_v, levels, 1.0 / measured)
-            # linear in the resistance between settled levels, in the conductance toward an open one
             return np.where(np.isfinite(direct), direct, toward_open)
         n_s, p_s = Model.conductances(params, behavioral)
         if n_s == 0 and p_s == 0:
             return np.zeros_like(vin_v)
-        # [Razavi-ADC] Eq. (3.23), p. 27: R_on of an NMOS; Eq. (3.36), p. 32: the complementary pair in parallel
-        # [Razavi-ADC] Sec. 3.8.1, p. 43: a bootstrapped gate holds V_GS = V_DD whatever the input
+        # [Razavi-ADC] Eq. (3.23), p. 27: R_on = 1 / (mu_n C_ox (W / L)(V_DD - V_in - V_TH)); Eq. (3.36),
+        # p. 32: the complementary pair's two in parallel
+        # Terms: the NMOS's overdrive ``gate_v`` - V_in - ``n_threshold_v``, the PMOS's V_in -
+        #   ``p_threshold_v`` (its gate at 0 V); the conductances ``conductances`` gives.
+        # Ours against the source: a bootstrapped gate holds V_GS = ``gate_v`` whatever the input
+        #   ([Razavi-ADC] Sec. 3.8.1, p. 43), so its overdrive has no V_in; a device below its
+        #   threshold conducts nothing; the total conductance floored at 1 pS.
+        # Holds for: no measured curve given (the rough constants); constant thresholds.
         source = 0.0 if params.switch_type is SwitchType.BOOTSTRAP else vin_v
         conductance = n_s * np.maximum(gate_v - source - behavioral.n_threshold_v, 0.0)
         conductance += p_s * np.maximum(vin_v - behavioral.p_threshold_v, 0.0)
@@ -238,20 +276,43 @@ class Model:
             v = np.asarray(vin[side], dtype=np.float64)
             tau_s = Model.resistance(params, behavioral, v, gate_v) * load_f[side]
             tracking = np.isfinite(tau_s)
-            # [Razavi-ADC] Eq. (3.26), p. 29: the first-order track's phase shift R_on C_1 omega, a delay R_on C_1
-            # [Razavi-ADC] Eq. (3.86), p. 55: an instant later by dT holds dT dV_in/dt more
+            # [Razavi-ADC] Eq. (3.26), p. 29: a first-order track's phase shift tan^-1(R_on C_1 omega), for
+            # R_on C_1 omega << 1 a delay R_on C_1; Eq. (3.86), p. 55: an instant Delta T later holds
+            # Delta T dV_in/dt more: held = v + (Delta T - R(v) C) dv/dt
+            # Terms: R(v) ``resistance`` at the side's input v (vin), C its load ``load_f[side]``,
+            #   dv/dt ``slope[side]``; Delta T the jitter's draw (one for both sides) and the
+            #   aperture ``aperture_s`` + ``aperture_s_per_v`` v.
+            # Ours against the source: both to first order in the slope; an open switch (infinite
+            #   R) has no lag term and holds the previous sample (below).
+            # Holds for: R C omega << 1 and an input that is a straight line over the delay.
             delay_s = jitter_s + behavioral.aperture_s + behavioral.aperture_s_per_v * v
             target = v + (delay_s - np.where(tracking, tau_s, 0.0)) * slope[side]
             if behavioral.pedestal_table_vin_v is not None:
-                # [Razavi-ADC] Sec. 3.5.3, p. 36: the pedestal the opening switch leaves, at its input level
+                # [Razavi-Analog] Eq. (13.26), p. 550: the pedestal the opening switch leaves on C_H
+                # Terms: the characterized pedestal at the side's input level (the record's
+                #   pedestal_vin curve), linear between levels, its end values past them.
+                # Ours against the source: the measured curve at the bench's 1 pF, not rescaled to
+                #   ``load_f``.
+                # Holds for: a load near the bench's.
                 target = target + np.interp(
                     v, np.asarray(behavioral.pedestal_table_vin_v), np.asarray(behavioral.pedestal_table_v)
                 )
-            # [Razavi-ADC] Eq. (3.55), p. 39: sqrt(kT/C) on each side's own plate
+            # [Razavi-ADC] Eq. (3.55), p. 39: sqrt(kT / C) on each side's own plate: a side's share of
+            # the differential ``noise_v`` is noise_v / sqrt(2), scaled by sqrt(C_ref / C_side)
+            # Terms: C_ref ``noise_load_f`` (the load ``noise_v`` was computed for), C_side
+            #   ``load_f[side]``.
+            # Holds for: independent noise on the two sides.
             scale = 1.0 if behavioral.noise_load_f is None else math.sqrt(behavioral.noise_load_f / load_f[side])
             if behavioral.noise_v:
                 target = target + rng.normal(0.0, behavioral.noise_v / np.sqrt(2.0) * scale, count)
-            # [Razavi-ADC] Eq. (3.81), p. 54: the residue exp(-T / R_on C_1) of the step from the previous sample
+            # [Razavi-ADC] Eq. (3.81), p. 54: V_FS (1 - exp(-t_acq / (R_on1 C_1))): a track window T
+            # leaves exp(-T / (R C)) of the step from where the output started
+            # Terms: T ``track_s``; R C the side's ``tau_s``; the start the previous sample's held
+            #   value: held_n = target_n + (held_n-1 - target_n) exp(-T / tau_n).
+            # Ours against the source: the settled switch's R from the clock's rise on (its
+            #   turn-on, which the acquisition times hold, is left out); the start is the previous
+            #   held value, not where the converter left the top plate.
+            # Holds for: T long against the turn-on; without a window nothing is left.
             if behavioral.track_s is None:
                 left = np.where(tracking, 0.0, 1.0)
             else:

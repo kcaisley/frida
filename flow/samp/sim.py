@@ -3,9 +3,10 @@
 The testbench drives complementary clocks (tracking while ``clk`` is high, the complement
 ``clock_skew_s`` later), an input and a load capacitor. With an input step the input toggles by
 that step once per period, in the middle of each hold phase, so every track phase settles from a
-known step (its time constant and the switch's resistance) and every hold phase shows the charge
-the switch dumps on opening (the pedestal), the droop, and the input's feedthrough to the held
-output. With a sine the held samples carry the switch's distortion. With a DAC step half the load
+known step and every hold phase shows the charge the switch dumps on opening (the pedestal), the
+droop, and the input's feedthrough to the held output; with a track step as well the input steps
+onto its level in the middle of each track phase, the switch closed and its gate settled (its
+time constant and the switch's on-resistance). With a sine the held samples carry the switch's distortion. With a DAC step half the load
 is driven so that the held output steps as the DAC's first step steps it. ``simulate`` runs it in
 classic Spectre: its pedestals, residues and droops are small differences of large signals and its
 sine's harmonics distortion, which Spectre X's error control sets wrong (``spectre.Accuracy``); its
@@ -42,7 +43,9 @@ SAVES = tuple(
     )
 ) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage in (h.Usage.POWER, h.Usage.CLOCK))
 # a bootstrapped switch's boosted gate, its boost capacitor's plates and its helpers' nodes
-BOOST_SAVES = tuple(f"xtop.dut.{net}" for net in ("gate", "boot_top", "boot_bot", "gate_ctl", "gate_mid", "gate_off"))
+BOOST_SAVES = tuple(
+    f"xtop.dut.{net}" for net in ("gate", "boot_top", "boot_bot", "gate_ctl", "gate_top", "gate_mid", "gate_off")
+)
 
 
 def testbench(tb: TbParams) -> h.Module:
@@ -78,21 +81,62 @@ def testbench(tb: TbParams) -> h.Module:
     elif float(tb.input_step_v) == 0.0:
         bench.vvin = Vdc(dc=tb.input_voltage)(p=bench.vin, n=bench.vss)
     else:
-        # low for one period, high for the next, each change in the middle of a hold phase
+        # not in the reference texts: the bench's input, low for one period and high for the next,
+        # each change in the middle of a hold phase: it starts t_delay + t_high + (T - t_high) / 2 -
+        # (t_slew - t_edge) / 2 into the run and again every period
+        # Terms: T tb.clock_period_s, t_high tb.clock_high_time_s, t_edge the clock's transition
+        #   time, t_slew the change's own (the clock's unless tb.input_transition_time_s is given),
+        #   t_delay tb.clock_delay_s.
+        # Holds for: a change shorter than the hold phase (TbParams refuses a longer one), so that
+        #   it is over before the next track phase.
+        slew = float(edge if tb.input_transition_time_s is None else tb.input_transition_time_s)
+        base = bench.vss
+        if float(tb.track_step_v) != 0.0:
+            bench.vstep = h.Signal()
+            base = bench.vstep
         bench.vvin = Vpulse(
             v1=float(tb.input_voltage) - float(tb.input_step_v) / 2,
             v2=float(tb.input_voltage) + float(tb.input_step_v) / 2,
             period=2 * period,
-            width=period,
-            rise=tb.clock_transition_time_s,
-            fall=tb.clock_transition_time_s,
-            delay=float(tb.clock_delay_s) + high + (period - high) / 2,
-        )(p=bench.vin, n=bench.vss)
+            width=period - (slew - edge),
+            rise=slew,
+            fall=slew,
+            delay=float(tb.clock_delay_s) + high + (period - high) / 2 - (slew - edge) / 2,
+        )(p=bench.vin, n=base)
+        if float(tb.track_step_v) != 0.0:
+            # not in the reference texts: a second source in series, low until the middle of the
+            # first track phase (its edge centred t_delay + t_edge + t_high / 2 into the run), then
+            # high for a period and low for the next: with both steps equal the input reaches
+            # input_voltage in the middle of every track phase, from below and from above in turn,
+            # and leaves it in the middle of every hold phase
+            # Terms: as above; the clock is high from t_delay + t_edge for t_high.
+            # Holds for: a switch whose gate drive has settled by the middle of the track phase
+            #   (flow.samp.analysis.analyze_track reads its time constant after this step).
+            bench.vvstep = Vpulse(
+                v1=-float(tb.track_step_v) / 2,
+                v2=float(tb.track_step_v) / 2,
+                period=2 * period,
+                width=period - edge,
+                rise=edge,
+                fall=edge,
+                delay=float(tb.clock_delay_s) + (edge + high) / 2,
+            )(p=base, n=bench.vss)
     if float(tb.dac_step_v) == 0.0:
         bench.cload = C(c=tb.cload)(p=bench.vout, n=bench.vss)
     else:
-        # half the load on a source stepping by twice the step, so the held output steps by
-        # dac_step_v: a quarter into each hold phase, and back a quarter before the next track phase
+        # [Razavi-ADC] Eq. (3.65), p. 44: a capacitive divider, V_A = C_b / (C_b + C_p) V_in
+        # Terms: C_b ``cdac`` and C_p ``cload``, each half the load; V_in the source ``vdac``'s step
+        #   of twice dac_step_v, so the held output (V_A, vout) steps by dac_step_v: a quarter into
+        #   each hold phase, and back a quarter before the next track phase.
+        # Ours against the source: the two halves in parallel still load the tracking switch
+        #   with tb.cload.
+        # Holds for: the switch off (vout floating); a held output moved as the DAC's first step
+        #   moves it.
+        # not in the reference texts: the DAC step's timing: t_hold = T - t_high - 2 t_edge is the
+        # hold between the clock's edges; the step rises t_hold / 4 into it and falls t_hold / 4
+        # before its end
+        # Terms: T, t_high, t_edge as the input's above.
+        # Holds for: a hold longer than four clock edges.
         bench.vdac = h.Signal()
         hold = period - high - 2 * edge
         bench.cload = C(c=float(tb.cload) / 2)(p=bench.vout, n=bench.vss)

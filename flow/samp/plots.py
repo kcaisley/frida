@@ -15,6 +15,9 @@ from .types import AnalysisBoost, AnalysisHold, AnalysisTrack
 def _over_nominal(vdd_v: np.ndarray) -> list[float]:
     """Each run's supply over the nominal one: the supply sweep lies symmetric about its nominal
     (``params.SUPPLY_SWEEP``), so the nominal is the middle of its extremes."""
+    # not in the reference texts: V_DD,nominal = (min V_DD + max V_DD) / 2 of the supply runs
+    # Terms: the supplies ``vdd_v`` of the supply runs (flow.samp.runs.results).
+    # Holds for: a sweep symmetric about the nominal supply (90, 100 and 110 % of it).
     nominal = (float(np.min(vdd_v)) + float(np.max(vdd_v))) / 2
     return [float(value) / nominal for value in vdd_v]
 
@@ -65,7 +68,9 @@ def plot_pedestal_vin(hold: AnalysisHold) -> Plot:
 @plot
 def plot_feedthrough_vin(hold: AnalysisHold) -> Plot:
     """The input's feedthrough to the held output, in dB, over the input level."""
-    # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough
+    # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough, in dB: 20 log10 |Delta V_out / Delta V_in|
+    # Terms: the ratio ``hold.feedthrough`` at each level (flow.samp.analysis.analyze_hold).
+    # Holds for: a feedthrough above the simulator's resolution.
     return Plot(
         name="feedthrough_vin",
         title="Input feedthrough while holding, over the input level",

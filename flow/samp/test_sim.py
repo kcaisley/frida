@@ -34,6 +34,37 @@ def test_the_testbench_clocks_steps_and_loads_the_switch() -> None:
     assert float(stepped.delay) == pytest.approx(7.5e-9) and float(stepped.period) == pytest.approx(20e-9)
 
 
+def test_a_track_step_adds_a_second_source_stepping_in_mid_track() -> None:
+    """With a track step the input is two pulse sources in series: the one stepping in mid-hold on
+    top of one stepping in mid-track, low until the clock's high time is half over (the 50 ps edge
+    and 2.5 ns of the 5 ns: its own 50 ps edge centred there, so starting at 2.525 ns), then high
+    for a period less its edge. With both steps 10 mV about 0.6 V the input is 0.59 V until
+    mid-track, 0.6 V until mid-hold, 0.61 V until the next mid-track."""
+    bench = sim.testbench(TbParams(input_voltage=0.6, input_step_v=0.01, track_step_v=0.01))
+    hold, track = bench.vvin.of.params, bench.vvstep.of.params
+    assert bench.vvin.conns["n"] is bench.vstep and bench.vvstep.conns["p"] is bench.vstep
+    assert (float(hold.v1), float(hold.v2)) == pytest.approx((0.595, 0.605))
+    assert (float(track.v1), float(track.v2)) == pytest.approx((-0.005, 0.005))
+    assert float(track.delay) == pytest.approx(2.525e-9) and float(track.period) == pytest.approx(20e-9)
+    assert float(track.width) == pytest.approx(10e-9 - 50e-12)
+    assert not hasattr(sim.testbench(TbParams()), "vvstep")
+
+
+def test_an_input_transition_time_slows_the_hold_step_about_mid_hold() -> None:
+    """A full-scale step over 63.66 ns in the 87.5 ns hold of a 100 ns period: it starts half its
+    length less half a clock edge before the plain step would (56.25 ns - 31.83 ns + 25 ps), so its
+    middle stays 25 ps after mid-hold, and the next one starts a period later."""
+    tb = TbParams(input_step_v=0.94, input_transition_time_s=63.66e-9, clock_period_s=100e-9, clock_high_time_s=12.5e-9)
+    step = sim.testbench(tb).vvin.of.params
+    assert float(step.rise) == float(step.fall) == pytest.approx(63.66e-9)
+    assert float(step.delay) == pytest.approx(56.25e-9 - 31.83e-9 + 25e-12)
+    assert float(step.width) + float(step.rise) == pytest.approx(100e-9 + 50e-12)
+    plain = sim.testbench(TbParams()).vvin.of.params
+    assert (float(plain.rise), float(plain.delay), float(plain.width)) == pytest.approx((50e-12, 7.5e-9, 10e-9))
+    with pytest.raises(ValueError, match="shorter than the hold"):
+        TbParams(input_transition_time_s=6e-9)
+
+
 def test_a_run_saves_the_ports_and_the_supply_and_clock_currents() -> None:
     """The ports, and the current of the supply's and each clock's source (``xtop.v<net>:p``, which
     flow.pipeline.read names ``i[<net>]``)."""
