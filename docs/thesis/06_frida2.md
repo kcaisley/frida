@@ -30,7 +30,7 @@ A run's bounds reject a design as early as its evidence allows: each step names 
 
 ### Optimizing a block {#sec:optimizing}
 
-An optimization run is to a problem's space what a grid's steps are to its designs: its problem in one process is a study, its budget's trials asked asynchronously across a process pool, so a slow design holds no other.
+An optimization run searches a problem's space as a grid steps through its designs: one process's problem is a study, its trials run asynchronously across a process pool, so a slow design holds up no other.
 The objective is the problem's cost, the product of its cost metrics, each to its weight, with a saturating factor where a cost has a scale; each bound's violation is a named constraint, and a design that misses a bound completes infeasible.
 
 For the comparator of an $N$-bit converter the cost is
@@ -97,7 +97,7 @@ Bootstrapped switches in six processes: the largest pedestal against the on-resi
 
 ### Choosing a switch per process {#sec:samp-choice}
 
-The remaining architecture similarly prioritizes compactness: transmission-gate sampling switches, top-plate sampling, and a single-stage StrongARM comparator avoid a bootstrapped sampler, an internal input buffer, and a dedicated intermediate common-mode reference generator.
+The architecture prioritizes compactness: transmission-gate sampling switches, top-plate sampling, and a single-stage StrongARM comparator avoid a bootstrapped sampler, an internal input buffer, and a dedicated intermediate common-mode reference generator.
 The front end must nevertheless provide suitable input common mode and settling.
 
 ::: todo
@@ -121,11 +121,11 @@ The dynamic bias's input pair integrates in weak inversion and spends only the c
 - @fig:comp-energy-noise read per process: the best $E\sigma^2$ per process (3.3 fJ·mV² in TSMC65, 3.8 in TSMC28, 5.6 in LF150, 16–20 in the 130 and 180 nm processes) and why the older processes sit higher.
 :::
 
-The estimate, taken in the earlier form of @eq:strongarm-noise whose first term is twice the textbook's [@razavi2015, p. 15], runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
+The analytic noise estimate, taken in the earlier form of @eq:strongarm-noise whose first term is twice the textbook's [@razavi2015, p. 15], runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
 
 #### How a comparator is characterized {#sec:comp-characterization}
 
-Each instance is characterized at the nominal common mode: the delay and energy at 0.5 mV and 100 mV, the delay over 0.1–100 mV (its metastability and regeneration time constant), the kickback, and the offset and noise from a transient-noise S-curve: 0 and 25 µV to 3 mV a side, 33 points, 80 decisions a point in passes through every input in a fresh random order, fitted by the Gaussian of most likelihood.
+Each instance is characterized at the nominal common mode: the delay and energy at 0.5 mV and 100 mV, the delay over 0.1–100 mV (its metastability and regeneration time constant), the kickback, and the offset and noise from a transient-noise S-curve: 0 and 25 µV to 3 mV a side, 33 points, 80 decisions a point in passes through every input in a fresh random order, fitted by maximum likelihood to a Gaussian.
 One noise reading scatters by about 4 % (one sigma) between seeds.
 One clock is 1 ns of reset, then 4 ns of evaluation, and the converter allows about 2 ns.
 
@@ -204,7 +204,7 @@ Optimized converters across processes and resolutions.
 
 ## Automatic layout {#sec:frida2-layout}
 
-An instance's steps are one chain, each after the steps whose outputs it takes: the netlist, the pre-layout simulation, the layout, its DRC and LVS, the extraction, the post-layout simulation of the extracted netlist, and the record, from which the figures and the viewer's table are drawn.
+With layout, an instance's chain is the netlist, the pre-layout simulation, the layout, its DRC and LVS, the extraction, the post-layout simulation of the extracted netlist, and the record.
 
 ::: {#fig:pipeline placeholder="The block pipeline: params, netlist, presim, layout, DRC, LVS, PEX, postsim, results, with the evidence each step adds and the bounds it can judge."}
 The block pipeline.

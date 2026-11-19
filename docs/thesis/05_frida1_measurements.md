@@ -102,9 +102,7 @@ The quietest code spectrum: ADC02 at 6 MS/s, 0.87 LSB against 1.61 LSB with the 
 
 ## The conversion sequence {#sec:meas-sequence}
 
-At 2 MS/s every COMP duty cycle gives 1.5–1.7 LSB of code spread.
 A longer COMP high time (5/8 to 7/8) breaks down at 6–10 MS/s: wider spread, stuck codes.
-At 50 % duty the spread stays near 1.5–2 LSB from 2 to 10 MS/s.
 
 : Code σ in LSB over ADC00–03 at 50 mV fixed input, by comparator duty cycle and rate. {#tbl:duty}
 

@@ -20,7 +20,7 @@ The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω
 | Layout (µm²) | 12.9 | | |
 
 The pipeline measures the on-resistance from the track phase's time constant into a 1 pF load, between the 1/e and 1/e² crossings of a step, so that the edge's delay is excluded: $R_\mathrm{on} = \tau / C_\mathrm{load}$, an upper bound since the switch's own capacitance is included.
-In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
+In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest just above mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
 
 ::: {#fig:rec-samp-ron-vin plot="rec_samp_ron_vin"}
 A transmission gate of 32 units in TSMC65: On-resistance into 1 pF over the input level.
@@ -34,7 +34,7 @@ A transmission gate of 32 units in TSMC65: Track error at the end of tracking ov
 A transmission gate of 32 units in TSMC65: Pedestal over the input level.
 :::
 
-Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
+Pedestals stay within ±0.75 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
 Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.03 mV, and nearly double its area.
 
 ::: todo
@@ -91,7 +91,7 @@ FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution wit
 Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
 At a matching coefficient $A_C$ of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig:cdac-gap).
 
-The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; the same ideal estimate gives approximately 66 µV RMS, before comparator noise and other nonidealities are included.
+The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; its ideal sampling noise @eq:ktc-samp is approximately 66 µV RMS, before comparator noise and other nonidealities are included.
 
 The prototype's smallest effective weight is 0.8 fF, obtained from nominal 26.4 fF and 25.6 fF elements.
 
@@ -128,7 +128,7 @@ A 12-bit array of 17 decisions in TSMC65: Settling to half an LSB by stage (the 
 
 ### The assembled converter {#sec:frida1-adc}
 
-The generated FRIDA design composes these three instances: its behavioral record gives 10.04 ENOB, 28.9 pJ per conversion (289 µW at 10 MS/s) and 0.76 LSB of noise (sampler 0.50, comparator 0.71), with the ladder of @fig:adc-ladder.
+The generated FRIDA design composes these three instances: its behavioral record gives 10.04 ENOB, 28.9 pJ per conversion (289 µW at 10 MS/s) and 0.76 LSB of code noise (0.50 with the sampler's noise alone, 0.71 with the comparator's), with the ladder of @fig:adc-ladder.
 These single-instance predictions are what @sec:frida1-measurements compares the silicon against.
 
 #### The behavioral converter {#sec:adc-behavioral}
@@ -137,13 +137,10 @@ The behavioral converter composes the blocks' models, each from its own characte
 It runs the SAR loop on them.
 The comparator's measured delay over the input decides when a decision is late, and its SR latch then holds the last one; each stage's plates move after its driver's delay and settle with its own time constant.
 
-In the behavioral converter a late decision is held: the SR latch keeps its previous value.
-
 ::: {#fig:adc-architecture src="../images/report/adc_architecture"}
-Circuitikz schematic of the differential ADC, redundant capacitor weights, synchronous SAR registers, and main/difference capacitor pair.
+The differential ADC: redundant capacitor weights, synchronous SAR registers, and main/difference capacitor pair.
 :::
 
-The circuit diagram shows the differential architecture.
 Each capacitor cell contains a main capacitor and a difference capacitor, with the effective weight shown above it.
 Complementary rail drivers connect directly to the enabled decision registers.
 The first three capacitor stages and the final stage are shown; three dots denote the omitted stages 3–14.
@@ -169,7 +166,6 @@ The assembled 12-bit converter (behavioral): Output-code noise: 0.77 LSB rms = l
 :::
 
 For the generated FRIDA design the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
-Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 
 ::: todo
 
@@ -194,7 +190,7 @@ The assembled 12-bit converter (behavioral): Integrated error over the conversio
 The assembled 12-bit converter (behavioral): Supply power over the conversion rate.
 :::
 
-The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
+The SAR logic dominates the 28.9 pJ per conversion.
 
 ::: {#fig:rec-adc-reference-noise plot="rec_adc_reference_noise"}
 The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
@@ -204,7 +200,7 @@ The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise,
 
 ### Sampling switch and comparator {#sec:frida1-samp-comp}
 
-The sampling switch and comparator layouts were manually laid out using a traditional analog-on-top flow.
+The sampling switch and comparator were laid out manually in a traditional analog-on-top flow.
 We used these designs because their architectures and device sizes were already close to the optima found in the preceding optimization steps (@sec:frida1-samp, @sec:frida1-comp).
 
 ::: {#fig:frida1-comp src="figures/layout_frida1_comp.png figures/layout3d_frida1_comp.png" cols="2"}
@@ -290,7 +286,7 @@ Extracted converters over the comparator duty cycle and logic phase.
 ### Configuration and sequencing
 
 A synthesized SPI register controls the configuration bits of each ADC.
-The decision was made to apply the four ADC sequences externally, so four LVDS inputs were included (@sec:clocking).
+The four ADC sequences are applied externally, through four LVDS inputs (@sec:clocking).
 
 ### Analog inputs and comparator-output readout
 

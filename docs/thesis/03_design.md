@@ -120,7 +120,7 @@ The comparator latches as the comparator's netlist builds them, with an NMOS inp
 - The PMOS-input variants: each latch's exact dual (NMOS and PMOS, supply and ground, CLK and $\overline{\mathrm{CLK}}$ exchanged); and the inverters and SR latch every latch ends in, which hold the decision.
 :::
 
-A StrongARM integrates until its drains, P and Q, have fallen by the threshold $V_\mathrm{THN}$ of the cross-coupled NMOS that then turns on; with a tail current $I_\mathrm{SS}$ and a capacitance $C_\mathrm{P}$ at each drain this takes, and gains the input by [@razavi2025, p. 116]
+A StrongARM integrates until its drains, P and Q, have fallen by the threshold $V_\mathrm{THN}$ of the cross-coupled NMOS that then turns on; with a tail current $I_\mathrm{SS}$ and a capacitance $C_\mathrm{P}$ at each drain, the integration time and gain are [@razavi2025, p. 116]
 $$
 t_\mathrm{int} = \frac{2C_\mathrm{P}V_\mathrm{THN}}{I_\mathrm{SS}}, \qquad A_0 = \frac{2g_\mathrm{m}V_\mathrm{THN}}{I_\mathrm{SS}}.
 $$ {#eq:strongarm-integration}
@@ -204,7 +204,7 @@ The capacitor digital-to-analog converter (CDAC) holds the sampled input on its 
 CDAC total capacitance often dominates area usage and is a large portion of the power budget.
 Assuming no noise shaping or cancellation, kT/C sampling noise provides the theoretical limit on ADC error, and is determined by $C_\mathrm{tot}$.
 However, a conventional CDAC implemented with capacitor scaling alone exhibits severe mismatch in its LSB capacitors as its $C_\mathrm{tot}$ is shrunk.
-This chapter writes down the two limits, noise and matching, as minimum capacitances, and the redundancy that lets calibration recover what matching leaves.
+This section writes down the two limits, noise and matching, as minimum capacitances, and the redundancy that lets calibration recover what matching leaves.
 
 ### Top-plate sampling {#sec:cdac-top-plate}
 
@@ -284,11 +284,6 @@ The benefit comes with sensitivity to matching between the paired elements, whic
 ::: {#fig:capacitor-views src="../images/report/capacitor_views"}
 Plan and three-dimensional views of a shortened main/difference MOM capacitor cell, with the shared surrounding electrode in blue and independent inner electrodes in orange.
 :::
-
-The capacitor illustration presents side-by-side plan and perspective views of the same shortened geometry.
-A blue surrounding common electrode couples to independent orange main and difference electrodes.
-Opposite switching produces the effective weight of element $N$, $C_{\mathrm{eff},N} = C_{N,\mathrm{main}} - C_{N,\mathrm{diff}}$.
-The perspective shows three metal layers connected by vias, while the plan shows their shared footprint and via locations.
 
 ::: todo
 
@@ -428,11 +423,11 @@ The quantization noise and the three thermal noises, track-and-hold, reference a
 $$
 \sigma_\mathrm{tot}^2 = \frac{\mathrm{LSB}^2}{12} + \frac{2kT}{C} + \sigma_\mathrm{comp}^2 + \sigma_\mathrm{ref}^2.
 $$ {#eq:noise-budget}
-Each source that adds one quantization noise power costs the converter
+Added noise sources cost the converter
 $$
 \mathrm{ENOB} = N - \frac{1}{2}\log_2\!\left(1 + \sum_i \frac{\sigma_i^2}{\mathrm{LSB}^2/12}\right),
 $$ {#eq:enob-budget}
-half a bit for one such source, and about two thirds of a bit for three equal ones at 0.71 of the quantization noise each, half its power.
+half a bit for one source equal to the quantization noise, and about two thirds of a bit for three equal ones at 0.71 of the quantization noise each, half its power.
 The reference may add at most half the quantization noise power from its output resistance and half from its noise.
 
 ::: todo
