@@ -1,0 +1,20 @@
+"""
+ADR4525: 2.5 V ultralow-noise voltage reference, SOIC-8.
+"""
+
+VIN = io(Power)
+GND = io(Ground)
+VOUT = io(Power)
+
+Component(
+    name="ADR4525",
+    symbol=Symbol(library="ADR4525.kicad_sym"),
+    footprint=File("SOIC-8_3.9x4.9mm_P1.27mm.kicad_mod"),
+    part=Part(mpn="ADR4525BRZ", manufacturer="Analog Devices"),
+    prefix="U",
+    pins={
+        "VIN": VIN,
+        "GND": GND,
+        "VOUT": VOUT,
+    },
+)

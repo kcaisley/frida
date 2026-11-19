@@ -1,23 +1,63 @@
 """
 frida-scc-2p0: the FRIDA single-chip card, revision 2.0.
+
+The test board for the FRIDA-1 ADC. Against frida-scc-1p1 it makes its own rails from one raw
++-5 V input, carries a signal source for ramps and low-frequency sines, and replaces the probe
+headers with a matrix that puts any of 10 LVDS legs and 20 slow nodes on four oscilloscope SMAs.
 """
 
 load("@stdlib/interfaces.zen", "DiffPair")
 
+Resistor = Module("@stdlib/generics/Resistor.zen")
+MountingHole = Module("@stdlib/generics/MountingHole.zen")
 Asic = Module("modules/Asic.zen")
 FpgaLink = Module("modules/FpgaLink.zen")
+AuxLink = Module("modules/AuxLink.zen")
 InputAmp = Module("modules/InputAmp.zen")
+Supplies = Module("modules/Supplies.zen")
+SignalSource = Module("modules/SignalSource.zen")
 LvdsTap = Module("modules/LvdsTap.zen")
+ProbeChannel = Module("modules/ProbeChannel.zen")
+
+# ---------------------------------------------------------------- rails
 
 GND = Ground()
 VDD_A = Power(voltage="1.2V")
 VDD_D = Power(voltage="1.2V")
 VDD_DAC = Power(voltage="1.2V")
 VDD_IO = Power(voltage="1.2V")
-VDD_BDAQ = Power()
-V_DP = Power()
-VS_P = Power()
+V3P3A = Power(voltage="3.3V")
+V2P5 = Power(voltage="2.5V")
 VS_N = Power()
+VDD_BDAQ = Power()  # 2.5 V from an FPGA pin: the control link's level reference
+VREF = Power(voltage="2.5V")
+
+IMON_A = Net()
+IMON_D = Net()
+IMON_DAC = Net()
+IMON_IO = Net()
+MON_V3P3A = Net()
+MON_VS_N = Net()
+
+Supplies(
+    name="SUPPLIES",
+    VDD_A=VDD_A,
+    VDD_D=VDD_D,
+    VDD_DAC=VDD_DAC,
+    VDD_IO=VDD_IO,
+    V3P3A=V3P3A,
+    V2P5=V2P5,
+    VS_N=VS_N,
+    GND=GND,
+    IMON_A=IMON_A,
+    IMON_D=IMON_D,
+    IMON_DAC=IMON_DAC,
+    IMON_IO=IMON_IO,
+    MON_V3P3A=MON_V3P3A,
+    MON_VS_N=MON_VS_N,
+)
+
+# ---------------------------------------------------------------- the chip and its links
 
 CLK_INIT = DiffPair(impedance="100Ohm")
 CLK_SAMP = DiffPair(impedance="100Ohm")
@@ -25,9 +65,6 @@ CLK_COMP = DiffPair(impedance="100Ohm")
 CLK_LOGIC = DiffPair(impedance="100Ohm")
 COMP_OUT = DiffPair(impedance="100Ohm")
 VIN = DiffPair()
-AMP_OUT = DiffPair()
-VOCM = Net()
-SRC = Net()
 SPI_CS_B = Net()
 SPI_SCLK = Net()
 SPI_SDI = Net()
@@ -54,6 +91,7 @@ Asic(
     VDD_IO=VDD_IO,
     GND=GND,
 )
+
 FpgaLink(
     name="LINK",
     CLK_INIT=CLK_INIT,
@@ -68,22 +106,149 @@ FpgaLink(
     RST_B=RST_B,
     AMP_PD_EXT=AMP_PD_EXT,
     VDD_BDAQ=VDD_BDAQ,
-    V_DP=V_DP,
     VDD_IO=VDD_IO,
     GND=GND,
 )
+
+AUX_SCLK = Net()
+AUX_SDI = Net()
+AUX_SDO = Net()
+DAC_CS_N = Net()
+DAC_LDAC_N = Net()
+SEL_RCLK = Net()
+
+AuxLink(
+    name="AUX",
+    SCLK=AUX_SCLK,
+    SDI=AUX_SDI,
+    SDO=AUX_SDO,
+    DAC_CS_N=DAC_CS_N,
+    DAC_LDAC_N=DAC_LDAC_N,
+    SEL_RCLK=SEL_RCLK,
+    GND=GND,
+)
+
+# ---------------------------------------------------------------- the analog input
+
+SRC = DiffPair()
+VOCM = Net()
+MON_VIN = DiffPair()
+MON_AMP = DiffPair()
+
+SignalSource(
+    name="SOURCE",
+    OUT=SRC,
+    VREF=VREF,
+    CS_N=DAC_CS_N,
+    SCLK=AUX_SCLK,
+    DIN=AUX_SDI,
+    LDAC_N=DAC_LDAC_N,
+    V3P3A=V3P3A,
+    V2P5=V2P5,
+    VS_N=VS_N,
+    GND=GND,
+)
+
 InputAmp(
     name="INPUT",
     VIN=VIN,
     SRC=SRC,
     VOCM=VOCM,
-    AMP_OUT=AMP_OUT,
+    MON_VIN=MON_VIN,
+    MON_AMP=MON_AMP,
     AMP_PD_EXT=AMP_PD_EXT,
     VDD_BDAQ=VDD_BDAQ,
-    VS_P=VS_P,
+    VS_P=V3P3A,
     VS_N=VS_N,
     VDD_DAC=VDD_DAC,
     GND=GND,
 )
+
+# ---------------------------------------------------------------- the probe matrix
+
+# Fast taps: 953 ohm on each clock leg (the 1 kohm frida-scc-1p1 had there); 2.49 kohm on
+# COMP_OUT, whose driver is the chip's and had no such load before.
+TAP_INIT = DiffPair()
+TAP_SAMP = DiffPair()
+TAP_COMP = DiffPair()
+TAP_LOGIC = DiffPair()
+TAP_COMP_OUT = DiffPair()
+
+LvdsTap(name="TAP_INIT", LINE=CLK_INIT, TAP=TAP_INIT)
+LvdsTap(name="TAP_SAMP", LINE=CLK_SAMP, TAP=TAP_SAMP)
+LvdsTap(name="TAP_COMP", LINE=CLK_COMP, TAP=TAP_COMP)
+LvdsTap(name="TAP_LOGIC", LINE=CLK_LOGIC, TAP=TAP_LOGIC)
+LvdsTap(name="TAP_COMP_OUT", LINE=COMP_OUT, TAP=TAP_COMP_OUT, r_series="2.49k")
+
+# Slow taps that need a resistor at the node: the SPI wires behind 1 kohm, the source halved
+MON_SPI_CS_B = Net()
+MON_SPI_SCLK = Net()
+MON_SPI_SDI = Net()
+MON_SPI_SDO = Net()
+MON_SRC = Net()
+
+Resistor(name="R_MON_SPI_CS_B", value="1k", package="0402", P1=SPI_CS_B, P2=MON_SPI_CS_B)
+Resistor(name="R_MON_SPI_SCLK", value="1k", package="0402", P1=SPI_SCLK, P2=MON_SPI_SCLK)
+Resistor(name="R_MON_SPI_SDI", value="1k", package="0402", P1=SPI_SDI, P2=MON_SPI_SDI)
+Resistor(name="R_MON_SPI_SDO", value="1k", package="0402", P1=SPI_SDO, P2=MON_SPI_SDO)
+Resistor(name="R_MON_SRC_TOP", value="10k", package="0402", P1=SRC.P, P2=MON_SRC)
+Resistor(name="R_MON_SRC_BOT", value="10k", package="0402", P1=MON_SRC, P2=GND)
+
+# One row per oscilloscope channel. The fast legs are spread so that the four clocks (CH1 INIT,
+# CH2 COMP, CH3 LOGIC, CH4 SAMP), the converter's standard view (CH2 COMP, CH3 LOGIC, CH4
+# COMP_OUT, CH1 an analog node) and both legs of any one pair each land on different channels.
+# Every channel sees the four chip rails; the other slow nodes are shared out.
+CHANNELS = [
+    (
+        "CH1",
+        [TAP_INIT.P, TAP_COMP_OUT.N, TAP_SAMP.N],
+        [VDD_A, VDD_D, VDD_DAC, VDD_IO, MON_VIN.P, MON_AMP.P, MON_SRC, MON_SPI_CS_B],
+    ),
+    (
+        "CH2",
+        [TAP_COMP.P, TAP_INIT.N, TAP_LOGIC.N],
+        [VDD_A, VDD_D, VDD_DAC, VDD_IO, MON_VIN.N, MON_AMP.N, VOCM, MON_SPI_SCLK],
+    ),
+    (
+        "CH3",
+        [TAP_LOGIC.P, TAP_COMP.N, NotConnected()],
+        [VDD_A, VDD_D, VDD_DAC, VDD_IO, IMON_A, IMON_DAC, MON_V3P3A, MON_SPI_SDI],
+    ),
+    (
+        "CH4",
+        [TAP_COMP_OUT.P, TAP_SAMP.P, NotConnected()],
+        [VDD_A, VDD_D, VDD_DAC, VDD_IO, IMON_D, IMON_IO, MON_VS_N, MON_SPI_SDO],
+    ),
+]
+
+# The select registers in one chain: FPGA -> CH1 -> CH2 -> CH3 -> CH4 -> FPGA
+chain = [AUX_SDI, Net("SEL_CHAIN_1"), Net("SEL_CHAIN_2"), Net("SEL_CHAIN_3"), AUX_SDO]
+
+for index, (name, fast, slow) in enumerate(CHANNELS):
+    ProbeChannel(
+        name=name,
+        FAST1=fast[0],
+        FAST2=fast[1],
+        FAST3=fast[2],
+        S1=slow[0],
+        S2=slow[1],
+        S3=slow[2],
+        S4=slow[3],
+        S5=slow[4],
+        S6=slow[5],
+        S7=slow[6],
+        S8=slow[7],
+        SER=chain[index],
+        SER_OUT=chain[index + 1],
+        SRCLK=AUX_SCLK,
+        RCLK=SEL_RCLK,
+        V2P5=V2P5,
+        GND=GND,
+    )
+
+# ---------------------------------------------------------------- mechanics
+
+for index in range(1, 5):
+    MountingHole(name="H" + str(index), diameter="M3")
 
 Board(name="frida-scc-2p0", layers=4, path="eda", schematic=True)

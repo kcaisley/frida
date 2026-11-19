@@ -1,0 +1,46 @@
+"""
+SN74LVC595A: 8-bit shift register with output latches, 1.65 to 3.6 V, TSSOP-16.
+"""
+
+SER = io(Net)
+SRCLK = io(Net)
+RCLK = io(Net)
+SRCLR_N = io(Net)
+OE_N = io(Net)
+GND = io(Ground)
+VCC = io(Power)
+QA = io(Net)
+QB = io(Net)
+QC = io(Net)
+QD = io(Net)
+QE = io(Net)
+QF = io(Net)
+QG = io(Net)
+QH = io(Net)
+QH_SER = io(Net)
+
+Component(
+    name="SN74LVC595A",
+    symbol=Symbol(library="SN74LVC595A.kicad_sym"),
+    footprint=File("TSSOP-16_4.4x5mm_P0.65mm.kicad_mod"),
+    part=Part(mpn="SN74LVC595APWR", manufacturer="Texas Instruments"),
+    prefix="U",
+    pins={
+        "SER": SER,
+        "SRCLK": SRCLK,
+        "RCLK": RCLK,
+        "SRCLR_N": SRCLR_N,
+        "OE_N": OE_N,
+        "GND": GND,
+        "VCC": VCC,
+        "QA": QA,
+        "QB": QB,
+        "QC": QC,
+        "QD": QD,
+        "QE": QE,
+        "QF": QF,
+        "QG": QG,
+        "QH": QH,
+        "QH_SER": QH_SER,
+    },
+)

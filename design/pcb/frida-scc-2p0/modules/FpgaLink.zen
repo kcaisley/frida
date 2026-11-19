@@ -2,7 +2,7 @@
 The two cables to the BDAQ53 FPGA board, as on frida-scc-1p1:
 
 - DisplayPort: the four LVDS clocks in, COMP_OUT back, the board thermistor on the two
-  configuration pins, and the cable's power pin.
+  configuration pins.
 - RJ45: SPI, reset and the amplifier's power-down at the FPGA's levels (VDD_BDAQ), level-shifted
   to the chip's VDD_IO by an SN74AXC8T245.
 
@@ -35,7 +35,6 @@ RST_B = io(Net)
 AMP_PD_EXT = io(Net, help="Amplifier power-down request at VDD_BDAQ levels")
 
 VDD_BDAQ = io(Power, help="The FPGA board's I/O supply, from the RJ45")
-V_DP = io(Power, help="The DisplayPort cable's power pin")
 VDD_IO = io(Power)
 GND = io(Ground)
 
@@ -63,7 +62,7 @@ DisplayPort(
     P16=GND,
     P17=CLK_INIT.P,
     P18=NotConnected(),
-    P19=V_DP,
+    P19=NotConnected(),  # the cable's power pin; frida-scc-1p1 joined it to its 1.2 V input
     P20=NotConnected(),
     MH1=EARTH,
     MH2=EARTH,

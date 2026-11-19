@@ -1,0 +1,122 @@
+"""
+One oscilloscope channel of the probe matrix: an SMA that the FPGA connects to one of three fast
+taps or to one of eight slow nodes, so that no probe is ever moved.
+
+    FAST1..3 (LVDS tap legs, 50 ohm) ----------------------> ADG904 RF1..RF3 \\
+    S1..S8 --> TMUX1108 8:1 --> 1 kohm ---------------------> ADG904 RF4      >--> RFC --> SMA
+    SER, SRCLK, RCLK --> SN74LVC595A --> the seven select lines
+
+- The ADG904 is DC-coupled and absorptive: every port it has not selected sees 50 ohm to ground,
+  so a tap loads its line the same whether or not it is watched. Its ports take -0.5 V to
+  VDD - 0.5 V (2.0 V here): every slow node must stay inside that.
+- Fast taps want the oscilloscope's 50 ohm input (a tap's series resistor and that 50 ohm make
+  the divider); slow nodes its 1 Mohm input (1:1), or 50 ohm for 21:1.
+- The 1 kohm after the multiplexer bounds the current when a slow node is enabled but RF4 is not
+  selected (the port's 50 ohm would otherwise load the node), so no select code can do harm,
+  including the register's arbitrary state at power-up.
+
+Select byte (QA holds the last bit clocked in, QH the first):
+    QA, QB  RF switch address (00 FAST1, 01 FAST2, 10 FAST3, 11 the slow multiplexer)
+    QC      RF switch disable (1: nothing selected)
+    QD..QF  slow multiplexer address (S1..S8)
+    QG      slow multiplexer enable
+    QH      unused
+"""
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Sma = Module("../components/SMA_Molex_733910070/SMA_Molex_733910070.zen")
+Adg904 = Module("../components/ADG904/ADG904.zen")
+Tmux1108 = Module("../components/TMUX1108/TMUX1108.zen")
+ShiftRegister = Module("../components/SN74LVC595A/SN74LVC595A.zen")
+
+FAST1 = io(Net)
+FAST2 = io(Net)
+FAST3 = io(Net)
+S1 = io(Net)
+S2 = io(Net)
+S3 = io(Net)
+S4 = io(Net)
+S5 = io(Net)
+S6 = io(Net)
+S7 = io(Net)
+S8 = io(Net)
+
+SER = io(Net, help="Serial data in")
+SER_OUT = io(Net, help="Serial data out, to the next channel")
+SRCLK = io(Net, help="Shift clock")
+RCLK = io(Net, help="Latch: the outputs take the shifted byte on its rising edge")
+
+V2P5 = io(Power)
+GND = io(Ground)
+
+RF_A0 = Net()
+RF_A1 = Net()
+RF_EN_N = Net()
+MUX_A0 = Net()
+MUX_A1 = Net()
+MUX_A2 = Net()
+MUX_EN = Net()
+MUX_OUT = Net()
+SLOW = Net()
+SCOPE = Net()
+
+ShiftRegister(
+    name="U_SEL",
+    SER=SER,
+    SRCLK=SRCLK,
+    RCLK=RCLK,
+    SRCLR_N=V2P5,
+    OE_N=GND,
+    QA=RF_A0,
+    QB=RF_A1,
+    QC=RF_EN_N,
+    QD=MUX_A0,
+    QE=MUX_A1,
+    QF=MUX_A2,
+    QG=MUX_EN,
+    QH=NotConnected(),
+    QH_SER=SER_OUT,
+    VCC=V2P5,
+    GND=GND,
+)
+
+Tmux1108(
+    name="U_SLOW",
+    S1=S1,
+    S2=S2,
+    S3=S3,
+    S4=S4,
+    S5=S5,
+    S6=S6,
+    S7=S7,
+    S8=S8,
+    D=MUX_OUT,
+    A0=MUX_A0,
+    A1=MUX_A1,
+    A2=MUX_A2,
+    EN=MUX_EN,
+    VDD=V2P5,
+    VSS=GND,
+    GND=GND,
+)
+Resistor(name="R_SLOW", value="1k", package="0402", P1=MUX_OUT, P2=SLOW)
+
+Adg904(
+    name="U_RF",
+    RF1=FAST1,
+    RF2=FAST2,
+    RF3=FAST3,
+    RF4=SLOW,
+    RFC=SCOPE,
+    A0=RF_A0,
+    A1=RF_A1,
+    EN_N=RF_EN_N,
+    VDD=V2P5,
+    GND=GND,
+)
+
+Sma(name="J_SCOPE", IN=SCOPE, EXT=GND)
+
+for part in ["SEL", "SLOW", "RF"]:
+    Capacitor(name="C_" + part, value="100nF", package="0402", P1=V2P5, P2=GND)

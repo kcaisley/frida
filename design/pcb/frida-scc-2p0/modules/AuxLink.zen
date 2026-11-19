@@ -1,0 +1,37 @@
+"""
+A second RJ45 to the BDAQ53 for what is new on this board: an SPI bus of its own for the DAC and
+the probe matrix's select registers, so that streaming a waveform never toggles the chip's SPI
+wires. 2.5 V CMOS, as the first link; the pin roles follow that link's (data back on 1, selects
+on 2 and 5, data out on 3, clock on 4), so the firmware's port can be instantiated again.
+
+Proposed, not yet agreed: the BDAQ53 port and its FPGA pins.
+"""
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Rj45 = Module("../components/RJ45_Molex_446200002/RJ45_Molex_446200002.zen")
+
+SCLK = io(Net)
+SDI = io(Net, help="From the FPGA")
+SDO = io(Net, help="To the FPGA: the end of the select registers' chain")
+DAC_CS_N = io(Net)
+DAC_LDAC_N = io(Net)
+SEL_RCLK = io(Net, help="Latches the probe matrix's select registers")
+
+GND = io(Ground)
+
+Rj45(
+    name="J_AUX",
+    P1=SDO,
+    P2=DAC_CS_N,
+    P3=SDI,
+    P4=SCLK,
+    P5=SEL_RCLK,
+    P6=DAC_LDAC_N,
+    P7=GND,
+    P8=NotConnected(),
+)
+
+# Idle levels with the cable unplugged: clock and latch low
+Resistor(name="R_SCLK_PD", value="10k", package="0402", P1=SCLK, P2=GND)
+Resistor(name="R_RCLK_PD", value="10k", package="0402", P1=SEL_RCLK, P2=GND)
+Resistor(name="R_SDI_PD", value="10k", package="0402", P1=SDI, P2=GND)

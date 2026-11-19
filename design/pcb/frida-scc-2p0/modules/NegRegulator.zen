@@ -1,0 +1,45 @@
+"""
+One negative rail from an LT3094: VOUT = -100 uA x R_SET, 0 to -19.5 V from -2.3 to -20 V in.
+
+Its exposed pad is IN, not ground. Between 0 and -1.5 V out the part needs 10 uA of load, which
+the bleed resistor draws. Power good and fast start-up are not used (PGFB to IN); the current
+limit is 3.75 A kohm / R_ILIM.
+"""
+
+load("@stdlib/units.zen", "Current", "Resistance", "Voltage")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Lt3094 = Module("../components/LT3094/LT3094.zen")
+
+vout_magnitude = config(Voltage, help="Magnitude of the negative output; R_SET = magnitude / 100 uA")
+r_ilim = config(Resistance, default="37.4k", help="Current limit 3.75 A kohm / r_ilim (37.4k: 100 mA)")
+
+VIN = io(Power, help="Negative input")
+VOUT = io(Power, help="Negative output")
+GND = io(Ground)
+
+SET = Net()
+ILIM = Net()
+
+Lt3094(
+    name="U_REG",
+    IN=VIN,
+    EN_UV=VIN,
+    PGFB=VIN,
+    OUT=VOUT,
+    OUTS=VOUT,
+    SET=SET,
+    ILIM=ILIM,
+    VIOC=NotConnected(),
+    PG=NotConnected(),
+    GND=GND,
+)
+
+Resistor(name="R_SET", value=vout_magnitude / Current("100uA"), package="0603", P1=SET, P2=GND)
+Capacitor(name="C_SET", value="4.7uF", package="0603", P1=SET, P2=GND)
+Resistor(name="R_ILIM", value=r_ilim, package="0402", P1=ILIM, P2=GND)
+Resistor(name="R_BLEED", value="100k", package="0402", P1=VOUT, P2=GND)
+
+Capacitor(name="C_IN", value="10uF", package="0805", voltage="16V", P1=VIN, P2=GND)
+Capacitor(name="C_OUT", value="10uF", package="0805", P1=VOUT, P2=GND)

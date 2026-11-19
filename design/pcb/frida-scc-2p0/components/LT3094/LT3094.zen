@@ -1,0 +1,37 @@
+"""
+LT3094: -500 mA ultralow-noise, ultrahigh-PSRR negative linear regulator, MSOP-12 (the pad is IN).
+"""
+
+IN = io(Power)
+EN_UV = io(Net)
+PGFB = io(Net)
+ILIM = io(Net)
+VIOC = io(Net)
+GND = io(Ground)
+OUT = io(Power)
+OUTS = io(Net)
+SET = io(Net)
+PG = io(Net)
+
+Component(
+    name="LT3094",
+    symbol=Symbol(library="LT3094.kicad_sym"),
+    footprint=File("MSOP-12-1EP_3x4.039mm_P0.65mm_EP1.651x2.845mm.kicad_mod"),
+    part=Part(mpn="LT3094EMSE#PBF", manufacturer="Analog Devices"),
+    prefix="U",
+    pins={
+        "IN_1": IN,
+        "IN_2": IN,
+        "IN_13": IN,
+        "EN_UV": EN_UV,
+        "PGFB": PGFB,
+        "ILIM": ILIM,
+        "VIOC": VIOC,
+        "GND": GND,
+        "OUT_11": OUT,
+        "OUT_12": OUT,
+        "OUTS": OUTS,
+        "SET": SET,
+        "PG": PG,
+    },
+)

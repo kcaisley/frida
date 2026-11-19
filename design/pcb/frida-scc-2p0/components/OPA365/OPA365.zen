@@ -1,0 +1,24 @@
+"""
+OPA365: 50 MHz zero-crossover rail-to-rail op amp, 2.2 to 5.5 V, SOIC-8 (standard single op-amp pinout).
+"""
+
+IN_P = io(Net)
+IN_N = io(Net)
+VN = io(Power)
+VP = io(Power)
+OUT = io(Net)
+
+Component(
+    name="OPA365",
+    symbol=Symbol(library="OPA365.kicad_sym"),
+    footprint=File("SOIC-8_3.9x4.9mm_P1.27mm.kicad_mod"),
+    part=Part(mpn="OPA365AIDR", manufacturer="Texas Instruments"),
+    prefix="U",
+    pins={
+        "IN_P": IN_P,
+        "IN_N": IN_N,
+        "VN": VN,
+        "VP": VP,
+        "OUT": OUT,
+    },
+)

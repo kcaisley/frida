@@ -1,0 +1,46 @@
+"""
+TMUX1108: 8:1 precision analog multiplexer, 1.08 to 5.5 V, TSSOP-16.
+"""
+
+S1 = io(Net)
+S2 = io(Net)
+S3 = io(Net)
+S4 = io(Net)
+S5 = io(Net)
+S6 = io(Net)
+S7 = io(Net)
+S8 = io(Net)
+VDD = io(Power)
+D = io(Net)
+A0 = io(Net)
+A1 = io(Net)
+A2 = io(Net)
+EN = io(Net)
+VSS = io(Ground)
+GND = io(Ground)
+
+Component(
+    name="TMUX1108",
+    symbol=Symbol(library="TMUX1108.kicad_sym"),
+    footprint=File("TSSOP-16_4.4x5mm_P0.65mm.kicad_mod"),
+    part=Part(mpn="TMUX1108PWR", manufacturer="Texas Instruments"),
+    prefix="U",
+    pins={
+        "S1": S1,
+        "S2": S2,
+        "S3": S3,
+        "S4": S4,
+        "S5": S5,
+        "S6": S6,
+        "S7": S7,
+        "S8": S8,
+        "VDD": VDD,
+        "D": D,
+        "A0": A0,
+        "A1": A1,
+        "A2": A2,
+        "EN": EN,
+        "VSS": VSS,
+        "GND": GND,
+    },
+)

@@ -1,0 +1,44 @@
+"""
+ADG904: Absorptive 4:1 RF switch, DC to 2 GHz, 1.65 to 2.75 V, TSSOP-20 (off ports 50 ohm to ground).
+"""
+
+RF1 = io(Net)
+RF2 = io(Net)
+RF3 = io(Net)
+RF4 = io(Net)
+GND = io(Ground)
+VDD = io(Power)
+RFC = io(Net)
+A0 = io(Net)
+A1 = io(Net)
+EN_N = io(Net)
+
+Component(
+    name="ADG904",
+    symbol=Symbol(library="ADG904.kicad_sym"),
+    footprint=File("TSSOP-20_4.4x6.5mm_P0.65mm.kicad_mod"),
+    part=Part(mpn="ADG904BRUZ", manufacturer="Analog Devices"),
+    prefix="U",
+    pins={
+        "RF1": RF1,
+        "RF2": RF2,
+        "RF3": RF3,
+        "RF4": RF4,
+        "GND_3": GND,
+        "GND_5": GND,
+        "GND_6": GND,
+        "GND_8": GND,
+        "GND_9": GND,
+        "GND_11": GND,
+        "GND_12": GND,
+        "GND_13": GND,
+        "GND_15": GND,
+        "GND_16": GND,
+        "GND_18": GND,
+        "VDD": VDD,
+        "RFC": RFC,
+        "A0": A0,
+        "A1": A1,
+        "EN_N": EN_N,
+    },
+)

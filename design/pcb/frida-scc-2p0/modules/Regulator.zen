@@ -1,0 +1,57 @@
+"""
+One positive rail from an LT3045: VOUT = 100 uA x R_SET, 0 to 15 V from 2 to 20 V in.
+
+At 1.2 V out the datasheet gives 1.8 uVrms (10 Hz to 100 kHz, C_SET 4.7 uF) and 72 / 64 dB of
+supply rejection at 100 kHz / 1 MHz; above 1.3 V out, 0.8 uVrms and 77 / 76 dB.
+
+The ILIM resistor sets the current limit (150 mA kohm / R) and makes the pin a current monitor:
+1/500 of the load current flows in it, so IMON reads I_load x R_ILIM / 500 (3 mV per mA at 1.5 kohm).
+The PGFB divider puts the fast start-up's end (and power good) at 90 % of the output.
+"""
+
+load("@stdlib/units.zen", "Current", "Resistance", "Voltage")
+load("@stdlib/utils.zen", "e96")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Lt3045 = Module("../components/LT3045/LT3045.zen")
+
+vout = config(Voltage, help="Output voltage; R_SET = vout / 100 uA")
+r_ilim = config(Resistance, default="1.5k", help="Current limit 150 mA kohm / r_ilim (1.5k: 100 mA)")
+
+VIN = io(Power)
+VOUT = io(Power)
+GND = io(Ground)
+IMON = io(Net, optional=True, help="Load current monitor, I x r_ilim / 500, behind 10 kohm")
+
+SET = Net()
+ILIM = Net()
+PGFB = Net()
+
+Lt3045(
+    name="U_REG",
+    IN=VIN,
+    EN_UV=VIN,
+    OUT=VOUT,
+    OUTS=VOUT,
+    SET=SET,
+    ILIM=ILIM,
+    PGFB=PGFB,
+    PG=NotConnected(),
+    GND=GND,
+)
+
+Resistor(name="R_SET", value=vout / Current("100uA"), package="0603", P1=SET, P2=GND)
+Capacitor(name="C_SET", value="4.7uF", package="0603", P1=SET, P2=GND)
+
+Resistor(name="R_ILIM", value=r_ilim, package="0402", P1=ILIM, P2=GND)
+Resistor(name="R_IMON", value="10k", package="0402", P1=ILIM, P2=IMON)
+
+# Power good at 0.3 V x (1 + top / bottom) = 0.9 x vout
+r_pg_bottom = Resistance("49.9k")
+r_pg_top = e96(Resistance(r_pg_bottom.value * (0.9 * vout.value / 0.3 - 1)))
+Resistor(name="R_PG_TOP", value=r_pg_top, package="0402", P1=VOUT, P2=PGFB)
+Resistor(name="R_PG_BOT", value=r_pg_bottom, package="0402", P1=PGFB, P2=GND)
+
+Capacitor(name="C_IN", value="10uF", package="0805", voltage="16V", P1=VIN, P2=GND)
+Capacitor(name="C_OUT", value="10uF", package="0805", P1=VOUT, P2=GND)

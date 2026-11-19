@@ -10,7 +10,7 @@ K_3 = io(Net)
 
 Component(
     name="BAV99",
-    part=Part(mpn="BAV99", manufacturer="Nexperia"),
+    part=Part(mpn="BAV99,215", manufacturer="Nexperia"),
     properties={"Value": "BAV99", "schematic_description": "BAV99 High-speed switching diodes, SOT-23"},
     symbol=Symbol(library="BAV99.kicad_sym"),
     pin_defs={"K__1": "1", "A": "2", "K__3": "3"},

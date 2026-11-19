@@ -1,0 +1,34 @@
+"""
+AD5541A: 16-bit unbuffered voltage-output DAC, SPI, MSOP-10 (output resistance 6.25 kohm).
+"""
+
+VDD = io(Power)
+VLOGIC = io(Power)
+REF = io(Net)
+CS_N = io(Net)
+SCLK = io(Net)
+DIN = io(Net)
+LDAC_N = io(Net)
+VOUT = io(Net)
+AGND = io(Ground)
+DGND = io(Ground)
+
+Component(
+    name="AD5541A",
+    symbol=Symbol(library="AD5541A.kicad_sym"),
+    footprint=File("MSOP-10_3x3mm_P0.5mm.kicad_mod"),
+    part=Part(mpn="AD5541ABRMZ", manufacturer="Analog Devices"),
+    prefix="U",
+    pins={
+        "VDD": VDD,
+        "VLOGIC": VLOGIC,
+        "REF": REF,
+        "CS_N": CS_N,
+        "SCLK": SCLK,
+        "DIN": DIN,
+        "LDAC_N": LDAC_N,
+        "VOUT": VOUT,
+        "AGND": AGND,
+        "DGND": DGND,
+    },
+)

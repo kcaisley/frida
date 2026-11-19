@@ -1,0 +1,87 @@
+"""
+The on-board signal source: ramps, DC levels and low-frequency sines for the ADC, so that a test
+needs no waveform generator.
+
+    ADR4525 2.5 V reference --> AD5541A 16-bit DAC --> 180 pF --> OPA365 follower --> 49.9 ohm, 22 nF --> OUT.P
+                           \-> half (10 kohm, 10 kohm, 1 uF) ------> OPA365 follower --> 49.9 ohm, 22 nF --> OUT.N
+
+- The DAC is an unbuffered R-2R ladder: 0 to 2.5 V behind 6.25 kohm (+-20 %), +-1 LSB INL in its
+  B grade (15 ppm; a 12-bit converter's tenth of an LSB is 24 ppm), 1 us settling, 11.8 nV/sqrt(Hz).
+  In SPICE it is a stepped source behind that resistance.
+- 6.25 kohm with 180 pF is the first pole (141 kHz), the 49.9 ohm and 22 nF after the follower
+  the second (145 kHz).
+- OUT.N is half the reference, so the pair is a differential signal of +-1.25 V about 1.25 V:
+  the DAC's mid-scale code is zero at the converter, and reference noise is common to both legs
+  at mid-scale. Each leg looks like a 50 ohm generator. The converter's full scale is smaller
+  than this range; the codes sent must stay inside it.
+- With LDAC held low (its pull-down) the output updates on the rising edge of CS, which the FPGA
+  places away from the ADC's sampling instant.
+
+The followers are a first choice, not yet checked against their datasheet for distortion at 100 kHz.
+"""
+
+load("@stdlib/interfaces.zen", "DiffPair")
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Adr4525 = Module("../components/ADR4525/ADR4525.zen")
+Ad5541a = Module("../components/AD5541A/AD5541A.zen")
+Opa365 = Module("../components/OPA365/OPA365.zen")
+
+OUT = io(DiffPair, help="P: the DAC, 0 to 2.5 V; N: mid-scale, 1.25 V; each behind 49.9 ohm")
+VREF = io(Power, help="The 2.5 V reference; also a probe node")
+
+# SPI at the FPGA's 2.5 V levels
+CS_N = io(Net)
+SCLK = io(Net)
+DIN = io(Net)
+LDAC_N = io(Net, help="Low (default): update on the rising edge of CS")
+
+V3P3A = io(Power)
+V2P5 = io(Power, help="Logic supply")
+VS_N = io(Power, help="The follower's negative supply, so that it reaches 0 V")
+GND = io(Ground)
+
+Adr4525(name="U_REF", VIN=V3P3A, VOUT=VREF, GND=GND)
+Capacitor(name="C_REF_IN", value="1uF", package="0402", P1=V3P3A, P2=GND)
+Capacitor(name="C_REF_OUT", value="10uF", package="0805", P1=VREF, P2=GND)
+Capacitor(name="C_REF_100N", value="100nF", package="0402", P1=VREF, P2=GND)
+
+DAC_OUT = Net()
+BUF_OUT = Net()
+
+Ad5541a(
+    name="U_DAC",
+    VDD=V3P3A,
+    VLOGIC=V2P5,
+    REF=VREF,
+    CS_N=CS_N,
+    SCLK=SCLK,
+    DIN=DIN,
+    LDAC_N=LDAC_N,
+    VOUT=DAC_OUT,
+    AGND=GND,
+    DGND=GND,
+)
+Capacitor(name="C_DAC_VDD", value="100nF", package="0402", P1=V3P3A, P2=GND)
+Capacitor(name="C_DAC_VLOGIC", value="100nF", package="0402", P1=V2P5, P2=GND)
+Resistor(name="R_CS_PU", value="10k", package="0402", P1=V2P5, P2=CS_N)
+Resistor(name="R_LDAC_PD", value="10k", package="0402", P1=LDAC_N, P2=GND)
+
+# First pole on the ladder's own resistance (C0G: no voltage coefficient)
+Capacitor(name="C_DAC_OUT", value="180pF", package="0402", dielectric="C0G", P1=DAC_OUT, P2=GND)
+
+# Mid-scale for the negative leg: half the reference, filtered to 32 Hz
+MID = Net()
+MID_OUT = Net()
+
+Resistor(name="R_MID_TOP", value="10k", package="0402", P1=VREF, P2=MID)
+Resistor(name="R_MID_BOT", value="10k", package="0402", P1=MID, P2=GND)
+Capacitor(name="C_MID", value="1uF", package="0402", P1=MID, P2=GND)
+
+for leg, node, out, pin in [("P", DAC_OUT, BUF_OUT, OUT.P), ("N", MID, MID_OUT, OUT.N)]:
+    Opa365(name="U_BUF_" + leg, IN_P=node, IN_N=out, OUT=out, VP=V3P3A, VN=VS_N)
+    Capacitor(name="C_BUF_" + leg + "_VP", value="100nF", package="0402", P1=V3P3A, P2=GND)
+    Capacitor(name="C_BUF_" + leg + "_VN", value="100nF", package="0402", P1=VS_N, P2=GND)
+    Resistor(name="R_OUT_" + leg, value="49.9", package="0402", P1=out, P2=pin)
+    Capacitor(name="C_OUT_" + leg, value="22nF", package="0805", dielectric="C0G", P1=pin, P2=GND)

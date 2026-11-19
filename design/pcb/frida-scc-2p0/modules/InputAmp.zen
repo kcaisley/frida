@@ -2,7 +2,10 @@
 The analog input: three SMAs (IN+, IN-, VOCM), the jumper network, the THS4541 fully differential
 amplifier, the output filter and the clamps, ported from frida-scc-1p1 with its values.
 
-New here: SRC, the on-board signal source, joins the IN+ side through a jumper, beside the SMA.
+New here: SRC, the on-board signal source, joins both sides through J_SRC (jumpers on 1-2 and
+3-4, with J_SE and J_TERM open), beside the SMAs;
+and the probe matrix watches the chip input and the amplifier output through 10 kohm each
+(MON_VIN, MON_AMP), in place of the probe header.
 
 Jumper positions (2.54 mm headers, a jumper joins an odd pin to the even pin beside it):
 - J_SE:    1-2 the IN- SMA drives the negative side (differential); 3-4 50 ohm to ground instead
@@ -25,9 +28,10 @@ Bav99 = Module("../components/BAV99/BAV99.zen")
 Bss84 = Module("../components/BSS84/BSS84.zen")
 
 VIN = io(DiffPair, help="To the chip's input pads")
-SRC = io(Net, help="The on-board signal source, single-ended")
+SRC = io(DiffPair, help="The on-board signal source: P the DAC, N its mid-scale")
 VOCM = io(Net, help="The amplifier's output common mode; also a probe node")
-AMP_OUT = io(DiffPair, help="The amplifier's outputs before the filter; a probe node")
+MON_VIN = io(DiffPair, help="The chip input behind 10 kohm, for the probe matrix")
+MON_AMP = io(DiffPair, help="The amplifier's outputs behind 10 kohm, for the probe matrix")
 
 AMP_PD_EXT = io(Net, help="Power-down request at VDD_BDAQ levels, low = amplifier on")
 VDD_BDAQ = io(Power)
@@ -49,7 +53,7 @@ Sma(name="J_INP", IN=IN_P_EXT, EXT=GND)
 Sma(name="J_INN", IN=IN_N_EXT, EXT=GND)
 Sma(name="J_VOCM_IN", IN=VOCM, EXT=GND)
 
-PinHeader(name="J_SRC", pins=2, rows=1, mount="THT", P1=SRC, P2=IN_P_EXT)
+PinHeader(name="J_SRC", pins=2, rows=2, mount="THT", P1=SRC.P, P2=IN_P_EXT, P3=SRC.N, P4=NEG_SRC)
 
 PinHeader(name="J_SE", pins=2, rows=2, mount="THT", P1=IN_N_EXT, P2=NEG_SRC, P3=SE_TERM, P4=NEG_SRC)
 Resistor(name="R_SE", value="50", package="0402", P1=SE_TERM, P2=GND)
@@ -73,6 +77,7 @@ Resistor(name="R_TERM_N", value="54.9", package="0402", P1=TERM_N, P2=GND)
 
 # ---------------------------------------------------------------- amplifier, gain 1 (499 / 499)
 
+AMP_OUT = DiffPair("AMP_OUT")  # the THS4541's outputs, before the filter
 AMP_INP = Net()  # the THS4541's IN+
 AMP_INN = Net()  # the THS4541's IN-
 G_P_ALT = Net()
@@ -175,6 +180,12 @@ PinHeader(
     P7=IN_P_EXT,
     P8=VIN.P,
 )
+
+# Probe taps: 10 kohm at the node keeps the trace to the matrix off it
+Resistor(name="R_MON_VIN_P", value="10k", package="0402", P1=VIN.P, P2=MON_VIN.P)
+Resistor(name="R_MON_VIN_N", value="10k", package="0402", P1=VIN.N, P2=MON_VIN.N)
+Resistor(name="R_MON_AMP_P", value="10k", package="0402", P1=AMP_OUT.P, P2=MON_AMP.P)
+Resistor(name="R_MON_AMP_N", value="10k", package="0402", P1=AMP_OUT.N, P2=MON_AMP.N)
 
 # Clamps to GND and VDD_DAC on each chip input, joined by a solder jumper (open as built)
 CLAMP_P = Net()
