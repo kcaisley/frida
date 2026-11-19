@@ -133,15 +133,12 @@ def pad_nets(footprint: Any) -> dict[str, str]:
 
 
 def copy_outline(old: Any, new: Any) -> int:
-    """Replace the new board's Edge.Cuts drawings with copies of the old board's."""
+    """Give the new board copies of the old board's Edge.Cuts drawings, unless it has an outline."""
 
-    for drawing in list(new.GetDrawings()):
-        if drawing.GetLayer() == pcbnew.Edge_Cuts:
-            new.Remove(drawing)
-    count = 0
-    for drawing in old.GetDrawings():
-        if drawing.GetLayer() != pcbnew.Edge_Cuts:
-            continue
+    edges = [drawing for drawing in old.GetDrawings() if drawing.GetLayer() == pcbnew.Edge_Cuts]
+    if any(drawing.GetLayer() == pcbnew.Edge_Cuts for drawing in new.GetDrawings()):
+        return 0
+    for drawing in edges:
         shape = pcbnew.PCB_SHAPE(new)
         shape.SetShape(drawing.GetShape())
         if drawing.GetShape() == pcbnew.SHAPE_T_ARC:
@@ -152,8 +149,7 @@ def copy_outline(old: Any, new: Any) -> int:
         shape.SetWidth(drawing.GetWidth())
         shape.SetLayer(pcbnew.Edge_Cuts)
         new.Add(shape)
-        count += 1
-    return count
+    return len(edges)
 
 
 def main() -> None:
@@ -161,7 +157,8 @@ def main() -> None:
     new = pcbnew.LoadBoard(str(NEW))
     by_path = {fp.GetFieldText("Path").rsplit(".", 1)[0]: fp for fp in new.GetFootprints()}
 
-    print(f"outline: {copy_outline(old, new)} drawings")
+    copied = copy_outline(old, new)
+    print(f"outline: {copied} drawings copied" if copied else "outline: already there")
 
     # position, rotation and side
     pairs = []

@@ -6,8 +6,9 @@ the netlist, the KiCad schematic and the KiCad board from them. The previous boa
 `../frida-scc-1p1.kicad_pro`.
 
 This is a first sketch: it builds (236 components) and generates. The board has frida-scc-1p1's
-outline and, for the 92 parts both boards have, its placement; the 144 new parts wait beside the
-outline. Nothing is routed or simulated yet, and the items under "Open questions" are undecided.
+outline, stack-up and, for the 92 parts both boards have, its placement; the 144 new parts are
+placed around them. Routing is in progress, nothing is simulated yet, and the items under "Open
+questions" are undecided.
 
 ## Flow
 
@@ -22,6 +23,7 @@ pcb bom frida-scc-2p0.zen                         # the bill of materials, gener
 pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch
 pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
 $KICAD_APPDIR/bin/python3.11 place_from_1p1.py    # frida-scc-1p1's outline and shared placement
+$KICAD_APPDIR/bin/python3.11 place_new.py         # the new parts, around them
 ```
 
 The board file owns the geometry (placement, routing, outline); later `pcb layout` runs keep it
@@ -31,7 +33,10 @@ schematic and the netlist there are regenerated.
 `place_from_1p1.py` copies the outline and, for each part named in its table, the position,
 rotation and side of the part it replaces on frida-scc-1p1 (the tap resistors sit on the pads of
 the 1 kohm loads they replace). It also checks that the two boards' nets correspond one to one
-over those parts.
+over those parts, and moves every other part beside the outline. `place_new.py` then places
+those: the supplies and the signal source left of the chip, the four probe channels and the
+second RJ45 right of it, each small part beside the pin it serves. Run the two in this order to
+place the board again from nothing.
 
 Autorouting runs FreeRouting on this machine, driven directly (the `pcb` tool's own `route`
 command was removed after release 0.4.60): KiCad writes the board as a Specctra design,

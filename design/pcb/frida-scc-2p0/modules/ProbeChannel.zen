@@ -2,10 +2,12 @@
 One oscilloscope channel of the probe matrix: an SMA that the FPGA connects to one of three fast
 taps or to one of eight slow nodes, so that no probe is ever moved.
 
-    FAST1..3 (LVDS tap legs, 50 ohm) ----------------------> ADG904 RF1..RF3 \\
+    FAST1, 2, 3 (LVDS tap legs, 50 ohm) -------------------> ADG904 RF1, RF3, RF2 \\
     S1..S8 --> TMUX1108 8:1 --> 1 kohm ---------------------> ADG904 RF4      >--> RFC --> SMA
     SER, SRCLK, RCLK --> SN74LVC595A --> the seven select lines
 
+- FAST1 and FAST2 are RF1 and RF3, the two ports on the side of the package that faces the
+  board; a channel with two fast legs uses those.
 - The ADG904 is DC-coupled and absorptive: every port it has not selected sees 50 ohm to ground,
   so a tap loads its line the same whether or not it is watched. Its ports take -0.5 V to
   VDD - 0.5 V (2.0 V here): every slow node must stay inside that.
@@ -16,7 +18,7 @@ taps or to one of eight slow nodes, so that no probe is ever moved.
   including the register's arbitrary state at power-up.
 
 Select byte (QA holds the last bit clocked in, QH the first):
-    QA, QB  RF switch address (00 FAST1, 01 FAST2, 10 FAST3, 11 the slow multiplexer)
+    QA, QB  RF switch address A0, A1 (A1 A0: 00 FAST1, 10 FAST2, 01 FAST3, 11 the slow multiplexer)
     QC      RF switch disable (1: nothing selected)
     QD..QF  slow multiplexer address (S1..S8)
     QG      slow multiplexer enable
@@ -105,8 +107,8 @@ Resistor(name="R_SLOW", value="1k", package="0402", P1=MUX_OUT, P2=SLOW)
 Adg904(
     name="U_RF",
     RF1=FAST1,
-    RF2=FAST2,
-    RF3=FAST3,
+    RF2=FAST3,
+    RF3=FAST2,
     RF4=SLOW,
     RFC=SCOPE,
     A0=RF_A0,

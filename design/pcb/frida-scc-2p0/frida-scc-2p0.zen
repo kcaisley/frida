@@ -6,7 +6,20 @@ The test board for the FRIDA-1 ADC. Against frida-scc-1p1 it makes its own rails
 headers with a matrix that puts any of 10 LVDS legs and 20 slow nodes on four oscilloscope SMAs.
 """
 
+load(
+    "@stdlib/board_config.zen",
+    "BoardConfig",
+    "CopperLayer",
+    "DesignRules",
+    "DielectricLayer",
+    "Material",
+    "NetClass",
+    "PredefinedSizes",
+    "Stackup",
+    "ViaDimension",
+)
 load("@stdlib/interfaces.zen", "DiffPair")
+load("@stdlib/units.zen", "Impedance")
 
 Resistor = Module("@stdlib/generics/Resistor.zen")
 MountingHole = Module("@stdlib/generics/MountingHole.zen")
@@ -254,4 +267,61 @@ for index, (name, fast, slow) in enumerate(CHANNELS):
 for index in range(1, 5):
     MountingHole(name="H" + str(index), diameter="M3")
 
-Board(name="frida-scc-2p0", layers=4, path="eda", schematic=True)
+# frida-scc-1p1's stack-up (0.1 mm prepreg under each outer layer) and its LVDS geometry (0.18 mm
+# tracks 0.2 mm apart); everything else on 0.2 mm tracks with 0.15 mm clearance and 0.6 / 0.3 mm vias.
+Board(
+    name="frida-scc-2p0",
+    layers=4,
+    path="eda",
+    schematic=True,
+    config=BoardConfig(
+        design_rules=DesignRules(
+            predefined_sizes=PredefinedSizes(
+                track_widths=[0.18, 0.2, 0.4, 0.6],
+                via_dimensions=[ViaDimension(diameter=0.6, drill=0.3)],
+            ),
+            netclasses=[
+                NetClass(
+                    name="Default",
+                    clearance=0.15,
+                    track_width=0.2,
+                    via_diameter=0.6,
+                    via_drill=0.3,
+                    diff_pair_width=0.18,
+                    diff_pair_gap=0.2,
+                ),
+                NetClass(
+                    name="100Ohm Diff",
+                    clearance=0.15,
+                    track_width=0.18,
+                    via_diameter=0.6,
+                    via_drill=0.3,
+                    diff_pair_width=0.18,
+                    diff_pair_gap=0.2,
+                    differential_pair_impedance=Impedance(100),
+                ),
+                NetClass(
+                    name="50Ohm SE",
+                    clearance=0.15,
+                    track_width=0.18,
+                    via_diameter=0.6,
+                    via_drill=0.3,
+                    single_ended_impedance=Impedance(50),
+                ),
+            ],
+        ),
+        stackup=Stackup(
+            materials=[Material(name="FR4", relative_permittivity=4.5, loss_tangent=0.02)],
+            thickness=1.58,
+            layers=[
+                CopperLayer(thickness=0.035, role="signal"),
+                DielectricLayer(thickness=0.1, material="FR4", form="prepreg"),
+                CopperLayer(thickness=0.035, role="power"),
+                DielectricLayer(thickness=1.24, material="FR4", form="core"),
+                CopperLayer(thickness=0.035, role="power"),
+                DielectricLayer(thickness=0.1, material="FR4", form="prepreg"),
+                CopperLayer(thickness=0.035, role="signal"),
+            ],
+        ),
+    ),
+)
