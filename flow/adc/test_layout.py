@@ -319,7 +319,8 @@ def test_a_generated_converter_is_placed_and_routed_by_openroad(tmp_path: Path) 
     """FRIDA-1's converter in TSMC65 (its blocks as laid out): its DAC's sides the outline, each
     two bands with its free rows between them for the cells, the comparator and its samplers at
     the top of the column between them, the flow through to a routed DEF, its layout its blocks',
-    its cells' and its routes' (skipped without the kit, OpenROAD or the blocks' layouts)."""
+    its cells' and its routes', every supply label reached from its supply pins (skipped without
+    the kit, OpenROAD or the blocks' layouts)."""
     pytest.importorskip("pdk.tsmc65.hdl21")
     if shutil.which("openroad") is None:
         pytest.skip("OpenROAD is not on the PATH")
@@ -329,6 +330,10 @@ def test_a_generated_converter_is_placed_and_routed_by_openroad(tmp_path: Path) 
         pytest.skip(f"the blocks are not laid out: {error}")
     assert "drc violations:" in (tmp_path / "openroad.log").read_text()
     record = json.loads((tmp_path / "blocks.json").read_text())
+    # every cell's and block's supply label reached from the converter's own supply pins
+    supplies = record["supplies"]
+    assert set(supplies) == {"vdd", "vss"} and all("cells" in counts for counts in supplies.values())
+    assert {holder: missed for counts in supplies.values() for holder, (_hit, missed) in counts.items() if missed} == {}
     plan = record["plan"]
     assert plan["stacked"] and plan["obstructions"]
     assert set(plan["blocks"]) == {"xdac_p_lo", "xdac_p_hi", "xdac_n_lo", "xdac_n_hi", "xcomp", "xsamp_p", "xsamp_n"}

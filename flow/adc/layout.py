@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import math
 import re
 from copy import deepcopy
@@ -983,7 +984,18 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
     (run_dir / "adc.tcl").write_text(script)
     run_logged(["openroad", "-no_init", "-exit", "adc.tcl"], cwd=run_dir, log=run_dir / "openroad.log", name="openroad")
     gds = _merge(run_dir, pdk, lefs, blocks, layers)
-    record = {"plan": plan, "blocks": {key: {**value, "gds": _path(value["gds"])} for key, value in blocks.items()}}
+    supplies = _supplies(gds, pdk)
+    for supply, counts in supplies.items():
+        for holder, (_reached, missed) in counts.items():
+            if missed:
+                logging.getLogger("flow.adc.layout").warning(
+                    "%s: %d of %s's %s labels not reached from the supply's pins", run_dir.name, missed, holder, supply
+                )
+    record = {
+        "plan": plan,
+        "blocks": {key: {**value, "gds": _path(value["gds"])} for key, value in blocks.items()},
+        "supplies": supplies,
+    }
     (run_dir / "blocks.json").write_text(json.dumps(record, indent=1, default=str) + "\n")
     return gds
 
@@ -1032,3 +1044,68 @@ def _merge(
     gds = run_dir / "adc.gds"
     layout.write(str(gds))
     return gds
+
+
+def _supplies(gds: Path, pdk: str) -> dict[str, dict[str, list[int]]]:
+    """Which supply labels the converter's own supply pins reach through its metals and cuts, a
+    check no DRC makes (no LVS source yet): from the top cell's ``vdd`` and ``vss`` labels (its
+    pins on the outside rails), every metal and the cuts between them followed; each cell's and
+    block's label of that supply (its rail lines, its pins) reached or not, counted by what holds
+    it (``cells`` for the library's, else the block's abstract)."""
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    layout = db.Layout()
+    layout.read(str(gds))
+    top = layout.top_cells()[0]
+
+    def region(name: str) -> db.Region:
+        spec = tech.LAYERS.get(name)
+        index = layout.find_layer(*spec) if spec else None
+        return db.Region() if index is None else db.Region(top.begin_shapes_rec(index)).merged()
+
+    metals = [name for name in (f"M{k}" for k in range(1, 16)) if name in tech.LAYERS]
+    shapes = {name: region(name) for name in metals}
+    cuts = {k: region(f"V{k}") for k in range(1, len(metals))}
+    texts = {}
+    for metal in metals:
+        for spec in (tech.LAYERS.get(f"{metal}.PIN"), getattr(tech, "PIN_TEXT", {}).get(metal), tech.LAYERS.get(metal)):
+            if spec:
+                texts.setdefault(tuple(spec), metal)
+    labels = []  # (holder, supply, metal, where)
+    for index in layout.layer_indexes():
+        info = layout.get_info(index)
+        metal = texts.get((info.layer, info.datatype))
+        if metal is None:
+            continue
+        shape_it = top.begin_shapes_rec(index)
+        while not shape_it.at_end():
+            shape = shape_it.shape()
+            if shape.is_text() and shape.text.string.lower() in ("vdd", "vss"):
+                at = shape_it.trans() * db.Point(shape.text.trans.disp.x, shape.text.trans.disp.y)
+                path = shape_it.path()
+                holder = path[0].inst().cell.name if path else "top"
+                holder = holder if holder == "top" or holder.startswith("adc_") else "cells"
+                labels.append((holder, shape.text.string.lower(), metal, db.Region(db.Box(at, at).enlarged(1))))
+            shape_it.next()
+    result: dict[str, dict[str, list[int]]] = {}
+    for supply in ("vdd", "vss"):
+        reached = {name: db.Region() for name in metals}
+        for holder, net, metal, at in labels:
+            if holder == "top" and net == supply:
+                reached[metal] += shapes[metal].interacting(at)
+        grown = True
+        while grown:  # through each cut to the metals on both its sides, until nothing joins
+            grown = False
+            for k, cut in cuts.items():
+                below, above = metals[k - 1], metals[k]
+                joined = cut.interacting(reached[below]) + cut.interacting(reached[above])
+                for metal in (below, above):
+                    more = shapes[metal].interacting(joined)
+                    if not (more - reached[metal]).is_empty():
+                        reached[metal] = (reached[metal] + more).merged()
+                        grown = True
+        counts = result.setdefault(supply, {})
+        for holder, net, metal, at in labels:
+            if net == supply and holder != "top":
+                hit = not reached[metal].interacting(at).is_empty()
+                counts.setdefault(holder, [0, 0])[0 if hit else 1] += 1
+    return result
