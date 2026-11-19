@@ -162,9 +162,17 @@ def _plate_loads(
     ]
     top_f = sum(c_f for stage in drawn for piece in stage for pair, c_f in piece.items() if "TOP" in pair)
 
+    # not in the reference texts: each plate's wiring from its driver to its landing, a load the
+    # table's plates leave out and the same for every plate whatever its size (the kit's
+    # ``DRIVER_ROUTE_F``, from its extraction; 0 where it gives none), which a small stage's
+    # driver, sized for its plate alone, otherwise settles slowly through
+    route_f = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_ROUTE_F", 0.0)
     if not difference:
-        return [(_plate_load(stage, "INNER", None, top_f), None) for stage in drawn]
-    return [(_plate_load(stage, "MAIN", "DIFF", top_f), _plate_load(stage, "DIFF", "MAIN", top_f)) for stage in drawn]
+        return [(_plate_load(stage, "INNER", None, top_f) + route_f, None) for stage in drawn]
+    return [
+        (_plate_load(stage, "MAIN", "DIFF", top_f) + route_f, _plate_load(stage, "DIFF", "MAIN", top_f) + route_f)
+        for stage in drawn
+    ]
 
 
 def _plate_load(stage: list[dict[frozenset[str], float]], plate: str, other: str | None, top_f: float) -> float:

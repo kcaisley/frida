@@ -115,8 +115,10 @@ def test_a_plates_load_is_its_drawn_capacitances(monkeypatch) -> None:
     }
     table = SimpleNamespace(strip=lambda layers, net_f, whole_f: (None, None), capacitances=lambda geometry: pairs)
     monkeypatch.setattr(subckt, "momcap_table", lambda pdk: table)
+    route = 0.75e-15  # the kit's wiring to each plate (DRIVER_ROUTE_F), added to every plate's load
+    monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_ROUTE_F=route))
     (main, diff), (other, _) = subckt._plate_loads("synthetic", 3, [[(1.0, 0.0)], [(1.0, 0.0)]], 1e-15, True)
     top = 2 * 14e-15
-    assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15)
-    assert diff == pytest.approx(1e-15 * (top - 1e-15) / top + 0.5e-15 + 0.5e-15)
+    assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15 + route)
+    assert diff == pytest.approx(1e-15 * (top - 1e-15) / top + 0.5e-15 + 0.5e-15 + route)
     assert other == pytest.approx(main)
