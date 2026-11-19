@@ -25,6 +25,17 @@ pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
 The board file owns the geometry (placement, routing, outline); later `pcb layout` runs keep it
 and place only new parts. `eda/` is not committed until placement begins.
 
+Autorouting runs FreeRouting locally through the tool's `route` command. Releases 0.4.35 to
+0.4.60 have it and later ones do not, so it is called from 0.4.60; FreeRouting 2.3.0 (fetched by
+the tool) needs Java 25 or newer on `PATH`:
+
+```bash
+export PATH=$PWD/../../../build/tools/temurin-25/jdk-25.0.5.1+2-jre/bin:$PATH  # a Temurin JRE, unpacked there
+pcb +0.4.60 route --engine freerouting --no-open -t 20 frida-scc-2p0.zen       # -t: minutes
+```
+
+Its other engine, DeepPCB, sends the board to a cloud service.
+
 ## Structure
 
 | File | What it holds |
