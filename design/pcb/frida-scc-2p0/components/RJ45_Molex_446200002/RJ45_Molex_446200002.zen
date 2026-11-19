@@ -1,7 +1,9 @@
 """
 RJ45_Molex_446200002
 
-Imported from frida-scc-1p1.
+Imported from frida-scc-1p1, whose footprint had no holes for the shield's two solder tabs. They
+are the SH pads here: 1.6 mm plated holes 8.16 mm either side of the centre line, midway between
+the pin rows, measured on the jack's STEP model (the tabs are 0.5 mm by 1.2 mm).
 """
 
 P1 = io(Net)
@@ -12,6 +14,7 @@ P5 = io(Net)
 P6 = io(Net)
 P7 = io(Net)
 P8 = io(Net)
+SHIELD = io(Net)
 
 Component(
     name="RJ45_Molex_446200002",
@@ -21,6 +24,6 @@ Component(
         "schematic_description": "Molex 446200002 - Modular Jack 8/8 RJ45, Right-Angle, Low Profile, Inverted",
     },
     symbol=Symbol(library="RJ45_Molex_446200002.kicad_sym"),
-    pin_defs={"1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8"},
-    pins={"1": P1, "2": P2, "3": P3, "4": P4, "5": P5, "6": P6, "7": P7, "8": P8},
+    pin_defs={"1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "SH": "SH"},
+    pins={"1": P1, "2": P2, "3": P3, "4": P4, "5": P5, "6": P6, "7": P7, "8": P8, "SH": SHIELD},
 )

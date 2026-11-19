@@ -96,8 +96,8 @@
 		(uuid "95e82fcf-2ec6-445c-a135-cdd7719a7d91")
 	)
 	(fp_line
-		(start -11.8237 -7.747)
-		(end -11.8237 7.874)
+		(start -13.2 -7.747)
+		(end -13.2 7.874)
 		(stroke
 			(width 0.1524)
 			(type solid)
@@ -106,8 +106,8 @@
 		(uuid "0cef447e-4761-4810-bc90-f852c549263a")
 	)
 	(fp_line
-		(start -11.8237 7.874)
-		(end 4.7117 7.874)
+		(start -13.2 7.874)
+		(end 6.1 7.874)
 		(stroke
 			(width 0.1524)
 			(type solid)
@@ -116,8 +116,8 @@
 		(uuid "1c372ce5-6177-425f-bdcd-285a81d4a61e")
 	)
 	(fp_line
-		(start 4.7117 -7.747)
-		(end -11.8237 -7.747)
+		(start 6.1 -7.747)
+		(end -13.2 -7.747)
 		(stroke
 			(width 0.1524)
 			(type solid)
@@ -126,8 +126,8 @@
 		(uuid "39206b88-b07d-491f-b8cc-a86f3f1ae88d")
 	)
 	(fp_line
-		(start 4.7117 7.874)
-		(end 4.7117 -7.747)
+		(start 6.1 7.874)
+		(end 6.1 -7.747)
 		(stroke
 			(width 0.1524)
 			(type solid)
@@ -275,8 +275,24 @@
 		(remove_unused_layers no)
 		(pintype "passive")
 	)
+	(pad "SH" thru_hole circle
+		(at -11.716 -0.889)
+		(size 2.4 2.4)
+		(drill 1.6)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pintype "passive")
+	)
+	(pad "SH" thru_hole circle
+		(at 4.604 -0.889)
+		(size 2.4 2.4)
+		(drill 1.6)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(pintype "passive")
+	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/Molex_RJ45_446200002.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/Molex_RJ45_446200002.stp"
 		(offset
 			(xyz -3.5 0 0)
 		)

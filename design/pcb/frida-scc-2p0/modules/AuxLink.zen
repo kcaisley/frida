@@ -18,6 +18,7 @@ DAC_LDAC_N = io(Net)
 SEL_RCLK = io(Net, help="Latches the probe matrix's select registers")
 
 GND = io(Ground)
+EARTH = io(Ground, help="The connector's shell")
 
 Rj45(
     name="J_AUX",
@@ -29,6 +30,7 @@ Rj45(
     P6=DAC_LDAC_N,
     P7=GND,
     P8=NotConnected(),
+    SHIELD=EARTH,
 )
 
 # Idle levels with the cable unplugged: clock and latch low

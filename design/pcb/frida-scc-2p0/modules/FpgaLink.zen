@@ -37,8 +37,8 @@ AMP_PD_EXT = io(Net, help="Amplifier power-down request at VDD_BDAQ levels")
 VDD_BDAQ = io(Power, help="The FPGA board's I/O supply, from the RJ45")
 VDD_IO = io(Power)
 GND = io(Ground)
+EARTH = io(Ground, help="The connectors' shells: joined to GND here through 10 kohm and 100 nF")
 
-EARTH = Ground("EARTH")  # the DisplayPort shell
 NTC_A = Net()
 NTC_B = Net()
 
@@ -70,7 +70,7 @@ DisplayPort(
     MH4=EARTH,
 )
 
-# The shell to ground through 10 kohm and 100 nF
+# The shells to ground through 10 kohm and 100 nF
 Resistor(name="R_SHELL", value="10k", package="0402", P1=EARTH, P2=GND)
 Capacitor(name="C_SHELL", value="100nF", package="0402", P1=EARTH, P2=GND)
 
@@ -95,6 +95,7 @@ Rj45(
     P6=AMP_PD_EXT,
     P7=GND,
     P8=VDD_BDAQ,
+    SHIELD=EARTH,
 )
 
 DIR1 = Net()

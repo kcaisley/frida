@@ -22,6 +22,7 @@ ProbeChannel = Module("modules/ProbeChannel.zen")
 # ---------------------------------------------------------------- rails
 
 GND = Ground()
+EARTH = Ground()  # the cable connectors' shells
 VDD_A = Power(voltage="1.2V")
 VDD_D = Power(voltage="1.2V")
 VDD_DAC = Power(voltage="1.2V")
@@ -108,6 +109,7 @@ FpgaLink(
     VDD_BDAQ=VDD_BDAQ,
     VDD_IO=VDD_IO,
     GND=GND,
+    EARTH=EARTH,
 )
 
 AUX_SCLK = Net()
@@ -126,6 +128,7 @@ AuxLink(
     DAC_LDAC_N=DAC_LDAC_N,
     SEL_RCLK=SEL_RCLK,
     GND=GND,
+    EARTH=EARTH,
 )
 
 # ---------------------------------------------------------------- the analog input

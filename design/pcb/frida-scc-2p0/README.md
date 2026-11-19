@@ -88,7 +88,11 @@ nodes; four chained shift registers on the second RJ45 hold the selection. The t
 
 **Corrections.** The chip symbol's pin 13 is `COMP_OUT_N` (was spelled `COUP_OUT_N`); Q1 is a
 BSS84 on a SOT-23 footprint the libraries resolve; the DisplayPort cable's power pin no longer
-joins a supply rail.
+joins a supply rail. The RJ45 jack's footprint has the two plated holes its shield's solder
+tabs need (frida-scc-1p1's had none), on the connectors' shell net.
+
+**Kept.** The parts frida-scc-1p1 drew itself keep its symbols and footprints, and their 3-D
+models are its files in `../frida.pretty`.
 
 ## Where the numbers come from
 

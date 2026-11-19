@@ -202,7 +202,7 @@
 		(pintype "passive")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/Molex_SMA_733910070.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/Molex_SMA_733910070.stp"
 		(offset
 			(xyz 0 0 7.5)
 		)

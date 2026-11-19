@@ -709,7 +709,7 @@
 		(pintype "power_in")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/TI_LevelShifter_SN74AXC8T245RJWR.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/TI_LevelShifter_SN74AXC8T245RJWR.stp"
 		(offset
 			(xyz 0 0 0)
 		)

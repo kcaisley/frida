@@ -382,7 +382,7 @@
 		(pintype "passive")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/Molex_DisplayPort_472720024.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/Molex_DisplayPort_472720024.stp"
 		(offset
 			(xyz 0 -7.5 3.5)
 		)

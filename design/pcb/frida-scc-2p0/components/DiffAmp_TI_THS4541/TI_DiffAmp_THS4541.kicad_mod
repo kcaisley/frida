@@ -370,7 +370,7 @@
 		(pintype "power_in")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/TI_DiffAmp_THS4541.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/TI_DiffAmp_THS4541.stp"
 		(offset
 			(xyz 0 0 0)
 		)

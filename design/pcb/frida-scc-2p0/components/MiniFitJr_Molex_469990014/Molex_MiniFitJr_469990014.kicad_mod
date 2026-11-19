@@ -309,7 +309,7 @@
 		(pintype "unspecified")
 	)
 	(embedded_fonts no)
-	(model "${KIPRJMOD}/frida.pretty/Molex_MiniFitJr_469990014.stp"
+	(model "${KIPRJMOD}/../../frida.pretty/Molex_MiniFitJr_469990014.stp"
 		(offset
 			(xyz 2.1 14 5)
 		)
