@@ -96,7 +96,7 @@ VIN_TOP = 1 - SMALL_STEP / 2
 ADC_CM = 7 / 12
 VIN_BOTTOM = 2 * ADC_CM - VIN_TOP
 # the supply at 90 and 110 % of its own besides nominal, the input at its nominal level: never past
-# the models' limits (TSMC28's core devices warn above 110 %: CMI-2753, Vgb over vgb_max)
+# the models' limits (a kit's device models may warn above 110 %)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
 # the hot corner (the models' usual junction limit), where leakage and the on-resistance are largest
 HOT_C = 125.0

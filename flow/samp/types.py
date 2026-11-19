@@ -78,8 +78,8 @@ class AnalysisBoost(Analysis):
 class AnalysisStress(Analysis):
     """The devices' voltages at each measured point (a run that saved them), over its operating
     point and its whole transient: ``terminal_v`` the largest |V_GS|, |V_GD| or |V_DS| of any
-    transistor, ``gate_bulk_v`` the largest |V_GB| (a kit's reliability rule bounds it, as TSMC28's
-    vgb_max; under an inverted channel the oxide carries V_GS), ``junction_v`` the largest forward
+    transistor, ``gate_bulk_v`` the largest |V_GB| (a kit's reliability rule may bound it; under an inverted
+    channel the oxide carries V_GS), ``junction_v`` the largest forward
     bias of any source or drain junction (negative: all reverse biased)."""
 
     # [Razavi-ADC] Sec. 3.8.2, p. 48: a device whose terminal voltages exceed the technology's is stressed
