@@ -41,7 +41,7 @@ equation locator, so equation numbers are kept here.
 | Equation | Source | Page | Source eq. |
 |:--|:--|--:|:--|
 | eq:ron | razavi2025; pelgrom2022 | 32; 390 | (3.36), (3.38); (8.7) |
-| eq:ron-boot | razavi2025 (own combination) | 45, 50 | (3.16), (3.70) |
+| eq:ron-boot | razavi2025 (own combination) | 45, 50 | (3.66), (3.70) |
 | eq:tracking | razavi2025 (own combination) | 30, 55 | (3.28), (3.86) |
 | eq:hd3 | razavi2025 | 34 | (3.41) |
 | eq:jitter | pelgrom2022; razavi2025 | 360; 56 | (7.37); (3.90) |

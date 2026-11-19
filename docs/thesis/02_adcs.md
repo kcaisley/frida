@@ -31,9 +31,8 @@ $$
 \mathrm{DNL}_j = V_j - V_{j-1} - \mathrm{LSB}, \qquad \mathrm{INL}_j = V_j - j\,\mathrm{LSB}.
 $$ {#eq:dnl-inl}
 
-For ADCs, it doesn't make much sense to specify the dynamic range often, as an input signal that is out of range can simply be amplified to fit within the full-scale input range.
+For ADCs, it often doesn't make much sense to specify the dynamic range, as an input signal that is out of range can simply be amplified to fit within the full-scale input range.
 (This amplification has some linearity, distortion, and noise penalty of course.)
-There is a reason dynamic range is not the most important spec to quote for a data converter, and that's because dynamic range is relatively easy to increase.
 What doesn't come cheaply is LSB.
 
 ### Energy, area, and figures of merit
@@ -78,11 +77,11 @@ Put differently, pipelining is a way to improve resolution, at a fixed speed, by
 
 ## Survey {#sec:survey}
 
-A survey of state-of-the-art ADC performance over the past two decades [@murmann_survey] provides the efficiency context by comparing effective resolution with conversion energy and the Walden figure of merit with silicon area.
+A survey of state-of-the-art ADC performance since 1997 [@murmann_survey] provides the efficiency context by comparing effective resolution with conversion energy and the Walden figure of merit with silicon area.
 The highlighted marker denotes our design target.
 
 ::: {#fig:survey-rate plot="survey_enob_vs_rate"}
-Effective resolution against Nyquist conversion rate [@murmann_survey], coloured by process node and marked by architecture, with the design goal.
+Effective resolution against Nyquist conversion rate [@murmann_survey], colored by process node and marked by architecture, with the design goal.
 :::
 
 ::: {#fig:survey-energy plot="survey_enob_vs_energy"}
@@ -106,12 +105,8 @@ Walden figure of merit against reported ADC area, with the design goal.
 :::
 
 The trade-off between performance (noise, linearity, speed) and costs (power, area) in SAR ADCs is tricky, because each block has a different relationship between these.
-Digital power is linear with N, while analog power is exponential with N (due to mismatch and noise).
+Digital power is linear with $N$, while analog power is exponential with $N$ (due to mismatch and noise).
 So at high resolution the analog comparator or DAC dominates, but at low resolution analog really scales down, so digital dominates.
-
-CDAC total capacitance often dominates area usage and is a large portion of the power budget.
-Assuming no noise shaping or cancellation, kT/C sampling noise provides the theoretical limit on ADC error, and is determined by $C_\mathrm{tot}$.
-However, a conventional CDAC implemented with capacitor scaling alone exhibits severe mismatch in its LSB capacitors as its $C_\mathrm{tot}$ is shrunk.
 
 ## Earlier detector ADCs {#sec:earlier}
 

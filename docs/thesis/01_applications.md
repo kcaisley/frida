@@ -13,7 +13,6 @@ However, as increasingly sophisticated imaging modalities have been introduced, 
 ## Frame rate is time resolution {#sec:frame-rate}
 
 What chips built for electron microscopy haven't focused on, though, is frame rate.
-Frame rate is time resolution.
 There are dynamic processes, mostly very small, which are interesting to record over time.
 A key example here is in-situ and liquid-phase electron microscopy, including nucleation and growth of nanoparticles, battery systems, catalysis, biomolecules, and organic systems.
 
@@ -38,7 +37,7 @@ A unifying factor of detectors of high-energy particles is that they have a high
 And so we are typically more concerned with just counting accurately (good DQE and good linearity).
 
 Higher speed in-pixel counting, or column adjacent electron counting readout, has grabbed a larger portion of the engineering mindshare (and market share), as it simplifies the operation of each pixel, and reduces the problem design space to that of a single-bit quantization.
-These are especially beneficial in instances where particle hit rate should be read out with high resolution requirement (small and many pixels), with very sparse hit rates.
+These are especially beneficial where hits must be read out at high spatial resolution (many small pixels) and hit rates are very sparse.
 This is similar to how multi-bit quantization in wired and wireless data links offers a data rate improvement over single-bit, at the expense of increased design complexity, due to the need to satisfy BER requirements by considering signal to noise and distortion in both temporal and amplitude domains.
 
 ::: {#fig:hit-rate plot="hit_rate_vs_fluence"}
@@ -65,7 +64,7 @@ Maximum hit rate per pixel. Left: integrating, @eq:integrating. Right: discrimin
 :::
 
 These problems are best solved by integrating mode sensors, where multiple particles are measured per frame, but still with single electron resolution.
-With the generous SNR provided by direct electron detectors, single electron resolution has been readily achieved, and so the next question becomes how quickly and compactly (with low pixel pitch) we can read out these.
+With the generous SNR provided by direct electron detectors, single electron resolution has been readily achieved, and so the next question becomes how quickly and compactly (with low pixel pitch) we can read these out.
 
 If we are targeting single electron sensitivity, can we perhaps build an ADC which acts as a multi-bit quantizer, and which can, rather than reading out full ADC resolution, simply report the number of electrons?
 Sub-electron energy resolution is still useful for position localization.
@@ -80,10 +79,10 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 :::
 
 ::: {#fig:arrangements src="figures/stack_mono_pixel.png figures/stack_mono_edge.png figures/stack_hybrid_pixel.png figures/stack_hybrid_super.png" cols="2"}
-Sensor and readout arrangements, each a section through the middle of pixels from real layouts: monolithic with the readout in each pixel, two of TJ-Monopix2's 33 µm pixels through their collection electrodes, the electronics' wells over the deep p-well and the low-dose n-layer with its gaps at the pixel edges, inside the 30 µm epitaxial layer (a); monolithic with the readout at the edge of the matrix, a 3T test matrix's column cut along its length, its last pixel collecting in a very deep n-well around its electronics, and the column readout at the matrix's edge (b); hybrid with the readout in each pixel, two of ITkPix-V1's 50 µm pixels under a passive CMOS sensor, joined by 30 µm solder bumps in the passivations' lined openings (c); and hybrid with the readout grouped, a sketch after CoRDIA's superpixel [@cordia2024] along a row of four sensor pixels: each bump's signal carried sideways in the metal stack, on a level of its own, to the row's front ends (blue) beside their correlated double sampling (yellow), one shared ADC (FRIDA-1's) and a through-silicon via (d). n-type silicon is red and p-type blue (low-dose silicon light), gates green, metals grey in a cream dielectric under a green passivation; the metal stack drawn some 14 µm tall under 8 µm of passivation, every chip and sensor thinned to 50 µm.
+Sensor and readout arrangements, each a section through the middle of pixels from real layouts: monolithic with the readout in each pixel, two of TJ-Monopix2's 33 µm pixels through their collection electrodes, the electronics' wells over the deep p-well and the low-dose n-layer with its gaps at the pixel edges, inside the 30 µm epitaxial layer (a); monolithic with the readout at the edge of the matrix, a 3T test matrix's column cut along its length, its last pixel collecting in a very deep n-well around its electronics, and the column readout at the matrix's edge (b); hybrid with the readout in each pixel, two of ITkPix-V1's 50 µm pixels under a passive CMOS sensor, joined by 30 µm solder bumps in the passivations' lined openings (c); and hybrid with the readout grouped, a sketch after CoRDIA's superpixel [@cordia2024] along a row of four sensor pixels: each bump's signal carried sideways in the metal stack, on a level of its own, to the row's front ends (blue) beside their correlated double sampling (yellow), one shared ADC (FRIDA-1's) and a through-silicon via (d). n-type silicon is red and p-type blue (low-dose silicon light), gates green, metals gray in a cream dielectric under a green passivation; the metal stack drawn some 14 µm tall under 8 µm of passivation, every chip and sensor thinned to 50 µm.
 :::
 
-Monolithic sensors are often very thin and so can't typically absorb 100 % of incident electron energy; therefore there is some variation in the proportion of energy left between particles, even with the same energy.
+Monolithic sensors are often very thin and so typically can't absorb all of the incident electron energy; the energy left then varies between particles, even at the same energy.
 This is called Landau noise and follows a Landau distribution.
 
 We can get higher rate electron counting if we use a hybrid readout configuration to allow in-pixel digital storage.
@@ -112,7 +111,7 @@ ADCs can be placed in-pixel, under-pixel (SOI), under-pixel (hybrid), at the per
 A monolithic imager with column-parallel ADCs and serializers.
 :::
 
-The sampling time of an ADC must be slow enough to achieve the resolution needed for each pixel, but the aggregate rate must be fast enough to achieve the readout time of the entire pixel array.
+The sampling time of an ADC must be long enough to achieve the resolution needed for each pixel, but the aggregate rate must be fast enough to achieve the readout time of the entire pixel array.
 
 The settling time of the row switching and the pixels determines how quickly a row can be read out.
 Just reading multiple rows at once, with extra ADCs, is a workaround for this speed limit, but four-fold may be the practical limit.
