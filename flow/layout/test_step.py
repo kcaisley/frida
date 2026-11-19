@@ -23,8 +23,8 @@ def _gds(path: Path) -> Path:
 @pytest.fixture
 def aligned(monkeypatch):
     """ALIGN's inputs and its route's check stood in for: the netlists and design directory of
-    ``inputs`` (an LVS netlist ``inv.cdl``), no route joining two nets; ``shorts`` the nets the next
-    routes join, one entry a route."""
+    ``inputs`` (an LVS netlist ``inv.cdl``), no route joining two nets, no supply rail lines (the kit's
+    layers name them); ``shorts`` the nets the next routes join, one entry a route."""
     shorts: list[dict] = []
 
     def inputs(block, out, pdk, design, params, seconds=None):
@@ -36,6 +36,7 @@ def aligned(monkeypatch):
     monkeypatch.setattr(step, "route_shorts", lambda work, name: shorts.pop(0) if shorts else {})
     monkeypatch.setattr(step, "route_opens", lambda gds, pdk: {"MAIN_2": 2} if "open" in str(gds) else {})
     monkeypatch.setattr(step, "annealed", lambda work: True)
+    monkeypatch.setattr(step, "supply_lines", lambda gds, pdk: None)  # the kit's layers name the rails: no kit here
     return shorts
 
 
