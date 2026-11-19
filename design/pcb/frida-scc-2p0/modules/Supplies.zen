@@ -48,8 +48,8 @@ V5N = Power("V5N")
 
 MiniFit(name="J_PWR", P1=V5N_RAW, P2=GND, P3=V5P_RAW, P4=NotConnected())
 
-FerriteBead(name="FB_P", package="0603", P1=V5P_RAW, P2=V5P)
-FerriteBead(name="FB_N", package="0603", P1=V5N_RAW, P2=V5N)
+FerriteBead(name="FB_P", package="0402", P1=V5P_RAW, P2=V5P)
+FerriteBead(name="FB_N", package="0402", P1=V5N_RAW, P2=V5N)
 Capacitor(name="C_P_BULK", value="47uF", package="1210", voltage="16V", P1=V5P, P2=GND)
 Capacitor(name="C_N_BULK", value="47uF", package="1210", voltage="16V", P1=V5N, P2=GND)
 

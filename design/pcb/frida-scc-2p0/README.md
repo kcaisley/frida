@@ -5,8 +5,9 @@ The FRIDA single-chip card, revision 2.0: the test board for the FRIDA-1 ADC, wr
 the netlist, the KiCad schematic and the KiCad board from them. The previous board is
 `../frida-scc-1p1.kicad_pro`.
 
-This is a first sketch: it builds (236 components) and generates, but no part of it is placed,
-routed or simulated yet, and the items under "Open questions" are undecided.
+This is a first sketch: it builds (236 components) and generates. The board has frida-scc-1p1's
+outline and, for the 92 parts both boards have, its placement; the 144 new parts wait beside the
+outline. Nothing is routed or simulated yet, and the items under "Open questions" are undecided.
 
 ## Flow
 
@@ -20,10 +21,17 @@ pcb build frida-scc-2p0.zen                       # check the design, write the 
 pcb bom frida-scc-2p0.zen                         # the bill of materials, generics matched to parts
 pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch
 pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
+$KICAD_APPDIR/bin/python3.11 place_from_1p1.py    # frida-scc-1p1's outline and shared placement
 ```
 
 The board file owns the geometry (placement, routing, outline); later `pcb layout` runs keep it
-and place only new parts. `eda/` is not committed until placement begins.
+and place only new parts, so the board and its project file in `eda/` are committed; the
+schematic and the netlist there are regenerated.
+
+`place_from_1p1.py` copies the outline and, for each part named in its table, the position,
+rotation and side of the part it replaces on frida-scc-1p1 (the tap resistors sit on the pads of
+the 1 kohm loads they replace). It also checks that the two boards' nets correspond one to one
+over those parts.
 
 Autorouting runs FreeRouting locally through the tool's `route` command. Releases 0.4.35 to
 0.4.60 have it and later ones do not, so it is called from 0.4.60; FreeRouting 2.3.0 (fetched by
@@ -101,6 +109,9 @@ the THS4541's and BAV99's order codes.
   sine test; fixed, or selectable?
 - The COMP_OUT tap loads the chip's own driver (2.49 kohm per leg to ground when watched or not).
 - The board thermistor's value.
+- The six 47 uF bulk capacitors keep frida-scc-1p1's 0402 footprint, for which no part is found;
+  what was fitted there?
 - Not designed yet: a filtered square wave for tones near Nyquist, a fast step between two DAC
   levels, trimming the chip rails from the FPGA, a differential amplifier per SMA (each leg goes
-  out single-ended), the board outline and stack-up.
+  out single-ended), the stack-up.
+- Not carried over from frida-scc-1p1 yet: its routing, ground pours, silkscreen labels and logos.

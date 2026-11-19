@@ -71,7 +71,7 @@ for name, pair in [("INIT", CLK_INIT), ("SAMP", CLK_SAMP), ("COMP", CLK_COMP), (
 
 # Decoupling: bulk, 1 uF and two 100 nF per rail, as on frida-scc-1p1
 for name, rail in [("A", VDD_A), ("D", VDD_D), ("DAC", VDD_DAC), ("IO", VDD_IO)]:
-    Capacitor(name="C_" + name + "_BULK", value="47uF", package="1206", P1=rail, P2=GND)
+    Capacitor(name="C_" + name + "_BULK", value="47uF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_" + name + "_1U", value="1uF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_" + name + "_100N_1", value="100nF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_" + name + "_100N_2", value="100nF", package="0402", P1=rail, P2=GND)

@@ -124,7 +124,7 @@ Resistor(name="R_F_N", value="499", package="0402", P1=AMP_OUT.P, P2=AMP_INN)
 Capacitor(name="C_F_N", value="51pF", package="0402", P1=AMP_OUT.P, P2=AMP_INN)
 
 for name, rail in [("P", VS_P), ("N", VS_N)]:
-    Capacitor(name="C_VS_" + name + "_BULK", value="47uF", package="1206", P1=rail, P2=GND)
+    Capacitor(name="C_VS_" + name + "_BULK", value="47uF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_VS_" + name + "_1U", value="1uF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_VS_" + name + "_100N_1", value="100nF", package="0402", P1=rail, P2=GND)
     Capacitor(name="C_VS_" + name + "_100N_2", value="100nF", package="0402", P1=rail, P2=GND)
