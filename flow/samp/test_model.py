@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from .model import Model
-from .params import Params, SwitchType
+from .params import LOAD_F, Params, SwitchType
 
 
 def test_sampler_resistance_peaks_at_mid_supply_and_delays_the_track() -> None:
@@ -96,3 +96,71 @@ def test_the_pedestal_and_the_aperture_move_the_held_value() -> None:
     )
     held = _hold(switch, [0.6, 0.0], slope=1e6)
     np.testing.assert_allclose(held["p"], [0.6 + 22e-12 * 1e6, -1e-3 + 10e-12 * 1e6], rtol=1e-9)
+
+
+def test_the_pedestal_is_a_charge_on_the_load_it_is_held_on() -> None:
+    """[Razavi-Analog] Eq. (13.26), p. 550: the pedestal goes as 1 / C_H. A curve of -2 mV measured
+    into 1 pF is -2 fC: -4 mV on 0.5 pF and -1 mV on 2 pF; without the load it was measured into,
+    the curve as it is."""
+    table = {"pedestal_table_vin_v": (0.0, 1.2), "pedestal_table_v": (-2e-3, -2e-3)}
+    ideal = {"n_conductance_s_per_v": 0.0, "p_conductance_s_per_v": 0.0}
+    values = {"p": np.asarray([0.6]), "n": np.asarray([0.6])}
+    still = {"p": np.zeros(1), "n": np.zeros(1)}
+    loads = {"p": 0.5e-12, "n": 2e-12}
+    scaled = Model.sample(
+        Params(),
+        Model.Behavioral(**ideal, **table, pedestal_load_f=1e-12),
+        values,
+        still,
+        load_f=loads,
+        gate_v=1.2,
+        rng=np.random.default_rng(0),
+    )
+    assert scaled["p"][0] - 0.6 == pytest.approx(-4e-3, rel=1e-9)
+    assert scaled["n"][0] - 0.6 == pytest.approx(-1e-3, rel=1e-9)
+    plain = Model.sample(
+        Params(),
+        Model.Behavioral(**ideal, **table),
+        values,
+        still,
+        load_f=loads,
+        gate_v=1.2,
+        rng=np.random.default_rng(0),
+    )
+    assert plain["p"][0] - 0.6 == pytest.approx(-2e-3, rel=1e-9)
+    assert plain["n"][0] - 0.6 == pytest.approx(-2e-3, rel=1e-9)
+
+
+def test_a_characterized_model_gives_the_pedestal_its_benchs_load() -> None:
+    """The record's pedestal is measured into the bench's 1 pF (``params.LOAD_F``): the model's
+    parameters say so, whatever load they are asked for."""
+    model = Model(
+        pdk="tsmc65",
+        params=Params(),
+        ron_v=(0.1, 1.1),
+        ron_ohm=(400.0, 400.0),
+        bandwidth_hz=4e8,
+        pedestal_vin_v=(0.1, 1.1),
+        pedestal_v=(-2e-3, -2e-3),
+    )
+    assert model.behavioral(load_f=0.7e-12).pedestal_load_f == LOAD_F == 1e-12
+
+
+def test_a_measured_curve_is_interpolated_in_its_conductance() -> None:
+    """[Razavi-ADC] Eq. (3.24), p. 27: a triode device's conductance is linear in its input, so
+    between two levels the conductance is interpolated: 100 ohm at 0.2 V and 300 ohm at 1.0 V are
+    10 mS and 3.333 mS, 6.667 mS halfway: 150 ohm (not the resistances' mean, 200 ohm). Next to an
+    open level the conductance falls to zero: 100 ohm at 0.2 V and open at 1.0 V are 5 mS halfway
+    (200 ohm) and 2.5 mS three quarters of the way (400 ohm)."""
+    closed = Model.Behavioral(ron_table_v=(0.2, 1.0), ron_table_ohm=(100.0, 300.0))
+    np.testing.assert_allclose(
+        Model.resistance(Params(), closed, np.asarray([0.2, 0.6, 1.0]), 1.2), [100.0, 150.0, 300.0]
+    )
+    opening = Model.Behavioral(ron_table_v=(0.2, 1.0), ron_table_ohm=(100.0, np.inf))
+    found = Model.resistance(Params(), opening, np.asarray([0.2, 0.6, 0.8, 1.0]), 1.2)
+    np.testing.assert_allclose(found[:3], [100.0, 200.0, 400.0])
+    assert np.isinf(found[3])
+    mirrored = Model.Behavioral(ron_table_v=(0.2, 1.0), ron_table_ohm=(np.inf, 100.0))
+    np.testing.assert_allclose(
+        Model.resistance(Params(), mirrored, np.asarray([0.4, 0.6, 1.0]), 1.2), [400.0, 200.0, 100.0]
+    )

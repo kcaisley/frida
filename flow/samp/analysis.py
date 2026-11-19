@@ -232,7 +232,7 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
         time_s = measurement.time_s
         clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.vin, Nets.vout))
         rises = calc.cross(clock, time_s, vdd / 2, edge="rising")
-        pedestals, droops, feedthroughs = [], [], []
+        pedestals, droops, feedthroughs, floors = [], [], [], []
         for fall in calc.cross(clock, time_s, vdd / 2, edge="falling")[1:]:
             following = rises[rises > fall]
             if not len(following):
@@ -255,11 +255,16 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
             before = calc.value(output, time_s, before_s)
             # [Pelgrom] Eq. (8.3), p. 387: V_droop = -I_leak T_hold / C_hold, a linear fall: its slope
             # Terms: the slope of vout from halfway between the clock's fall and the input's step
-            #   to a clock edge before that step; I_leak the off switch's and its junctions'
-            #   leakage, C_hold tb.cload.
-            # Ours against the source: read in volts a second, not over T_hold.
-            # Holds for: a hold whose leakage is constant over the window (the level runs' short
-            #   one; the ADC's long one is ``analyze_droop``'s).
+            #   to a clock edge before that step; C_hold tb.cload; I_leak everything that flows at
+            #   vout while the switch is off: the off channels of MN and MP, their drain junctions
+            #   and, in a kit whose models have gate tunneling, the gates' current (the switch's
+            #   gate-drain overlaps; with dummies their whole gates, which are on while holding).
+            # Ours against the source: read in volts a second, not over T_hold; the sign follows
+            #   the larger current, so a held output may rise.
+            # Holds for: a hold whose leakage is constant over the window: a plain switch in the
+            #   level runs' short hold. A bootstrap's gate is still relaxing to 0 V there and moves
+            #   vout by more than its leakage does; the droop metric is ``analyze_droop``'s, over
+            #   the ADC's long hold.
             droop = (before - held) / (before_s - held_s)
             # [Razavi-Analog] Eq. (13.26), p. 550: Delta V = W L C_ox (V_DD - V_in - V_TH) / (2 C_H),
             # the pedestal the opening switch's channel charge leaves on C_H
@@ -268,8 +273,12 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
             #   MN's (MP's) channel's, less what the dummies take.
             # Ours against the source: the source's is half the channel charge alone; the measured
             #   step also holds the clock's feedthrough through the overlap capacitance
-            #   ([Razavi-ADC] Eq. (3.45), p. 35) and whatever split the channel charge takes.
-            # Holds for: the bench's clock edges and ideal input source.
+            #   ([Razavi-ADC] Eq. (3.45), p. 35) and whatever split the channel charge takes. A
+            #   bootstrapped MN's gate stands at V_in + V_b', not at V_DD: its channel charge,
+            #   W L C_ox (V_b' - V_TH), does not grow as the input falls, and its gate's swing
+            #   through the overlap, V_in + V_b', grows with the input.
+            # Holds for: the bench's clock edges, ideal input source and load (the step goes as
+            #   1 / C_H).
             pedestals.append(held - droop * (held_s - fall) - calc.value(output, time_s, fall - transition))
             droops.append(droop)
             # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough, the held output's change over the
@@ -278,20 +287,41 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
             #   input's step, its droop over that time taken out, over vin's change between the
             #   same instants (V/V).
             # Ours against the source: the source names the coupling path (the off switch's
-            #   drain-source capacitance) without an expression.
-            # Holds for: the hold-phase input step of the level runs.
-            feedthroughs.append(
-                (calc.value(output, time_s, after_s) - before - droop * (after_s - before_s))
-                / (calc.value(data, time_s, after_s) - calc.value(data, time_s, before_s))
-            )
+            #   drain-source capacitance) without an expression. A device model before layout has
+            #   no drain-source capacitance: what this reads there is the off switch's conduction
+            #   over the rest of the hold, and the capacitive share is the extracted netlist's.
+            # Holds for: the hold-phase input step of the level runs, at a gmin below the off
+            #   switch's own conductance (LEAKAGE_GMIN_S); a change above the run's resolution
+            #   (the floor below).
+            moved = calc.value(data, time_s, after_s) - calc.value(data, time_s, before_s)
+            feedthroughs.append((calc.value(output, time_s, after_s) - before - droop * (after_s - before_s)) / moved)
+            # not in the reference texts: the feedthrough a run resolves, the furthest the held
+            # output strays from its droop line before the input steps, over the input's step:
+            # max |vout(t) - (V_held + droop (t - t_held))| / |Delta V_in|
+            # Terms: V_held, t_held and droop as above; t from t_held to a clock edge before the
+            #   input's step; Delta V_in the input's change the feedthrough is read over.
+            # Holds for: a ratio below it is not the switch's (a bootstrap's relaxing gate moves
+            #   the held output by more): the record reports the floor in its place, as a bound.
+            quiet, quiet_s = calc.clip(output, time_s, held_s, before_s)
+            floors.append(float(np.max(np.abs(quiet - (held + droop * (quiet_s - held_s))))) / abs(moved))
+        # not in the reference texts: a hold figure of a run is the median over its hold phases
+        # after the first, both step directions together
+        # Terms: one value a hold phase (the input steps up in one and down in the next).
+        # Holds for: figures that do not differ by the step's direction beyond their scatter (the
+        #   track figures, which do, take the worse direction: ``_worse``); NaN without a hold step.
         rows.append(
             (
                 vdd,
                 float(tb.input_voltage),
-                *(float(np.median(values)) if values else math.nan for values in (pedestals, droops, feedthroughs)),
+                *(
+                    float(np.median(values)) if values else math.nan
+                    for values in (pedestals, droops, feedthroughs, floors)
+                ),
             )
         )
-    vdd_v, vin_v, pedestal_v, droop, feedthrough = (np.asarray(column, dtype=np.float64) for column in zip(*rows))
+    vdd_v, vin_v, pedestal_v, droop, feedthrough, floor = (
+        np.asarray(column, dtype=np.float64) for column in zip(*rows)
+    )
     return AnalysisHold(
         group=identity.group,
         index=identity.index,
@@ -301,6 +331,7 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
         pedestal_v=pedestal_v,
         droop_v_per_s=droop,
         feedthrough=feedthrough,
+        feedthrough_floor=floor,
     )
 
 
@@ -321,7 +352,8 @@ def analyze_boost(measurements: Sequence[Meas]) -> AnalysisBoost:
             # Terms: V_A ``gate`` (MN's gate), V_in vin, both a clock edge before the clock's fall.
             # Ours against the source: the source's V_b is an ideal battery; ours is V_b' of Eq.
             #   (3.70), p. 50, less what Eq. (3.72) takes with V_in.
-            # Holds for: a bootstrapped switch (a run that saved ``gate``).
+            # Holds for: a bootstrapped switch (a run that saved ``gate``); the median over the
+            #   track phases after the first, both step directions together.
             values = [
                 calc.value(gate, time_s, end - transition) - calc.value(data, time_s, end - transition)
                 for _, end, _, _ in _tracks(measurement)
@@ -329,6 +361,7 @@ def analyze_boost(measurements: Sequence[Meas]) -> AnalysisBoost:
             vgs = float(np.median(values)) if values else math.nan
             # [Razavi-ADC] Sec. 3.8.1, p. 43: the gate's peak, V_in + V_b, above the supply
             # Terms: the largest of ``gate`` over the whole run.
+            # Ours against the source: V_b' of Eq. (3.70), p. 50 in place of the ideal battery's V_b.
             # Holds for: a bootstrapped switch.
             peak = calc.ymax(gate)
         rows.append((float(tb.vdd), float(tb.input_voltage), vgs, peak))
@@ -377,6 +410,8 @@ def analyze_stress(measurements: Sequence[Meas], *, track: AnalysisTrack) -> Ana
             # largest forward bias of any source or drain junction over the run (the last of the three)
             # Terms: V_BS and V_BD = V_BS - V_DS of each NMOS, their negatives of each PMOS
             #   (flow.circuit.oppoint.stress).
+            # Ours against the source: the source states it for the substrate; a PMOS's bulk is
+            #   its well (Mgate's and Mpre's on boot_top).
             # Holds for: a run that saved its devices' values.
             found = (
                 max(float(np.max(pair[kind])) for pair in pairs for kind in oxide),
@@ -417,11 +452,14 @@ def analyze_acquisition(measurements: Sequence[Meas]) -> AnalysisAcquisition:
                 # [Razavi-ADC] Eq. (3.82), p. 54: t_acq = R_on1 C_1 ln 2^(N+1), the time for
                 # |V_in - V_out| to fall within V_FS / 2^(N+1) (half an LSB)
                 # Terms: read off the transient: from the clock's rising mid-supply crossing until
-                #   |vin - vout| stays within V_DD / 2^(N+1); V_FS taken as the supply tb.vdd.
+                #   |vin - vout| stays within V_FS / 2^(N+1); V_FS the full scale a side, the step
+                #   the output settles over (tb.input_step_v), as in the source's Eq. (3.81).
                 # Ours against the source: the source's is the ideal exponential's; the measured
                 #   one holds the turn-on (the clock's edge, a bootstrap's bottom plate's rise).
-                # Holds for: the run's step (the ADC's full scale a side) and track window.
-                settled = calc.settlingTime(clipped, clipped_s, final=level, absolute_tolerance=vdd / 2 ** (bits + 1))
+                # Holds for: the run's step (the ADC's full scale a side: half an LSB of a
+                #   converter whose differential full scale is twice it) and track window.
+                band = float(tb.input_step_v) / 2 ** (bits + 1)
+                settled = calc.settlingTime(clipped, clipped_s, final=level, absolute_tolerance=band)
                 settles[bits][rising].append(settled - start)
             # [Razavi-ADC] Fig. 3.50, p. 53: Delta V, the error |V_in - V_out| left as acquisition ends
             # Terms: vin and vout a clock edge before the clock's falling crossing.
@@ -461,6 +499,12 @@ def _held(measurement: Meas) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.nda
         following = rises[rises > fall]
         if not len(following):
             continue
+        # not in the reference texts: a held sample is vout halfway through its hold,
+        # (t_fall + t_rise,next) / 2, as it stands: no droop taken back
+        # Terms: t_fall and t_rise,next the clock's falling crossing and its next rising one.
+        # Holds for: a droop over half a hold far below the errors read from the samples (at the
+        #   ADC's hold a held output drifting 1 V/s has moved 0.04 uV); the last hold of a run,
+        #   which has no next rise, is no sample.
         middle = (float(fall) + float(following[0])) / 2
         found.append(
             (
@@ -506,18 +550,26 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
         # the model's error and the aperture over the samples inside the range the level runs settle over
         inside = (vin >= low) & (vin <= high)
         period = float(tb.clock_period_s)
+        # [Pelgrom] Eq. (22.4), p. 985: T_meas = M_s / f_s = M_signal / f_signal, so the tone's
+        # whole cycles in the held samples are M_signal = f_signal M_s / f_s
+        # Terms: M_s the held samples (``_held``: a run of M_s + 2 periods, its first hold left out
+        #   and its last without a next rise), f_s 1 / tb.clock_period_s, f_signal
+        #   tb.sine_frequency_hz; M_signal the DFT bin the fundamental is read from.
+        # Ours against the source: none.
+        # Holds for: a tone coherent with the samples (flow.samp.runs.testbenches sets it so).
         cycles = round(float(tb.sine_frequency_hz) * period * len(held))
-        # [Razavi-ADC] Eq. (3.85), p. 55: the held samples' harmonics over their fundamental (``_harmonics``)
+        # the held samples' harmonics over their fundamental (``_harmonics``)
         thd_db = _harmonics(held, cycles, orders=5)
         # [Razavi-ADC] Eq. (3.26), p. 29: a first-order track's phase shift tan^-1(R_on C_1 omega),
         # for R_on C_1 omega << 1 a delay R_on C_1: the held value is V_in - R(V_in) C dV_in/dt
         # Terms: V_in and dV_in/dt vin and its slope at the clock's falling crossing; R(V_in) the
-        #   level runs' on-resistance (``track``) and the pedestal theirs (``hold``), interpolated
-        #   over their settled levels; C tb.cload.
+        #   level runs' on-resistance (``track``), its conductance interpolated over their
+        #   settled levels, and the pedestal theirs (``hold``), interpolated likewise; C tb.cload.
         # Ours against the source: the pedestal at V_in added ([Razavi-Analog] Eq. (13.26), p. 550);
         #   this is flow.samp.model.Model.sample without its noise, jitter and aperture.
-        # Holds for: R C omega << 1; samples whose input lies inside the settled input range.
-        resistance = np.interp(vin, track.vin_v[settled], track.ron_ohm[settled]) if settled.any() else np.nan
+        # Holds for: R C omega << 1; samples whose input lies inside the settled input range; the
+        #   level runs' load (the pedestal is theirs, not rescaled).
+        resistance = 1 / np.interp(vin, track.vin_v[settled], 1 / track.ron_ohm[settled]) if settled.any() else np.nan
         pedestal = np.interp(vin, hold.vin_v[settled], hold.pedestal_v[settled]) if settled.any() else np.nan
         rest = (held - (vin - resistance * load * rate + pedestal))[inside]
         # [Razavi-ADC] Eq. (3.86), p. 55: Delta V = Delta T dV_in/dt, a sampling instant Delta T late
@@ -525,8 +577,11 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
         #   by least squares over the samples inside the settled range (a ``aperture_s``, b
         #   ``aperture_s_per_v``).
         # Ours against the source: the source's Delta T is a random jitter; ours is the
-        #   deterministic, input-dependent instant of [Razavi-ADC] Fig. 3.25(c), p. 37 (the switch
-        #   opens as CK falls through V_in + V_TH), to first order in V_in.
+        #   deterministic, input-dependent instant of [Razavi-ADC] Fig. 3.25(c), p. 37 (a plain
+        #   switch opens as CK falls through V_in + V_TH), to first order in V_in. A bootstrapped
+        #   MN's gate is not the clock: it falls from V_in + V_b' through the pull-down stack
+        #   after clk_b has risen, so its instant depends on the input through the stack's
+        #   discharge, not through the clock's edge; the same fit reads it.
         # Holds for: at least three samples inside the settled range; NaN otherwise.
         basis = np.stack([rate[inside], rate[inside] * vin[inside]], axis=1)
         fitted = rest.size >= 3 and bool(np.all(np.isfinite(rest)))
@@ -561,8 +616,8 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
 
 @analysis
 def analyze_droop(measurements: Sequence[Meas]) -> AnalysisDroop:
-    """Measure the held output's slope over the middle half of each hold (where a DAC step holds
-    it moved, over that step), at each point."""
+    """Measure the held output's slope over the third quarter of each hold (where a DAC step holds
+    it moved, under that step), at each point."""
 
     identity = measurement_identity(measurements)
     rows = []
@@ -574,22 +629,32 @@ def analyze_droop(measurements: Sequence[Meas]) -> AnalysisDroop:
         hold = period - high - 2 * edge
         droops = []
         for fall in calc.cross(clock, time_s, vdd / 2, edge="falling")[1:]:
-            # not in the reference texts: the droop's window, from a quarter into the hold (two
-            # clock edges after the DAC's step there) to a quarter before its end: t_fall + t_edge / 2 +
-            # t_hold / 4 + 2 t_edge to t_fall + t_edge / 2 + 3 t_hold / 4 - t_edge
-            # Terms: t_fall the clock's falling crossing, t_hold = T - t_high - 2 t_edge
-            #   (flow.samp.sim.testbench's DAC step rises and falls at its ends).
-            # Holds for: the bench's DAC step timing, or none.
-            first, last = float(fall) + edge / 2 + hold / 4 + 2 * edge, float(fall) + edge / 2 + 3 * hold / 4 - edge
+            # not in the reference texts: the droop's window, the third quarter of the hold, from
+            # its middle to a clock edge before the DAC's step returns: t_fall + t_edge / 2 +
+            # t_hold / 2 to t_fall + t_edge / 2 + 3 t_hold / 4 - t_edge
+            # Terms: t_fall the clock's falling crossing, t_hold = T - t_high - 2 t_edge the hold
+            #   between the clock's edges (flow.samp.sim.testbench's DAC step rises a quarter into
+            #   it and falls a quarter before its end).
+            # Holds for: the bench's DAC step timing, or none; a hold whose first half is long
+            #   enough for a bootstrap's gate, which the opening and the DAC's step kick through
+            #   MN's gate-drain capacitance, to relax to 0 V (the ADC's hold).
+            first, last = float(fall) + edge / 2 + hold / 2, float(fall) + edge / 2 + 3 * hold / 4 - edge
             if last >= float(time_s[-1]):
                 continue
             # [Pelgrom] Eq. (8.3), p. 387: V_droop = -I_leak T_hold / C_hold, a linear fall: its slope
-            # Terms: vout's change over the middle half of the hold (a quarter in, two clock edges
-            #   after the DAC's step there, to a quarter before its end), over that time; I_leak the
-            #   off switch's and its junctions', C_hold tb.cload.
-            # Ours against the source: with a DAC step the held output sits moved by it meanwhile.
+            # Terms: vout's change over the window, over its length; C_hold tb.cload; I_leak
+            #   everything that flows at vout while the switch is off: the off channels of MN and
+            #   MP, their drain junctions and, in a kit whose models have gate tunneling, the
+            #   gates' current (the switch's gate-drain overlaps; with dummies their whole gates,
+            #   which are on while holding).
+            # Ours against the source: with a DAC step the held output sits moved by it meanwhile,
+            #   and the off channel's current under that step leads; the sign follows the larger
+            #   current, so a held output may rise.
             # Holds for: the run's gmin below the leakage it reads (LEAKAGE_GMIN_S).
             droops.append((calc.value(output, time_s, last) - calc.value(output, time_s, first)) / (last - first))
+        # not in the reference texts: a run's droop is the median over its holds after the first
+        # Terms: one slope a hold.
+        # Holds for: holds alike (the input still); NaN where the run has no whole hold.
         rows.append(
             (
                 vdd,
@@ -629,8 +694,13 @@ def analyze_energy(measurements: Sequence[Meas]) -> AnalysisEnergy:
         #   returns to it taken off) and the charge each clock source (clk, clk_b) delivers, the
         #   integral of its positive current alone.
         # Ours against the source: the source has one supply; ours adds the clocks, whose drivers
-        #   (not in the bench) would draw an edge's charge from V_DD and return none of it.
-        # Holds for: ideal clock sources of the supply's swing; whole periods after the first.
+        #   (not in the bench) would draw an edge's charge from V_DD and return none of it. The
+        #   charge the input source delivers is not counted: the load's steps and, in a bootstrap,
+        #   what Mbot_in puts on the bottom plate each track phase and Mbot dumps each hold, about
+        #   C_Q V_in^2 + C_b (V_DD - V_b') V_in a period ([Razavi-ADC] Example 3.22, p. 51: the
+        #   input drives the capacitor's parasitic), which is of the order of the supply's share.
+        # Holds for: ideal clock sources of the supply's swing; the median over the whole periods
+        #   after the first.
         delivered = sum(
             current if name == Nets.vdd.name else np.maximum(current, 0.0) for name, current in measurement.i.items()
         )
@@ -658,8 +728,10 @@ def _settled_span(track: AnalysisTrack) -> tuple[float, float]:
     # not in the reference texts: the settled input range, the span of the contiguous input levels
     # with a finite on-resistance, around the nominal level where it has one, else the widest
     # Terms: the levels ``track.vin_v`` of the level runs, R_on ``track.ron_ohm``.
-    # Ours against the source: [Razavi-Analog] Eq. (13.24), p. 548 bounds an NMOS switch's input
-    #   by V_DD - V_TH; this one is where the track window still shows a time constant.
+    # Ours against the source: [Razavi-Analog] Fig. 13.16(a), p. 548 has an NMOS switch's R_on
+    #   rise sharply as its input nears V_DD - V_TH, and Eq. (13.24), p. 548 bounds the input at
+    #   3/4 (V_DD - V_TH) for a 4:1 change of R_on; this one is where the track window still shows
+    #   a time constant.
     # Holds for: the level runs' levels and track window.
     nominal = int(np.argmin(np.abs(track.vin_v - NOMINAL_VIN * track.vdd_v)))
     runs, first = [], None
@@ -722,17 +794,28 @@ def metrics(
     # Holds for: level runs that include the nominal input (flow.samp.runs.testbenches).
     nominal = int(np.argmin(np.abs(track.vin_v - NOMINAL_VIN * track.vdd_v)))
     settled = np.isfinite(track.ron_ohm)
-    # not in the reference texts: the input range, the settled span's width (``_settled_span``)
+    # not in the reference texts: the input range, the settled span's width, high - low
+    # Terms: high and low the settled span's ends (``_settled_span``).
+    # Holds for: the level runs' levels; 0 where no level settled.
     low, high = _settled_span(track)
     span = high - low if math.isfinite(low) else 0.0
     # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough, in dB: 20 log10 |Delta V_out / Delta V_in|
-    # Terms: the ratio ``hold.feedthrough`` (``analyze_hold``).
-    # Ours against the source: the source gives no expression; the sign is dropped.
-    # Holds for: a feedthrough above the simulator's resolution.
-    feedthrough_db = 20 * np.log10(np.abs(hold.feedthrough))
+    # Terms: the ratio ``hold.feedthrough`` and what its run resolves, ``hold.feedthrough_floor``
+    #   (``analyze_hold``): the larger magnitude of the two.
+    # Ours against the source: the source gives no expression; the sign is dropped; a ratio under
+    #   its run's floor is reported as the floor, a bound from above (feedthrough_floor_db beside
+    #   it says where: the two are then equal).
+    # Holds for: a hold result with its floor; without one the ratio as it is.
+    resolved = np.abs(hold.feedthrough)
+    if hold.feedthrough_floor is not None:
+        resolved = np.fmax(resolved, hold.feedthrough_floor)
+    with np.errstate(divide="ignore"):
+        feedthrough_db = 20 * np.log10(resolved)
+        floor_db = None if hold.feedthrough_floor is None else 20 * np.log10(hold.feedthrough_floor)
     found = {
         # [Razavi-Analog] Eq. (13.31), p. 552: R_on = tau / C_H of the on switch, at the nominal input
         # Terms: ``track.ron_ohm`` at the nominal point (``analyze_track``).
+        # Ours against the source: read off a transient into the load, not from the device's law.
         # Holds for: the bench's load; NaN where the nominal level shows no time constant.
         "ron_ohm": float(track.ron_ohm[nominal]),
         # [Razavi-Analog] Eq. (13.22), p. 547: R_on over the input level; its largest, max_i R_on(V_in,i)
@@ -744,10 +827,12 @@ def metrics(
         "input_range_v": span,
         # [Razavi-ADC] Eq. (3.26), p. 29: f_-3dB = 1 / (2 pi R_on C_1), at the nominal input
         # Terms: ``track.bandwidth_hz`` at the nominal point (``analyze_track``).
+        # Ours against the source: none (a first-order track).
         # Holds for: the bench's load.
         "bandwidth_hz": float(track.bandwidth_hz[nominal]),
         # [Razavi-ADC] Sec. 3.9.1, p. 53: |V_in - V_out| as tracking ends, at the nominal input
         # Terms: ``track.track_error_v`` at the nominal point: what the level runs' step leaves.
+        # Ours against the source: the level runs' small step in mid-track, not a full-scale one.
         # Holds for: the level runs' step and track window (the full-scale one:
         #   track_error_full_scale_v).
         "track_error_v": float(track.track_error_v[nominal]),
@@ -762,9 +847,11 @@ def metrics(
         # (``droop``'s first point), else the nominal level run's
         # Terms: ``droop.droop_v_per_s[0]`` (``analyze_droop``) or ``hold.droop_v_per_s`` at the
         #   nominal point.
+        # Ours against the source: in volts a second, not over T_hold.
         # Holds for: the ADC's hold at the nominal input, typical process, 25 C.
         "droop_v_per_s": float(hold.droop_v_per_s[nominal] if droop is None else droop.droop_v_per_s[0]),
         "feedthrough_db": float(feedthrough_db[nominal]),
+        **({} if floor_db is None else {"feedthrough_floor_db": float(floor_db[nominal])}),
         # not in the reference texts: the largest R_on over the 90, 100 and 110 % supply runs at the
         # nominal input, max_k R_on(V_DD,k)
         # Terms: ``supply.ron_ohm`` (``analyze_track`` of the supply runs), finite ones.
@@ -785,6 +872,7 @@ def metrics(
     if droop is not None:
         # [Pelgrom] Eq. (8.3), p. 387: the droop over the ADC's hold, hot (``droop``'s last point)
         # Terms: ``droop.droop_v_per_s[-1]`` (``analyze_droop`` of the hot run).
+        # Ours against the source: in volts a second, not over T_hold.
         # Holds for: the nominal input, typical process, the hot corner's temperature.
         found["droop_hot_v_per_s"] = float(droop.droop_v_per_s[-1])
     if skew is not None:
@@ -805,6 +893,7 @@ def metrics(
         found["vgs_max_v"] = float(boost.vgs_v[boosted].max()) if boosted.any() else math.nan
         # [Razavi-ADC] Sec. 3.8.1, p. 43: the gate's peak, V_in + V_b: its largest over the level runs
         # Terms: ``boost.gate_max_v``, the largest of ``gate`` over each run.
+        # Ours against the source: V_b' in place of the ideal V_b.
         # Holds for: the level runs' inputs (the highest the supply less half the step).
         found["gate_max_v"] = _largest(boost.gate_max_v)
     for suffix, given in (("", stress), ("_dac", dac_stress)):
@@ -822,6 +911,7 @@ def metrics(
         # [Razavi-Analog] Sec. 2.1, p. 9: the source and drain junctions kept reverse biased: the
         # largest forward bias of any (negative: all reverse biased)
         # Terms: ``junction_v`` (``analyze_stress``), V_BS and V_BD of an NMOS, their negatives of a PMOS.
+        # Ours against the source: none.
         # Holds for: the same runs.
         forward = given.junction_v[np.isfinite(given.junction_v)]
         found[f"junction_forward_max{suffix}_v"] = float(forward.max()) if forward.size else math.nan
@@ -829,16 +919,19 @@ def metrics(
         # [Razavi-ADC] Eq. (3.82), p. 54: t_acq to half an LSB at each resolution
         # Terms: ``acquisition.acquisition_s`` of the full-scale step at the nominal supply
         #   (``analyze_acquisition``), the slower step direction.
+        # Ours against the source: read off the transient, the switch's turn-on in it.
         # Holds for: the ADC's track window, its full scale a side, the bench's load.
         for index, bits in enumerate(acquisition.bits):
             found[f"acquisition_{int(bits)}b_s"] = float(acquisition.acquisition_s[0, index])
         # [Razavi-ADC] Fig. 3.50, p. 53: the error a full-scale step leaves as the ADC's track window ends
         # Terms: ``acquisition.track_error_v[0]``, the larger of the two step directions.
+        # Ours against the source: none.
         # Holds for: the same run.
         found["track_error_full_scale_v"] = float(acquisition.track_error_v[0])
     if sine is not None:
         # [Razavi-ADC] Eq. (3.85), p. 55: the held samples' distortion, the low tone's and the high one's
         # Terms: ``sine.thd_db`` first and last (``analyze_sine``, low tone first).
+        # Ours against the source: the first five harmonics, each folded onto its bin (``_harmonics``).
         # Holds for: the ADC's timing and swing, the bench's load, one side (single-ended).
         found["thd_low_db"], found["thd_high_db"] = float(sine.thd_db[0]), float(sine.thd_db[-1])
         # not in the reference texts: the largest distance of a held sample from the behavioral
@@ -847,21 +940,30 @@ def metrics(
         # Terms: ``sine.model_error_v`` (``analyze_sine``).
         # Holds for: the settled input range (outside it the model holds the previous sample).
         found["model_error_v"] = _largest(sine.model_error_v)
-        # [Pelgrom] Sec. 8.3.2, p. 390: the signal-dependent aperture delay, a + b V_in, from the high tone
+        # [Razavi-ADC] Fig. 3.25(c), p. 37: the instant the switch opens moves with the input
+        # [Pelgrom] Sec. 8.2.3, p. 388: the aperture time, the sampling moment postponed or advanced
+        # on the switching edge; a + b V_in, from the high tone
         # Terms: ``sine.aperture_s`` and ``sine.aperture_s_per_v`` of the last (highest) tone.
-        # Ours against the source: the source names the effect; the fit is ``analyze_sine``'s.
+        # Ours against the source: the sources name the effect; the fit is ``analyze_sine``'s,
+        #   on what is left once the track's lag R(V_in) C dV_in/dt ([Pelgrom] Sec. 8.3.2, p. 390:
+        #   the R_on C_hold delay that grows with the signal) is taken out.
         # Holds for: the high tone's slopes; NaN where the fit had too few samples.
         found["aperture_s"], found["aperture_s_per_v"] = float(sine.aperture_s[-1]), float(sine.aperture_s_per_v[-1])
     if dac is not None:
         # [Pelgrom] Eq. (8.3), p. 387: the largest |droop| while the DAC's first step holds the output raised
         # Terms: ``dac.droop_v_per_s`` of the two DAC runs (``analyze_droop``).
         # Ours against the source: the held output stands a_0 above its sample meanwhile
-        #   ([Razavi-ADC] Sec. 16.2.1, p. 346).
-        # Holds for: the hot corner, the lowest level a side reaches and the common mode.
+        #   ([Razavi-ADC] Sec. 16.2.1, p. 346), so the off switch's channel, a_0 across it, leads
+        #   the leakage.
+        # Holds for: the hot corner, the lowest level a side reaches and the common mode; the
+        #   third quarter of the ADC's hold (a bootstrap's gate has relaxed by then).
         found["droop_conversion_v_per_s"] = _largest(dac.droop_v_per_s)
     if energy is not None:
         # [Baker] Eq. (11.15), p. 355: V_DD times the charge drawn over a clock period (``analyze_energy``)
         # Terms: ``energy.energy_per_cycle_j[0]``, the nominal level run's.
-        # Holds for: the bench's 10 ns clock, load and nominal input.
+        # Ours against the source: the clocks' charge added, the input source's left out
+        #   (``analyze_energy``).
+        # Holds for: the level runs' 15 ns clock (10 ns tracking, two input steps a period), the
+        #   bench's load and the nominal input.
         found["energy_per_cycle_j"] = float(energy.energy_per_cycle_j[0])
     return found

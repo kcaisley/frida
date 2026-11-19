@@ -15,7 +15,15 @@ from flow import capdac
 from flow.pipeline import Meas, MeasInfo, Plot
 
 from . import runs
-from .analysis import analyze_droop, analyze_energy, analyze_hold, analyze_sine, analyze_track, metrics
+from .analysis import (
+    analyze_acquisition,
+    analyze_droop,
+    analyze_energy,
+    analyze_hold,
+    analyze_sine,
+    analyze_track,
+    metrics,
+)
 from .params import (
     ADC_CM,
     ADC_PERIOD_S,
@@ -182,14 +190,17 @@ def test_the_record_reads_every_run_and_names_its_waves(monkeypatch: pytest.Monk
     # the levels 1/12 to 11/12 of 1.2 V, and the top one, 1.195 V: 1.095 V
     assert result.metrics["input_range_v"] == pytest.approx(1.195 - 0.1)
     # [Razavi-ADC] Eq. (3.82), p. 54: t_acq = R C ln(2^(N+1)) from the clock's edge midpoint (its
-    # half edge before the switch closes adds nothing: the ideal switch closes at mid-supply)
-    assert result.metrics["acquisition_12b_s"] == pytest.approx(200e-12 * math.log(1.0 / (1.2 / 2**13)), rel=0.02)
+    # half edge before the switch closes adds nothing: the ideal switch closes at mid-supply), the
+    # band half an LSB of the step itself: 200 ps x ln 2^13 = 1.802 ns
+    assert result.metrics["acquisition_12b_s"] == pytest.approx(200e-12 * 13 * math.log(2), rel=5e-3)
     # the model of the same RC and pedestal predicts every held sample of an ideal switch
     assert result.metrics["model_error_v"] < 1e-4
     # no device values saved by the synthetic runs: no stress figures
     assert math.isnan(result.metrics["terminal_max_v"])
-    # 1 uA from 1.2 V over a 10 ns period, and each clock's 10 fF charged from 1.2 V once
-    assert result.metrics["energy_per_cycle_j"] == pytest.approx(1.2 * (1e-6 * 10e-9 + 2 * 10e-15 * 1.2), rel=1e-3)
+    # 1 uA from 1.2 V over the level runs' 15 ns period, and each clock's 10 fF charged from 1.2 V
+    # once: 1.2 x (15 fC + 24 fC) = 46.8 fJ (in femtojoules: approx's default absolute tolerance
+    # is above a value in joules)
+    assert result.metrics["energy_per_cycle_j"] / 1e-15 == pytest.approx(46.8, rel=1e-3)
     assert [plot.name for plot in result.details] == [
         "ron_vin",
         "track_error_vin",
@@ -245,20 +256,19 @@ def test_the_metrics_take_the_nominal_point_and_the_largest_settled() -> None:
 def test_the_energy_counts_each_clocks_charge_once_though_its_source_takes_it_back() -> None:
     """[Baker] Eq. (11.15), p. 355: V_DD I_avg, the current drawn from V_DD. A clock source that
     charges 10 fF and takes it back nets nothing, but its driver draws C V_DD from V_DD each
-    period: 1.2 V x (1 uA x 10 ns + 2 x 10 fF x 1.2 V)."""
+    period: 1.2 V x (1 uA x 10 ns + 2 x 10 fF x 1.2 V) = 1.2 x (10 fC + 24 fC) = 40.8 fJ."""
     energy = analyze_energy([ideal_run(TbParams(input_step_v=0.0))])
-    assert energy.energy_per_cycle_j[0] == pytest.approx(1.2 * (1e-6 * 10e-9 + 2 * 10e-15 * 1.2), rel=1e-3)
+    assert energy.energy_per_cycle_j[0] / 1e-15 == pytest.approx(40.8, rel=1e-3)
 
 
 def test_the_energy_counts_the_supplys_net_charge() -> None:
     """[Baker] Eq. (11.15), p. 355: P_avg = V_DD I_avg, the supply's average current. A supply that
     delivers 1 uA and takes back 10 fF x 1.2 V on each clock fall nets 1 uA x 10 ns less that
-    charge a period, the clocks' charge counted as before."""
+    charge a period, the clocks' charge counted as before: 1.2 V x (10 fC - 12 fC + 24 fC) = 26.4 fJ."""
     run = ideal_run(TbParams(input_step_v=0.0))
     returned = CLOCK_LOAD_F * np.minimum(np.gradient(run.v["clk"], run.time_s), 0.0)
     energy = analyze_energy([replace(run, i={**run.i, "vdd": run.i["vdd"] + returned})])
-    net_c = 1e-6 * 10e-9 - CLOCK_LOAD_F * 1.2
-    assert energy.energy_per_cycle_j[0] == pytest.approx(1.2 * (net_c + 2 * CLOCK_LOAD_F * 1.2), rel=1e-3)
+    assert energy.energy_per_cycle_j[0] / 1e-15 == pytest.approx(26.4, rel=1e-3)
 
 
 def test_the_droop_is_the_slope_over_the_adcs_hold() -> None:
@@ -299,10 +309,8 @@ def test_the_dac_runs_raise_the_lower_side_by_the_adcs_first_step(monkeypatch: p
     for name in ("dac_low", "dac_cm"):
         assert benches[name].dac_step_v == pytest.approx(step, abs=1e-4)
         assert benches[name].input_voltage + benches[name].dac_step_v < 1.2
-    # the runs that read a hold's leakage at a gmin below it, the others at Spectre's own
-    leaky = {"droop", "droop_hot", "dac_low", "dac_cm"}
-    assert {name for name, tb in benches.items() if tb.gmin_s == LEAKAGE_GMIN_S} == leaky
-    assert all(tb.gmin_s is None for name, tb in benches.items() if name not in leaky)
+    # every run at a gmin below the leakage and the off switch's conduction a hold shows
+    assert all(tb.gmin_s == LEAKAGE_GMIN_S for tb in benches.values())
 
 
 def test_a_sine_outside_the_settled_levels_fits_no_aperture() -> None:
@@ -500,3 +508,52 @@ def test_the_full_scale_step_is_the_converters_own_worst_case(monkeypatch: pytes
     assert all(tb.input_voltage - tb.track_step_v > 0 for tb in benches.values())
     for name in ("droop", "droop_hot", "sine_1", "sine_15", "dac_low", "dac_cm"):
         assert benches[name].track_step_v == benches[name].input_step_v == 0.0
+
+
+def test_the_acquisition_band_is_half_an_lsb_of_the_step() -> None:
+    """[Razavi-ADC] Eq. (3.81), (3.82), p. 54: an output settling over V_FS is within V_FS / 2^(N+1)
+    after t_acq = R C ln 2^(N+1), whatever V_FS and the supply. An ideal switch of 200 ps closing
+    at the clock's mid-supply crossing, stepping 0.5 V or 0.94 V at a 1.2 V supply: 200 ps x 11,
+    13 and 15 x ln 2 = 1.525, 1.802 and 2.079 ns at 10, 12 and 14 bits, both steps alike."""
+    tb = TbParams(input_voltage=0.6, clock_period_s=ADC_PERIOD_S, clock_high_time_s=ADC_TRACK_S, periods=4)
+    expected = [200e-12 * (bits + 1) * math.log(2) for bits in (10, 12, 14)]
+    for step in (0.5, 0.94):
+        found = analyze_acquisition([ideal_run(replace(tb, input_step_v=step), pedestal_v=0.0)])
+        assert list(found.bits) == [10, 12, 14] and found.step_v[0] == step
+        assert found.acquisition_s[0] == pytest.approx(expected, rel=5e-3)
+
+
+def test_the_droop_is_read_once_the_holds_first_half_has_passed() -> None:
+    """The droop's window is the third quarter of the hold. A held output falling 1e3 V/s with a
+    1 mV transient that dies with 4 ns from each clock fall (a kicked gate relaxing): at the
+    middle of the ADC's 87.4 ns hold the transient is 1 mV x exp(-43.7 / 4) = 18 nV, which over
+    the 21.8 ns window adds under 1 V/s; from a quarter into the hold it would still be
+    1 mV x exp(-21.9 / 4) = 4 uV, a tenth of the droop over the hold's middle half."""
+    tb = TbParams(input_step_v=0.0, clock_period_s=ADC_PERIOD_S, clock_high_time_s=ADC_TRACK_S, periods=3)
+    run = ideal_run(tb, droop_v_per_s=-1e3)
+    since_fall = np.mod(run.time_s - (tb.clock_transition_time_s * 1.5 + tb.clock_high_time_s), tb.clock_period_s)
+    relaxing = replace(run, v={**run.v, "vout": run.v["vout"] + 1e-3 * np.exp(-since_fall / 4e-9)})
+    assert analyze_droop([relaxing]).droop_v_per_s[0] == pytest.approx(-1e3, rel=2e-3)
+
+
+def test_a_feedthrough_under_what_its_run_resolves_is_reported_as_the_floor() -> None:
+    """An ideal sampler's held output is a straight line before the input steps: its floor is
+    nothing and its feedthrough, 1e-3, is -60 dB. A held output that strays 2 uV from that line
+    before a 0.1 V step resolves no ratio under 2e-5 (-94 dB): a feedthrough of 1e-6 (-120 dB)
+    is then reported as the floor, one of 1e-3 as it is."""
+    hold = analyze_hold([rc_run(TB)])
+    assert hold.feedthrough_floor is not None and hold.feedthrough_floor[0] < 1e-9
+    track = analyze_track([rc_run(TB)])
+    assert metrics(track=track, hold=hold, supply=track)["feedthrough_db"] == pytest.approx(-60.0, abs=1e-3)
+    # a 2 uV bump on the held output, 0.2 ns wide, three quarters of the way from the opening to the step
+    run = rc_run(TB, feedthrough=1e-6)
+    period, high = TB.clock_period_s, TB.clock_high_time_s
+    phase = np.mod(run.time_s, period)
+    bump = 2e-6 * np.clip(1 - np.abs(phase - (high + 0.75 * (period - high) / 2)) / 0.1e-9, 0.0, None)
+    strayed = analyze_hold([replace(run, v={**run.v, "vout": run.v["vout"] + bump})])
+    assert strayed.feedthrough[0] == pytest.approx(1e-6, rel=1e-3)
+    assert strayed.feedthrough_floor is not None and strayed.feedthrough_floor[0] == pytest.approx(2e-5, rel=1e-2)
+    values = metrics(track=track, hold=strayed, supply=track)
+    assert values["feedthrough_db"] == values["feedthrough_floor_db"] == pytest.approx(20 * math.log10(2e-5), abs=0.1)
+    resolved = replace(strayed, feedthrough=np.asarray([1e-3]))
+    assert metrics(track=track, hold=resolved, supply=track)["feedthrough_db"] == pytest.approx(-60.0, abs=1e-6)

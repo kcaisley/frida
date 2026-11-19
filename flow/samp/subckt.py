@@ -46,19 +46,22 @@ def netlist(param: Params) -> h.Module:
     #   hold (clk low) Mpre charges P to vdd and Mbot pulls Q to vss, while Mgate_off under its
     #   cascodes holds A low. In track Mgate joins A to P and Mbot_in puts vin on Q, so A sits C_b's
     #   charge above vin: V_GS = V_b' whatever the input ([Razavi-ADC] Sec. 3.8.1, p. 43; Eq.
-    #   (3.70), p. 50). Mpre's and Mgate's n-wells sit on P, never below their other terminals
-    #   ([Razavi-ADC] Sec. 3.8.2, p. 48).
+    #   (3.70), p. 50). Mpre's and Mgate's n-wells sit on P ([Razavi-ADC] Sec. 3.8.2, p. 48),
+    #   which is the highest of their terminals but as holding starts: P then lands at V_b', below
+    #   Mpre's drain on vdd by V_DD - V_b' (a tenth of the supply at most, BOOST_MIN) until Mpre
+    #   has recharged it, and A stands a few tens of millivolts above P while the pull-down
+    #   discharges it; both far under a junction's turn-on (junction_forward_max_v reports them).
     # Ours against the source, each not in the reference texts:
     #   - Mgate's gate (``gate_ctl``) is not the clock: it follows Q while tracking (the PMOS
     #     Mctl_on, gated by the complementary clock, down to Q or to about its threshold above 0 V,
     #     whichever is higher) and sits at vdd while holding (Mctl_p), so Mgate's |V_GS| stays
     #     within about V_DD where a clocked gate would see P, up to two supplies, from 0 V;
-    #     Mctl_dummy, drain and source on gate_ctl, on the complementary clock against Mctl_p's
-    #     clock edge.
-    #   - Mbot_in is ``bot_l`` long, so that Q, and A with it, rises from 0 V to vin no faster
-    #     than the switch moves its output from the previous sample (flow.samp.params.BOTTOM_LIFT):
-    #     A then stands no more than V_b' above an output the switch has yet to move (A - vout,
-    #     MN's oxide at its output end).
+    #     Mctl_dummy, drain and source on gate_ctl, on the complementary clock (below).
+    #   - Mbot_in is ``bot_l`` long, so that Q, rising from 0 V to vin, cannot pass the output
+    #     the switch moves from the previous sample (flow.samp.params.BOTTOM_LIFT): A, which rides
+    #     V_b' above Q, then stands no more than V_b' above an output the switch has yet to move
+    #     (A - vout, MN's oxide at its output end). Q's slope may be the larger before it reaches
+    #     the output; its level stays below.
     #   - a second cascode, Mgate_top, above M7, gated by P, so that neither carries more than a
     #     supply while A sits up to two supplies high (the source: V_DS7 about V_DD + V_TH7), and
     #     between the two a diode-connected device, Mgate_drop, with Mgate_pass (gated by vdd)
@@ -68,21 +71,29 @@ def netlist(param: Params) -> h.Module:
     #     keep what M7 then has across it under a supply. Once gate_mid is a threshold below vdd
     #     Mgate_pass conducts past the diode, so that A is pulled to 0 V, not to a threshold above.
     #   - Mgate_off_dummy, drain and source on the pull-down's foot (``gate_off``), on the clock,
-    #     against Mgate_off's clock edge, whose kick reaches A through the cascodes.
+    #     against Mgate_off's clock edge, whose kick reaches A through the cascodes (below).
     #   - Mpre is PRECHARGE_W helpers wide: it holds P at vdd while A charges from it.
-    # Holds for: a design ``flow.samp.params.valid`` admits; the input moving no faster while
-    #   holding than a full-scale sine at the ADC's Nyquist frequency (a faster fall couples A
-    #   below 0 V through MN's gate). No terminal pair then passes the highest supply by more than
-    #   the coupling of a clock edge or of the moving input onto a node held at a rail.
+    # Holds for: a design ``flow.samp.params.valid`` admits; an input that makes no large move
+    #   while holding faster than a full-scale sine at the ADC's Nyquist frequency (a full-scale
+    #   fall at a clock edge's rate couples A tens of millivolts below 0 V through MN's gate; a
+    #   step of the level runs' size at that rate couples under a millivolt). No terminal pair
+    #   then passes the highest supply by more than the coupling of a clock edge or of the moving
+    #   input onto a node held at a rail.
     if bootstrap:
         Samp.gate = h.Signal(desc="Boosted switch gate")
         Samp.boot_top, Samp.boot_bot, Samp.gate_ctl = h.Signal(), h.Signal(), h.Signal()
         Samp.gate_top, Samp.gate_mid, Samp.gate_off = h.Signal(), h.Signal(), h.Signal()
         aux = {"vth": param.mos_vth, "w": param.boot_w, "l": 1}
-        # not in the reference texts: Mctl_dummy half a helper wide, drain and source both on
-        # gate_ctl: its two overlaps equal Mctl_p's one (the dummy of [Razavi-ADC] Sec. 3.7, p. 42,
-        # on a helper's clock edge)
-        # Terms: the source's M1 Mctl_p (on clk), its M3 Mctl_dummy (on clk_b); W_3 = boot_w // 2.
+        # [Razavi-ADC] Sec. 3.7, p. 42: a dummy of half its switch's width, W_3 = 0.5 W_1, on the
+        # opposite clock, takes the half of the channel charge its switch releases onto the node
+        # Terms: the source's M1 Mctl_p (on clk), which releases its channel onto gate_ctl as
+        #   tracking starts; its M3 Mctl_dummy (on clk_b), drain and source both on gate_ctl;
+        #   W_3 = boot_w // 2.
+        # Ours against the source: applied to a helper, not to the sampling switch. The node also
+        #   carries Mctl_on's source, whose gate is on clk_b too: its overlap alone balances
+        #   Mctl_p's, so with the dummy's two clk_b couples twice what clk does onto gate_ctl. As
+        #   holding starts at an input near the supply (gate_ctl already near vdd) that lifts
+        #   gate_ctl some tens of millivolts above vdd until Mctl_p has pulled it back.
         # Holds for: clock edges that meet; a helper at least two units wide.
         small = {"vth": param.mos_vth, "w": max(1, param.boot_w // 2), "l": 1}
         # the bottom plate follows vin while tracking, its gate boosted with the switch's
@@ -97,6 +108,18 @@ def netlist(param: Params) -> h.Module:
         Samp.Mgate_pass = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_top, g=Samp.vdd, s=Samp.gate_mid, b=Samp.vss)
         Samp.Mgate_cas = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_mid, g=Samp.vdd, s=Samp.gate_off, b=Samp.vss)
         Samp.Mgate_off = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_off, g=Samp.clk_b, s=Samp.vss, b=Samp.vss)
+        # not in the reference texts: Mgate_off_dummy as wide as Mgate_off (boot_w), twice the
+        # half width the dummy of [Razavi-ADC] Sec. 3.7, p. 42 has: its two overlaps on clk are
+        # twice Mgate_off's one on clk_b, so that as tracking starts the foot, and A through the
+        # cascodes, is kicked above 0 V and not below it
+        # Terms: the source's M1 Mgate_off (on clk_b), its M3 Mgate_off_dummy (on clk), drain and
+        #   source on gate_off; W_3 = W_1 = boot_w.
+        # Ours against the source: with W_3 = 0.5 W_1 the foot, and A with it, still dips a few
+        #   millivolts below 0 V as tracking starts (Mgate_off's source is the rail: its channel
+        #   charge does not split in halves), and every pair that holds a supply against A (Mpre's
+        #   and Mgate_top's gates, Mgate's drain) then passes the supply by as much; ours
+        #   over-compensates on purpose.
+        # Holds for: clock edges that meet.
         Samp.Mgate_off_dummy = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_off, g=Samp.clk, s=Samp.gate_off, b=Samp.vss)
         # top plate to the gate while tracking
         Samp.Mgate = mos(tp=MosType.PMOS, **aux)(d=Samp.gate, g=Samp.gate_ctl, s=Samp.boot_top, b=Samp.boot_top)

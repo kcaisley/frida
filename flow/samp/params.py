@@ -18,8 +18,9 @@ common mode; its complementary clock an edge late.
 The behavioral model (``flow.samp.model``) derives the switch's triode conductances from its sizing
 with the rough device constants here (``W_MIN_UM`` to ``PMOS_K_A_PER_V2``); a bootstrapped switch's
 boost capacitor and bottom-plate switch are sized together (``_bootstrapped``) from the unit
-capacitances (``GATE_F`` to ``BOTTOM_F``) and the load, and ``valid`` admits a bootstrapped design
-that meets the sizing's conditions.
+capacitances (``GATE_F`` to ``BOTTOM_F``), the long device's current a square over the short one's
+(``BOTTOM_LIFT``) and the load, and ``valid`` admits a bootstrapped design that meets the sizing's
+conditions.
 """
 
 import math
@@ -70,7 +71,9 @@ class Params:
     bot_l = h.Param(dtype=PositiveInt, desc="Bootstrap bottom-plate switch length multiplier", default=1)
 
     def __post_init__(self) -> None:
-        # a dummy is half its switch, in whole units
+        # not in the reference texts: a dummy is half its switch in whole units, mos_w // 2 >= 1
+        # Terms: mos_w MN's (MP's) width; the dummy's flow.samp.subckt.netlist's ``half``.
+        # Holds for: a switch of two units or more ([Razavi-ADC] Sec. 3.7, p. 42: W_3 = 0.5 W_1).
         if self.dummy and self.mos_w < 2:
             raise ValueError("a dummy is half its switch: the switch needs at least 2 width units")
 
@@ -80,8 +83,28 @@ pipeline.Params.register(Params)
 
 FRIDA1 = Params()  # the fabricated FRIDA-1 sampler: transmission gate, 32 units each
 
-# the bench: 1 pF at a 10 ns clock (5 ns tracking), 50 ps edges, six periods, a sample every 5 ps
+# not in the reference texts: the bench's load, 1 pF on vout, a round value above the array it
+# samples onto: flow.adc's default array (flow.capdac.Params()) loads a side with 0.74 pF, its
+# main and difference plates (capdac.Model.plates_f)
+# Terms: C_H of [Razavi-Analog] Eq. (13.31), p. 552 and C_1 of [Razavi-ADC] Eq. (3.26), p. 29: the
+#   bench's ``cload`` on vout (TbParams.cload).
+# Ours against the source: none; a round value, not the array's own.
+# Holds for: the record's figures as stated into 1 pF. The on-resistance does not depend on it; the
+#   time constant, the bandwidth, the pedestal and the droop do (flow.samp.model rescales the
+#   pedestal to the load it is given and computes kT/C for it); a bootstrap is sized for it and
+#   holds for it or a smaller load (``_bottom_length``).
 LOAD_F = 1e-12
+# not in the reference texts: the bench's plain clock and output, own choices: a 10 ns period,
+# half of it tracking; clock edges of 50 ps (a 65-nm inverter's edge into a few gates); six
+# periods, the first left out of every figure; Spectre's output every 5 ps
+# Terms: T ``PERIOD_S``, the clock's high time ``TRACK_S`` (the track phase between the clock's
+#   mid-supply crossings is its high time and one edge; the hold between the clock's edges
+#   T - TRACK_S - 2 TRANSITION_S), the edge ``TRANSITION_S`` (rise and fall alike, the input's step
+#   too unless a run gives its own), ``PERIODS`` periods, the output every ``STROBE_S``.
+# Ours against the source: none (a bench's timing).
+# Holds for: a time constant of 20 output intervals (100 ps) or more read to a few per cent, one
+#   up to TRACK_S / 2 read at all (flow.samp.analysis.analyze_track); a run gives its own timing
+#   where it differs (the level runs' below, the ADC's).
 PERIOD_S = 10e-9
 TRACK_S = 5e-9
 # not in the reference texts: the level runs' clock, tracking twice the bench's time before the
@@ -95,8 +118,16 @@ LEVEL_PERIOD_S = PERIOD_S + TRACK_S
 TRANSITION_S = 50e-12
 PERIODS = 6
 STROBE_S = 5e-12
-# the input over 1/12 to 11/12 of the supply, its middle the nominal point, and the transients the
-# record keeps for the viewer (the lowest, the middle and the highest input)
+# not in the reference texts: the level runs' input levels, 1/12 to 11/12 of the supply in twelfths
+# (VIN_TOP below is the twelfth), and the nominal one, mid-supply, where a transmission gate's
+# on-resistance is near its largest ([Razavi-Analog] Fig. 13.17(b), p. 549); the transients the
+# record keeps for the viewer are the lowest, the nominal and the highest of them
+# Terms: fractions of the bench's supply; the level a run's every track phase ends on
+#   (TbParams.input_voltage).
+# Ours against the source: none (a bench's grid).
+# Holds for: every "at the nominal input" figure (ron_ohm, bandwidth_hz, pedestal_v,
+#   energy_per_cycle_j, the supply and corner runs) is at half the supply, a twelfth of the supply
+#   below the ADC's common mode (ADC_CM).
 VIN_SWEEP = tuple(step / 12 for step in range(1, 12))
 NOMINAL_VIN = 0.5
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
@@ -125,17 +156,25 @@ VIN_BOTTOM = 2 * ADC_CM - VIN_TOP
 #   the largest is the stress limit's corner (flow.circuit.oppoint.SUPPLY_CORNER_MAX).
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
 # not in the reference texts: the hot corner, 125 C (the usual upper junction temperature of a
-# kit's models), where leakage and the on-resistance are largest
+# kit's models), where a single device's leakage and an NMOS or bootstrapped switch's
+# on-resistance are largest
 # Terms: the temperature of the ``hot``, ``droop_hot`` and DAC runs (flow.samp.runs.testbenches).
-# Holds for: a kit whose models reach 125 C.
+# Ours against the source: none.
+# Holds for: a kit whose models reach 125 C. A transmission gate's on-resistance near mid-supply
+#   is set by the slow corner, not by the temperature (the two devices' thresholds fall as their
+#   mobilities do), and the droop of a switch with dummies, whose gates' currents oppose its
+#   junctions', need not be largest hot.
 HOT_C = 125.0
 # not in the reference texts: the ADC's sampling, from flow.adc.params: 20 symbols tracking of a
 # 160-symbol conversion at 1.6 GHz, T_track = 20 / 1.6 GHz, T = 160 / 1.6 GHz (a sample every
 # 100 ns, f_s = 10 MS/s)
 # Terms: the symbol rate flow.adc.params.TbParams.symbol_rate; the symbols its default recipe's
 #   SAMP row (20 high) and length (160).
-# Holds for: flow.adc's default recipe; the runs three conversions long (the first starts from the
-#   operating point), their output every 50 ps.
+# Ours against the source: none.
+# Holds for: flow.adc's default recipe; the runs three conversions long (ADC_PERIODS: the first
+#   starts from the operating point and is left out, two holds are read), their output every 50 ps
+#   (ADC_STROBE_S: a held output and a sine of at most half the sample rate, straight lines over
+#   an interval).
 ADC_TRACK_S = 12.5e-9
 ADC_PERIOD_S = 100e-9
 ADC_PERIODS = 3
@@ -147,11 +186,14 @@ ADC_STROBE_S = 50e-12
 # Holds for: flow.adc's default array (flow.capdac.Params()); the full-scale step's levels are
 #   ADC_CM -+ ADC_FULL_SCALE of the supply (flow.samp.runs.testbenches).
 ADC_FULL_SCALE = 0.47 / 1.2
-# not in the reference texts: Spectre's gmin for the runs that read a hold's leakage (the droop):
-# its default, 1e-12 S across every junction and channel, draws I = gmin V = 1e-12 S x 0.6 V =
-# 0.6 pA from a held 0.6 V
-# Terms: V the held output (vout), gmin the simulator's shunt across MN's and MP's junctions.
-# Holds for: the droop and DAC runs (flow.samp.runs.testbenches), which run at this gmin instead.
+# not in the reference texts: Spectre's gmin for the characterization's runs, which read a hold's
+# leakage (the droop) and the off switch's conduction (the feedthrough): its default, 1e-12 S
+# across every junction and channel, draws I = gmin V = 1e-12 S x 0.6 V = 0.6 pA from a held
+# 0.6 V, and across an off switch passes gmin Delta t / C_H = 1e-12 S x 2.5 ns / 1 pF = 2.5e-9 of
+# an input step to the held output in 2.5 ns
+# Terms: V the held output (vout), gmin the simulator's shunt across MN's and MP's junctions and
+#   channels; Delta t the hold left after the input's step, C_H the load.
+# Holds for: every run of flow.samp.runs.testbenches, which run at this gmin instead.
 LEAKAGE_GMIN_S = 1e-18
 # not in the reference texts: the fraction of its track-end value within which a switch's
 # gate-source voltage counts as settled (flow.samp.analysis.analyze_track): the on-resistance of a
@@ -170,7 +212,9 @@ VGS_SETTLED = 0.02
 # Holds for: the level runs' step and the simulator's tolerances (errors of microvolts and above).
 ERROR_SETTLED = math.exp(-4)
 # [Razavi-ADC] Eq. (3.81), p. 54: acquisition to half an LSB, V_FS / 2^(N+1), at these resolutions N
-# Terms: V_FS taken as the supply (flow.samp.analysis.analyze_acquisition); N in bits.
+# Terms: V_FS the full scale a side, the full-scale step the run takes
+#   (flow.samp.analysis.analyze_acquisition: tb.input_step_v); N in bits.
+# Ours against the source: none.
 # Holds for: the resolutions flow.adc's converters come in (10, 12 and 14 bits).
 ACQUISITION_BITS = (10, 12, 14)
 # not in the reference texts: a sine of the ADC's swing a side, a fraction of the supply: its full
@@ -185,121 +229,241 @@ SINE_CYCLES = (1, 15)
 # conductances from the switch's sizing where none is given (flow.samp.model.Model.conductances)
 # Terms: W_MIN_UM and L_MIN_UM the width and the length one size unit stands for; k' = mu C_ox of
 #   each device type ([Razavi-ADC] Eq. (3.23), p. 27).
-# Holds for: a rough estimate only; a characterized switch does not use them.
+# Ours against the source: the square law's k' alone. A 65-nm switch's triode conductance a volt
+#   is about a tenth below k' W / L, its threshold rises 0.1 to 0.15 V with its source and its
+#   source and drain resistances add about a quarter to R_on; none of the three is here.
+# Holds for: the size unit exactly; the conductances as a rough estimate only: the on-resistance
+#   they give is about half a simulated 65-nm switch's (30 to 65 % low). A characterized switch
+#   does not use them.
 W_MIN_UM = 0.12
 L_MIN_UM = 0.06
 NMOS_K_A_PER_V2 = 300e-6
 PMOS_K_A_PER_V2 = 100e-6
 # not in the reference texts: rough 65-nm unit capacitances, the parameters of a bootstrap's sizing
-# (``_bootstrapped``) beside its load: a gate's per unit area (a unit of width by a unit of length:
-# 12 fF/um2 x W_MIN_UM x L_MIN_UM), a gate's overlap of its source or its drain per unit width
-# (0.3 fF/um), a source's or drain's junction per unit width (0.25 fF/um), and the boost
-# capacitor's channel to the substrate per unit area (a tenth of its gate's)
-# Terms: C_ox W L and W C_ov of [Razavi-ADC] Eq. (3.69), p. 49, per size unit; C_DB of its C_p.
-# Holds for: a kit whose unit capacitances lie near these; another kit's sizes follow from its own.
-GATE_F = 86e-18
+# (``_bootstrapped``) beside its load: a gate's per unit area (a unit of width by a unit of
+# length: 13 fF/um2 x W_MIN_UM x L_MIN_UM), the part of a unit of length its channel is short of
+# the drawn gate ([Razavi-Analog] Sec. 2.1.2, p. 8: L_eff = L_drawn - 2 L_D), a gate's overlap of
+# its source or its drain per unit width (0.3 fF/um), a source's or drain's junction per unit
+# width (0.25 fF/um), and the boost capacitor's channel to the substrate per unit area
+# Terms: C_ox W L and W C_ov of [Razavi-ADC] Eq. (3.69), p. 49, per size unit (GATE_F, OVERLAP_F);
+#   2 L_D GATE_SHORT of a unit of length; C_DB of the source's C_p per unit width (JUNCTION_F);
+#   Mcap's channel to the substrate (BOTTOM_F).
+# Ours against the source: one number each for capacitances that move with their bias: a
+#   junction's and the channel-to-substrate's are means over a reverse bias from 0 V to the
+#   supply, up to two fifths more at 0 V and a third less at the supply.
+# Holds for: a 65-nm kit, whose simulated gates and overlaps they are within 5 % of. Every kit's
+#   bootstrap is sized with these (``valid``): the boost ratio, C_b over its load, is a ratio of
+#   like capacitances and carries over; the bottom-plate rule (``_bottom_length``) is in farads
+#   and is calibrated on these alone, so in a kit with larger unit capacitances Mbot_in comes out
+#   longer than its own rule asks.
+GATE_F = 93e-18
+GATE_SHORT = 0.28
 OVERLAP_F = 36e-18
 JUNCTION_F = 30e-18
 BOTTOM_F = 8.6e-18
 # not in the reference texts: a bootstrap's helpers against its helper width (boot_w), own choices
 # Terms: the precharge device Mpre PRECHARGE_W helpers wide (it holds boot_top at vdd while the gate
 #   charges from it); the boost capacitor Mcap BOOST_CAP_L units long.
-# Holds for: the bootstrapped switch as flow.samp.subckt.netlist builds it; ``_boosted_f`` counts
+# Ours against the source: [Razavi-ADC] Fig. 3.41(b), p. 48 sizes neither.
+# Holds for: the bootstrapped switch as flow.samp.subckt.netlist builds it; ``_fixed_f`` counts
 #   Mpre's share of the boosted nodes' load by PRECHARGE_W.
 PRECHARGE_W = 8
 BOOST_CAP_L = 16
 # [Razavi-ADC] Eq. (3.70), p. 50: V_b' = C_b / (C_b + C_G1 + C_G2 + C_p) V_DD, held at 0.9 V_DD or more
-# Terms: BOOST_MIN the least V_b' / V_DD; C_b, C_G1, C_G2 and C_p as ``_boost_f`` and
-#   ``_boosted_f`` count them.
-# Ours against the source: the count leaves out the n-wells of Mgate and Mpre on the top plate and
-#   the wiring; BOOST_UNCOUNTED of the counted load again stands for them.
-# Holds for: every bootstrapped design ``valid`` admits, at every input level of the level runs.
+# Terms: BOOST_MIN the least V_b' / V_DD; C_b ``_boost_f``; C_G1 + C_G2 + C_p ``_boosted_f``, every
+#   device on the boosted nodes in the netlist.
+# Ours against the source: the count holds devices only; BOOST_UNCOUNTED of it again stands for
+#   what a layout adds, the n-wells of Mgate and Mpre on the top plate and the wiring.
+# Holds for: every bootstrapped design ``valid`` admits, at every input level of the level runs,
+#   on its parameters (a kit's fingering builds a width a few per cent off its parameter).
 BOOST_MIN = 0.9
 BOOST_UNCOUNTED = 1 / 3
-# not in the reference texts: own derivation, from the square law ([Razavi-Analog] Eq. (2.8), p. 14)
-# at one gate drive: the bottom plate (Q) rises no faster than the switch moves its output where
-# I_2 / C_Q <= I_1 / C_L, the currents of Mbot_in and MN at V_GS = V_b', so with I going as W / L
-# (W / L)_2 / C_Q <= (W / L)_1 / (BOTTOM_LIFT C_L): L_2 >= BOTTOM_LIFT (W_2 L_1 / W_1) C_L / C_Q
-# Terms: M1 MN (mos_w by mos_l), M2 Mbot_in (boot_w by bot_l), C_Q the bottom plate's capacitance to
-#   the substrate (``_bottom_f``), C_L the load on vout; BOTTOM_LIFT the long Mbot_in's current a
-#   square over the minimum-length MN's, whose carriers' velocity saturates.
-# Ours against the source: the square law has no velocity saturation; BOTTOM_LIFT of 2 stands for it.
-# Holds for: the load the design is sized for (LOAD_F unless given) or a larger one; a smaller load
-#   lets the gate lead the output again.
-BOTTOM_LIFT = 2.0
+# not in the reference texts: own derivation. While the bottom plate (Q) rises from 0 V to the
+# input, A rides C_b's charge above it, A = Q + V_b', so MN's oxide at its output end carries
+# A - vout = V_b' + (Q - vout): no more than V_b' while Q stays below vout. Q starts below it (0 V
+# against the held output) and cannot pass it if, where Q = vout, it rises no faster. There Mbot_in
+# and MN have the same gate, drain (vin) and source voltages, so with the drain current going as
+# W / L ([Razavi-Analog] Eq. (2.8), p. 14), I_2 / C_Q <= I_1 / C_L is
+# BOTTOM_LIFT (W / L)_2 / C_Q <= (W / L)_1 / C_L: L_2 >= BOTTOM_LIFT (W_2 L_1 / W_1) C_L / C_Q
+# Terms: M1 MN (mos_w by mos_l), M2 Mbot_in (boot_w by bot_l), Q boot_bot, A gate; C_Q what Mbot_in
+#   charges as Q rises (``_bottom_f``), C_L the load on vout; BOTTOM_LIFT the long Mbot_in's
+#   current a square over the minimum-length MN's at one bias.
+# Ours against the source: the square law gives both the same current a square. A minimum-length
+#   MN's carriers' velocity saturates and its threshold is above a long device's: in a 65-nm kit it
+#   carries 2.2 to 3.1 times less a square than a 14-unit Mbot_in over the supply, the corners
+#   and the temperature, and BOTTOM_LIFT is the upper end. [Razavi-ADC] Eq. (3.79), (3.80), p. 52
+#   ask the opposite of this device, a small R_on2 + R_on3, so that V_GS follows the input up to
+#   the bootstrapping path's zero: a long M2 trades that bandwidth for the gate's rise.
+# Holds for: the load the design is sized for (LOAD_F unless given) or a smaller one (a larger
+#   load slows the output and lets the bottom plate pass it); a held output above 0 V (VIN_BOTTOM
+#   of the supply or more in the ADC); an input far below the bootstrapping path's zero,
+#   1 / (2 pi R_on2 C_b), R_on2 Mbot_in's resistance (above it V_GS no longer follows the input).
+#   Before Q reaches vout its slope may be the larger: Mbot_in's source starts at 0 V and MN's at
+#   the held output, so MN has the smaller gate drive until then.
+BOTTOM_LIFT = 3.0
 # not in the reference texts: the largest gate of the bottom-plate switch over the switch's own,
 # C_G2 <= BOTTOM_GATE_MAX C_G1: past it the boost circuit outgrows the switch it boosts and its
 # gate's fall as holding starts couples the bottom plate below 0 V through C_G2
 # Terms: C_G1 MN's gate, C_G2 Mbot_in's gate (``_gate_f`` of each).
+# Ours against the source: none (the source's M2 is a minimum-length device).
 # Holds for: stated as ``valid``'s condition; a narrower switch than it admits has no bootstrap.
 BOTTOM_GATE_MAX = 2.0
 
 
-def _gate_f(width: int, length: int, *, gate_f: float = GATE_F, overlap_f: float = OVERLAP_F) -> float:
+def _gate_f(
+    width: int, length: int, *, gate_f: float = GATE_F, short: float = GATE_SHORT, overlap_f: float = OVERLAP_F
+) -> float:
     """A gate's capacitance while its channel is on: ``width`` by ``length`` size units."""
     # [Razavi-ADC] Eq. (3.69), p. 49: C_G = (W L) C_ox + 2 W C_ov of a device in deep triode
-    # Terms: W, L ``width`` and ``length`` in size units; C_ox W L a unit ``gate_f``; C_ov W a unit
-    #   ``overlap_f``.
-    # Holds for: MN and Mbot_in while tracking (their channels on); Mcap, its channel inverted.
-    return width * (length * gate_f + 2 * overlap_f)
+    # Terms: W ``width`` in size units; L the channel's length, ``length`` less ``short`` of a unit
+    #   ([Razavi-Analog] Sec. 2.1.2, p. 8: L_eff = L_drawn - 2 L_D); C_ox W L a unit ``gate_f``;
+    #   C_ov W a unit ``overlap_f``.
+    # Ours against the source: the source writes L for the channel's length; ours takes the
+    #   drawn length in units and the side diffusion off it.
+    # Holds for: MN, Mbot_in and Mgate while tracking (their channels on); Mcap, its channel
+    #   inverted; a 65-nm kit's gates from one unit long to sixteen within 5 %.
+    return width * ((length - short) * gate_f + 2 * overlap_f)
 
 
-def _boost_f(params: Params, *, gate_f: float = GATE_F, overlap_f: float = OVERLAP_F) -> float:
+def _boost_f(
+    params: Params, *, gate_f: float = GATE_F, short: float = GATE_SHORT, overlap_f: float = OVERLAP_F
+) -> float:
     """A bootstrap's boost capacitor C_b: Mcap's gate over its channel."""
     # [Razavi-ADC] Eq. (3.70), p. 50: C_b, here a MOS capacitor's gate, (W L) C_ox + 2 W C_ov
     # Terms: Mcap, cap_w by cap_l, its gate boot_top (P), its channel, source and drain boot_bot (Q).
-    # Holds for: Mcap inverted, its gate a supply above its channel (hold and track alike).
-    return _gate_f(params.cap_w, params.cap_l, gate_f=gate_f, overlap_f=overlap_f)
+    # Ours against the source: the source's C_b is a plain capacitor; ours a transistor's gate,
+    #   whose channel to the substrate loads the bottom plate (``_bottom_f``).
+    # Holds for: Mcap inverted, its gate V_b' or more above its channel (hold and track alike).
+    return _gate_f(params.cap_w, params.cap_l, gate_f=gate_f, short=short, overlap_f=overlap_f)
+
+
+def _fixed_f(
+    params: Params,
+    *,
+    gate_f: float = GATE_F,
+    short: float = GATE_SHORT,
+    overlap_f: float = OVERLAP_F,
+    junction_f: float = JUNCTION_F,
+) -> float:
+    """A bootstrap's C_p: the capacitance of the boosted nodes (``gate`` and ``boot_top``) to
+    nodes that do not move with the bottom plate, and of the pull-down stack's nodes, which
+    charge from ``gate``."""
+    # [Razavi-ADC] Fig. 3.45, p. 50: C_p, the parasitics at the boosted nodes P and A, C_DB5 +
+    # C_DB3 + C_SB3 + C_GD7 + C_DB7 of the source's devices (its C_GS3 + C_GD3: ``_boosted_f``)
+    # Terms, from the netlist (flow.samp.subckt.netlist), each a helper (boot_w) wide unless said:
+    #   - Mpre (M5, PRECHARGE_W helpers): its gate (on ``gate``) over its drain on vdd, and its
+    #     drain's junction to its well on boot_top (C_DB5);
+    #   - Mgate_top (ours in M7's place): its drain's junction on ``gate`` (C_DB7);
+    #   - the pull-down stack's nodes gate_top, gate_mid and gate_off, charged from ``gate``
+    #     through Mgate_top as it rises: their ten junctions (Mgate_top's source; Mgate_drop's and
+    #     Mgate_pass's drains and sources; Mgate_cas's drain and source; Mgate_off's drain;
+    #     Mgate_off_dummy's drain and source), the five overlaps of gates that stay put
+    #     (Mgate_pass's and Mgate_cas's two each on vdd, Mgate_off's on clk_b) and
+    #     Mgate_off_dummy's gate, its channel on.
+    # Ours against the source: M3's and M5's source junctions are none in ours (Mgate's and
+    #   Mpre's sources are their wells, on boot_top); the source's M5 has its gate on the boosted
+    #   node too and leaves its overlap of V_DD out; the stack's nodes are ours. They rise to less
+    #   than ``gate`` (a threshold or more below; gate_off no further than a threshold below
+    #   vdd), so counting them whole bounds their charge from above.
+    # Holds for: tracking, the gate settled; devices only (BOOST_UNCOUNTED: wells and wiring).
+    helper = params.boot_w
+    precharge = PRECHARGE_W * helper * (overlap_f + junction_f)
+    stack = helper * (11 * junction_f + 5 * overlap_f) + _gate_f(
+        helper, 1, gate_f=gate_f, short=short, overlap_f=overlap_f
+    )
+    return precharge + stack
 
 
 def _boosted_f(
-    params: Params, *, gate_f: float = GATE_F, overlap_f: float = OVERLAP_F, junction_f: float = JUNCTION_F
+    params: Params,
+    *,
+    gate_f: float = GATE_F,
+    short: float = GATE_SHORT,
+    overlap_f: float = OVERLAP_F,
+    junction_f: float = JUNCTION_F,
 ) -> float:
-    """What a bootstrap's boost capacitor shares its charge with while tracking: the capacitance on
-    the boosted nodes (``gate`` and ``boot_top``, joined by Mgate) that the count holds."""
-    # [Razavi-ADC] Eq. (3.69), p. 49 and Fig. 3.45, p. 50: C_G1 + C_G2 + C_p on the boosted node
-    # Terms, from the netlist (flow.samp.subckt.netlist): C_G1 MN's gate; C_G2 Mbot_in's gate;
-    #   C_p the rest on ``gate`` and ``boot_top``: Mpre's gate over its drain on vdd (its channel is
-    #   off, its source and well on boot_top) and Mgate_top's drain junction to the substrate.
-    # Ours against the source: the source's C_p has M3's and M5's junctions, which ours ties to
-    #   wells on boot_top (no charge), and M7's drain, ours Mgate_top's; the source's M5 has its
-    #   gate on the boosted node too and leaves it out, ours counts its overlap of vdd. Mgate's gate
-    #   (gate_ctl) follows the bottom plate, so its gate capacitance adds to C_b, not to the load.
-    #   Mpre conducts until the gate is a threshold below the supply, so part of this charge comes
-    #   from the supply: the count bounds the loss from above.
-    # Holds for: tracking, the gate settled; the n-wells on boot_top and the wiring are not counted
-    #   (BOOST_UNCOUNTED).
-    switch = _gate_f(params.mos_w, params.mos_l, gate_f=gate_f, overlap_f=overlap_f)
-    bottom = _gate_f(params.boot_w, params.bot_l, gate_f=gate_f, overlap_f=overlap_f)
-    rest = PRECHARGE_W * params.boot_w * overlap_f + params.boot_w * junction_f
-    return switch + bottom + rest
+    """What a bootstrap's boost capacitor shares its charge with while tracking: every device on
+    the boosted nodes (``gate`` and ``boot_top``, joined by Mgate)."""
+    # [Razavi-ADC] Eq. (3.70), p. 50: C_G1 + C_G2 + C_p, what C_b shares its charge with on the
+    # boosted node (C_G1 + C_G2 by Eq. (3.69), p. 49)
+    # [Razavi-ADC] Fig. 3.45, p. 50: C_GS3 + C_GD3 among the boosted node's parasitics
+    # Terms, from the netlist (flow.samp.subckt.netlist): C_G1 MN's gate; C_G2 Mbot_in's gate, bot_l
+    #   long; C_GS3 + C_GD3 Mgate's gate, between boot_top and gate_ctl, which sits at vdd with
+    #   boot_top while holding (0 V across it) and on the bottom plate while tracking (V_b' across
+    #   it): charged from 0 V to V_b' as C_G1 and C_G2 are; the rest of C_p ``_fixed_f``.
+    # Ours against the source: the source's M3 has its gate on the clock, ours on a node that
+    #   follows the bottom plate: the same charge. Mpre conducts until the gate is a threshold
+    #   below the supply, so part of this charge comes from the supply: the count bounds the loss
+    #   from above.
+    # Holds for: tracking, the gate settled; devices only (BOOST_UNCOUNTED: wells and wiring).
+    units = {"gate_f": gate_f, "short": short, "overlap_f": overlap_f}
+    switch = _gate_f(params.mos_w, params.mos_l, **units)
+    bottom = _gate_f(params.boot_w, params.bot_l, **units)
+    top = _gate_f(params.boot_w, 1, **units)
+    return switch + bottom + top + _fixed_f(params, junction_f=junction_f, **units)
 
 
-def _bottom_f(params: Params, *, bottom_f: float = BOTTOM_F, junction_f: float = JUNCTION_F) -> float:
-    """What a bootstrap's bottom-plate switch charges as the bottom plate rises: the capacitance of
-    ``boot_bot`` (Q) to the substrate."""
+def _bottom_f(
+    params: Params,
+    *,
+    gate_f: float = GATE_F,
+    short: float = GATE_SHORT,
+    overlap_f: float = OVERLAP_F,
+    junction_f: float = JUNCTION_F,
+    bottom_f: float = BOTTOM_F,
+) -> float:
+    """What a bootstrap's bottom-plate switch charges as the bottom plate (``boot_bot``, Q) rises:
+    its capacitance to the substrate, the control node it carries and, through the boost
+    capacitor, the boosted nodes' capacitance to nodes that stay put."""
     # not in the reference texts: own count from the netlist (flow.samp.subckt.netlist), C_Q =
-    # (W L)_cap C_bottom + 2 W_cap C_j + 3 W_helper C_j
+    # (W L)_cap C_bottom + (2 W_cap + 3 W_helper) C_j + C_ctl + C_b C_A / (C_b + C_A)
     # Terms: Mcap's channel to the substrate (cap_w by cap_l) and its source's and drain's
-    #   junctions (each cap_w wide); the junctions of Mbot's and Mbot_in's drains and Mctl_on's
-    #   drain on boot_bot (each boot_w wide).
+    #   junctions (each cap_w wide); the junctions of Mbot's, Mbot_in's and Mctl_on's drains on
+    #   boot_bot (each boot_w wide); C_ctl the node gate_ctl, which Mctl_on joins to boot_bot while
+    #   tracking, and the clocks' overlaps of the two: the junctions of Mctl_p's drain, Mctl_on's
+    #   source and Mctl_dummy's two (three helper widths), the overlaps of Mctl_p's gate (clk) and
+    #   of Mctl_on's (two) and Mbot's gates (clk_b), and Mctl_dummy's gate, half a helper wide,
+    #   its channel on; C_A what the boosted nodes, which rise with Q through C_b, have to nodes
+    #   that stay put: ``_fixed_f`` and MN's and Mbot_in's overlaps of vin.
     # Ours against the source: [Razavi-ADC] Example 3.22, p. 51 names the capacitor's parasitic as
     #   what the input must drive, without a value.
-    # Holds for: a MOS boost capacitor whose channel is its bottom plate.
-    return params.cap_w * params.cap_l * bottom_f + (2 * params.cap_w + 3 * params.boot_w) * junction_f
+    # Holds for: a MOS boost capacitor whose channel is its bottom plate; a rising step, MN's
+    #   channel moving with the output (in a falling step MN's whole gate stays on vin and C_Q is
+    #   a tenth larger); the mean over Q's rise from 0 V to the supply (a fifth more at 0 V, a
+    #   tenth less at the supply).
+    units = {"gate_f": gate_f, "short": short, "overlap_f": overlap_f}
+    helper = params.boot_w
+    substrate = params.cap_w * params.cap_l * bottom_f + (2 * params.cap_w + 3 * helper) * junction_f
+    control = helper * (3 * junction_f + 4 * overlap_f) + _gate_f(helper, 1, **units) / 2
+    boost = _boost_f(params, **units)
+    still = _fixed_f(params, junction_f=junction_f, **units) + (params.mos_w + helper) * overlap_f
+    return substrate + control + boost * still / (boost + still)
 
 
 def _bottom_length(
-    params: Params, load_f: float, *, bottom_f: float = BOTTOM_F, junction_f: float = JUNCTION_F
+    params: Params,
+    load_f: float,
+    *,
+    lift: float = BOTTOM_LIFT,
+    gate_f: float = GATE_F,
+    short: float = GATE_SHORT,
+    overlap_f: float = OVERLAP_F,
+    junction_f: float = JUNCTION_F,
+    bottom_f: float = BOTTOM_F,
 ) -> float:
     """The least length of a bootstrap's bottom-plate switch (Mbot_in), in units, at which the
-    bottom plate rises no faster than the switch moves its output into ``load_f`` (``BOTTOM_LIFT``)."""
+    bottom plate cannot pass the output the switch moves into ``load_f`` (``BOTTOM_LIFT``)."""
     # not in the reference texts: L_2 >= BOTTOM_LIFT (W_2 L_1 / W_1) C_L / C_Q (BOTTOM_LIFT's
     # derivation)
-    # Terms: W_2 boot_w, L_1 mos_l, W_1 mos_w, C_L ``load_f``, C_Q ``_bottom_f``.
-    # Holds for: ``load_f`` or a larger load on vout.
-    bottom = _bottom_f(params, bottom_f=bottom_f, junction_f=junction_f)
-    return BOTTOM_LIFT * params.boot_w * params.mos_l / params.mos_w * load_f / bottom
+    # Terms: W_2 boot_w and L_2 bot_l, Mbot_in's; L_1 mos_l and W_1 mos_w, MN's; C_L ``load_f``
+    #   on vout; C_Q ``_bottom_f``; BOTTOM_LIFT ``lift``.
+    # Ours against the source: none (an own rule).
+    # Holds for: ``load_f`` or a smaller load on vout: the length grows with the load, and a
+    #   larger load than it is sized for slows the output and lets the bottom plate pass it.
+    bottom = _bottom_f(
+        params, gate_f=gate_f, short=short, overlap_f=overlap_f, junction_f=junction_f, bottom_f=bottom_f
+    )
+    return lift * params.boot_w * params.mos_l / params.mos_w * load_f / bottom
 
 
 def _bootstrapped(
@@ -307,33 +471,42 @@ def _bootstrapped(
     mos_l: int = 1,
     *,
     load_f: float = LOAD_F,
+    lift: float = BOTTOM_LIFT,
     gate_f: float = GATE_F,
+    short: float = GATE_SHORT,
     overlap_f: float = OVERLAP_F,
     junction_f: float = JUNCTION_F,
     bottom_f: float = BOTTOM_F,
 ) -> Params:
     """The bootstrapped NMOS switch ``mos_w`` by ``mos_l``, sized for ``load_f`` on its output with
-    a kit's unit capacitances (the rough ones here unless given): its helpers an eighth of the
-    switch, none under 4 units (the finest PDK's minimum width); its boost capacitor and its
-    bottom-plate switch's length solved together, the shortest bottom-plate switch whose gate the
-    capacitor still boosts to ``BOOST_MIN``."""
-    # [Razavi-ADC] Eq. (3.70), p. 50, solved for C_b: C_b >= BOOST_MIN / (1 - BOOST_MIN)
-    # (1 + BOOST_UNCOUNTED) (C_G1 + C_G2 + C_p), with L_2 >= ``_bottom_length``
+    a kit's unit capacitances and current ratio (the rough 65-nm ones here unless given): its
+    helpers an eighth of the switch, none under 4 units (the finest PDK's minimum width); its boost
+    capacitor and its bottom-plate switch's length solved together, the shortest bottom-plate
+    switch whose gate the capacitor still boosts to ``BOOST_MIN``."""
+    # [Razavi-ADC] Eq. (3.70), p. 50: V_b' = C_b / (C_b + C_G1 + C_G2 + C_p) V_DD, solved for C_b:
+    # C_b >= BOOST_MIN / (1 - BOOST_MIN) (1 + BOOST_UNCOUNTED) (C_G1 + C_G2 + C_p), with
+    # L_2 >= ``_bottom_length``
     # Terms: C_b ``_boost_f`` (cap_w by BOOST_CAP_L); C_G1 + C_G2 + C_p ``_boosted_f``, in which
     #   C_G2 grows with Mbot_in's length bot_l; C_Q ``_bottom_f`` grows with the capacitor.
     # Ours against the source: the source sizes C_b alone; ours has a long M2 whose gate loads the
     #   capacitor and whose length the capacitor's own bottom plate sets, so the two are solved
     #   together: the first bot_l, counting up, that the capacitor sized for it admits.
-    # Holds for: ``load_f`` or more on vout; a design ``valid`` admits (BOTTOM_GATE_MAX).
+    # Holds for: ``load_f`` or less on vout; a design ``valid`` admits (BOTTOM_GATE_MAX); the
+    #   parameters, in whole size units: a kit's fingering to its row cells builds a width up to
+    #   a few per cent off its parameter (a helper up to an eighth), inside BOOST_UNCOUNTED.
     # not in the reference texts: the helpers an eighth of the switch's width, none under 4 units
-    # Terms: boot_w, the width of Mbot, Mbot_in, Mgate, Mgate_cas, Mgate_off and the Mctl devices.
+    # Terms: boot_w, the width of the eleven devices Mbot_in, Mbot, Mgate, Mctl_p, Mctl_on,
+    #   Mgate_top, Mgate_drop, Mgate_pass, Mgate_cas, Mgate_off and Mgate_off_dummy; Mctl_dummy
+    #   is half of it and Mpre PRECHARGE_W times it.
+    # Ours against the source: [Razavi-ADC] Fig. 3.41(b), p. 48 gives no sizes.
     # Holds for: a finest PDK whose minimum width is 4 units.
+    units = {"gate_f": gate_f, "short": short, "overlap_f": overlap_f}
     boot_w = max(4, mos_w // 8)
     for bot_l in range(1, 4096):
         sized = Params(switch_type=SwitchType.BOOTSTRAP, mos_w=mos_w, mos_l=mos_l, boot_w=boot_w, bot_l=bot_l)
-        load = _boosted_f(sized, gate_f=gate_f, overlap_f=overlap_f, junction_f=junction_f)
+        load = _boosted_f(sized, junction_f=junction_f, **units)
         least = BOOST_MIN / (1 - BOOST_MIN) * (1 + BOOST_UNCOUNTED) * load
-        cap_w = math.ceil(least / _gate_f(1, BOOST_CAP_L, gate_f=gate_f, overlap_f=overlap_f))
+        cap_w = math.ceil(least / _gate_f(1, BOOST_CAP_L, **units))
         sized = Params(
             switch_type=SwitchType.BOOTSTRAP,
             mos_w=mos_w,
@@ -343,7 +516,7 @@ def _bootstrapped(
             cap_l=BOOST_CAP_L,
             bot_l=bot_l,
         )
-        if _bottom_length(sized, load_f, bottom_f=bottom_f, junction_f=junction_f) <= bot_l:
+        if _bottom_length(sized, load_f, lift=lift, junction_f=junction_f, bottom_f=bottom_f, **units) <= bot_l:
             return sized
     raise ValueError(f"no bottom-plate switch under 4096 units lifts a {mos_w} by {mos_l} switch's bottom plate")
 
@@ -352,18 +525,26 @@ def valid(params: Params, pdk: str) -> bool:
     """Whether ``params`` is a design in ``pdk``: every plain switch; a bootstrapped one whose boost
     capacitor holds V_b' at ``BOOST_MIN`` of the supply or more, whose bottom-plate switch is long
     enough for the bench's load (``LOAD_F``) and whose gate is no more than ``BOTTOM_GATE_MAX``
-    times the switch's own (the rough unit capacitances here, in every PDK)."""
+    times the switch's own. Every PDK's bootstrap is judged, as it is sized, by the rough 65-nm
+    unit capacitances and current ratio here (``pdk`` selects none of its own: a kit holds none
+    yet): the boost condition is a ratio of like capacitances and carries over to another kit;
+    the bottom-plate length is calibrated on these alone."""
     if params.switch_type is not SwitchType.BOOTSTRAP:
         return True
     # [Razavi-ADC] Eq. (3.70), p. 50: C_b >= BOOST_MIN / (1 - BOOST_MIN) (1 + BOOST_UNCOUNTED) (C_G1 + C_G2 + C_p)
-    # Terms: C_b ``_boost_f`` (Mcap); C_G1 + C_G2 + C_p ``_boosted_f`` (MN's and Mbot_in's gates, Mpre's
-    #   gate over vdd, Mgate_top's drain).
-    # Holds for: the unit capacitances here (GATE_F to BOTTOM_F), the same in every PDK.
+    # Terms: C_b ``_boost_f`` (Mcap); C_G1 + C_G2 + C_p ``_boosted_f`` (every device on the boosted
+    #   nodes: MN's, Mbot_in's and Mgate's gates, Mpre's gate over vdd and its drain's junction,
+    #   Mgate_top's drain, the pull-down stack's nodes).
+    # Ours against the source: BOOST_UNCOUNTED, for the wells and the wiring.
+    # Holds for: the unit capacitances here (GATE_F to BOTTOM_F), the same in every PDK; the
+    #   parameters (a kit's fingering builds a width a few per cent off).
     boosted = _boost_f(params) >= BOOST_MIN / (1 - BOOST_MIN) * (1 + BOOST_UNCOUNTED) * _boosted_f(params)
     # not in the reference texts: L_2 at least ``_bottom_length`` at the bench's load, and
     # C_G2 <= BOTTOM_GATE_MAX C_G1 (the constants' derivations)
     # Terms: L_2 bot_l (Mbot_in's length); C_G1, C_G2 ``_gate_f`` of MN and of Mbot_in.
-    # Holds for: the bench's load LOAD_F on vout; a design sized for a larger load is admitted too.
+    # Ours against the source: none (own rules).
+    # Holds for: the bench's load LOAD_F on vout or a smaller one; a design sized for a larger
+    #   load is admitted too.
     lifted = params.bot_l >= _bottom_length(params, LOAD_F)
     bounded = _gate_f(params.boot_w, params.bot_l) <= BOTTOM_GATE_MAX * _gate_f(params.mos_w, params.mos_l)
     return boosted and lifted and bounded
@@ -440,9 +621,16 @@ class TbParams(pipeline.TbParams):
             raise ValueError("sampler supply, load and waveform spacing must be positive")
         if float(self.input_step_v) < 0 or float(self.track_step_v) < 0 or self.periods <= 0:
             raise ValueError("sampler input steps must be non-negative and the periods positive")
-        hold = float(self.clock_period_s) - float(self.clock_high_time_s)
-        if self.input_transition_time_s is not None and not 0.0 < float(self.input_transition_time_s) < hold:
-            raise ValueError("sampler input transition must be positive and shorter than the hold phase")
+        # not in the reference texts: the hold-phase change of the input fits the clock's low time,
+        # 0 < t_slew <= T - t_high - 3 t_edge: centred half a clock edge before the low time's
+        # middle (flow.samp.sim.testbench), it then starts after the clock has fallen and ends
+        # before it rises
+        # Terms: t_slew input_transition_time_s, T clock_period_s, t_high clock_high_time_s,
+        #   t_edge clock_transition_time_s.
+        # Holds for: a run that gives its own transition time (the clock's edge otherwise).
+        low = float(self.clock_period_s) - float(self.clock_high_time_s) - 3 * float(self.clock_transition_time_s)
+        if self.input_transition_time_s is not None and not 0.0 < float(self.input_transition_time_s) <= low:
+            raise ValueError("sampler input transition must be positive and fit the clock's low time")
         if self.stimulus is Stimulus.SINE and (self.sine_amplitude_v <= 0 or self.sine_frequency_hz <= 0):
             raise ValueError("a sine's amplitude and frequency must be positive")
         if self.gmin_s is not None and not 0.0 < float(self.gmin_s) < 1e-9:

@@ -57,6 +57,14 @@ def testbench(tb: TbParams) -> h.Module:
     )
     bench.vvdd = Vdc(dc=tb.vdd)(p=bench.vdd, n=bench.vss)
     period, high, edge = float(tb.clock_period_s), float(tb.clock_high_time_s), float(tb.clock_transition_time_s)
+    # not in the reference texts: the clocks, pulses of the supply: clk rises over t_edge from
+    # t_delay, stays high for t_high and falls over t_edge, every T; clk_b its complement,
+    # t_skew later. Between clk's mid-supply crossings the track phase is t_high + t_edge long
+    # and the hold T - t_high - t_edge; clk is low, between its edges, for T - t_high - 2 t_edge
+    # Terms: T tb.clock_period_s, t_high tb.clock_high_time_s, t_edge tb.clock_transition_time_s,
+    #   t_delay tb.clock_delay_s, t_skew tb.clock_skew_s; the track window the analyses read is
+    #   between the crossings, a clock edge taken off its end.
+    # Holds for: ideal sources; edges alike for both clocks.
     for port in Nets.signals.values():
         if port.usage != h.Usage.CLOCK:
             continue
@@ -82,13 +90,15 @@ def testbench(tb: TbParams) -> h.Module:
         bench.vvin = Vdc(dc=tb.input_voltage)(p=bench.vin, n=bench.vss)
     else:
         # not in the reference texts: the bench's input, low for one period and high for the next,
-        # each change in the middle of a hold phase: it starts t_delay + t_high + (T - t_high) / 2 -
-        # (t_slew - t_edge) / 2 into the run and again every period
-        # Terms: T tb.clock_period_s, t_high tb.clock_high_time_s, t_edge the clock's transition
-        #   time, t_slew the change's own (the clock's unless tb.input_transition_time_s is given),
-        #   t_delay tb.clock_delay_s.
-        # Holds for: a change shorter than the hold phase (TbParams refuses a longer one), so that
-        #   it is over before the next track phase.
+        # between V - V_step / 2 and V + V_step / 2, each change in the middle of a hold phase: it
+        # starts t_delay + t_high + (T - t_high) / 2 - (t_slew - t_edge) / 2 into the run and
+        # again every period (the pulse t_slew up, T - t_slew high, t_slew down), so its middle is
+        # t_edge / 2 before the middle of the clock's low time
+        # Terms: V tb.input_voltage, V_step tb.input_step_v; T tb.clock_period_s, t_high
+        #   tb.clock_high_time_s, t_edge the clock's transition time, t_slew the change's own (the
+        #   clock's unless tb.input_transition_time_s is given), t_delay tb.clock_delay_s.
+        # Holds for: a change no longer than T - t_high - 3 t_edge (TbParams refuses a longer
+        #   one), so that it starts after the clock has fallen and is over before it rises.
         slew = float(edge if tb.input_transition_time_s is None else tb.input_transition_time_s)
         base = bench.vss
         if float(tb.track_step_v) != 0.0:
@@ -98,7 +108,7 @@ def testbench(tb: TbParams) -> h.Module:
             v1=float(tb.input_voltage) - float(tb.input_step_v) / 2,
             v2=float(tb.input_voltage) + float(tb.input_step_v) / 2,
             period=2 * period,
-            width=period - (slew - edge),
+            width=period - slew,
             rise=slew,
             fall=slew,
             delay=float(tb.clock_delay_s) + high + (period - high) / 2 - (slew - edge) / 2,
@@ -106,10 +116,12 @@ def testbench(tb: TbParams) -> h.Module:
         if float(tb.track_step_v) != 0.0:
             # not in the reference texts: a second source in series, low until the middle of the
             # first track phase (its edge centred t_delay + t_edge + t_high / 2 into the run), then
-            # high for a period and low for the next: with both steps equal the input reaches
-            # input_voltage in the middle of every track phase, from below and from above in turn,
-            # and leaves it in the middle of every hold phase
-            # Terms: as above; the clock is high from t_delay + t_edge for t_high.
+            # high for a period and low for the next, between -V_track / 2 and +V_track / 2: the
+            # input is the two sources' sum, V -+ V_step / 2 -+ V_track / 2, so with both steps
+            # equal it reaches V in the middle of every track phase, from V - V_step and from
+            # V + V_step in turn, and leaves it in the middle of every hold phase
+            # Terms: as above; V_track tb.track_step_v; the clock is high from t_delay + t_edge
+            #   for t_high.
             # Holds for: a switch whose gate drive has settled by the middle of the track phase
             #   (flow.samp.analysis.analyze_track reads its time constant after this step).
             bench.vvstep = Vpulse(
@@ -129,7 +141,8 @@ def testbench(tb: TbParams) -> h.Module:
         #   of twice dac_step_v, so the held output (V_A, vout) steps by dac_step_v: a quarter into
         #   each hold phase, and back a quarter before the next track phase.
         # Ours against the source: the two halves in parallel still load the tracking switch
-        #   with tb.cload.
+        #   with tb.cload. vout also carries the off switch's own capacitance, which adds to C_p:
+        #   the held output's step is short of dac_step_v by its share of the load.
         # Holds for: the switch off (vout floating); a held output moved as the DAC's first step
         #   moves it.
         # not in the reference texts: the DAC step's timing: t_hold = T - t_high - 2 t_edge is the

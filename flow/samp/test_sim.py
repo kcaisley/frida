@@ -53,16 +53,22 @@ def test_a_track_step_adds_a_second_source_stepping_in_mid_track() -> None:
 def test_an_input_transition_time_slows_the_hold_step_about_mid_hold() -> None:
     """A full-scale step over 63.66 ns in the 87.5 ns hold of a 100 ns period: it starts half its
     length less half a clock edge before the plain step would (56.25 ns - 31.83 ns + 25 ps), so its
-    middle stays 25 ps after mid-hold, and the next one starts a period later."""
+    middle stays where the plain step's is, and the next one starts a period later (rise and width
+    make a period). The plain step: a 50 ps edge from 7.5 ns, high for 10 ns - 50 ps. The clock is
+    low for T - t_high - 2 t_edge and the change is centred half an edge before its middle, so it
+    fits up to T - t_high - 3 t_edge: 4.85 ns of the plain 10 ns clock, no more."""
     tb = TbParams(input_step_v=0.94, input_transition_time_s=63.66e-9, clock_period_s=100e-9, clock_high_time_s=12.5e-9)
     step = sim.testbench(tb).vvin.of.params
     assert float(step.rise) == float(step.fall) == pytest.approx(63.66e-9)
     assert float(step.delay) == pytest.approx(56.25e-9 - 31.83e-9 + 25e-12)
-    assert float(step.width) + float(step.rise) == pytest.approx(100e-9 + 50e-12)
+    assert float(step.width) + float(step.rise) == pytest.approx(100e-9)
+    assert float(step.delay) + float(step.rise) / 2 == pytest.approx(12.5e-9 + 87.5e-9 / 2 + 25e-12)
     plain = sim.testbench(TbParams()).vvin.of.params
-    assert (float(plain.rise), float(plain.delay), float(plain.width)) == pytest.approx((50e-12, 7.5e-9, 10e-9))
-    with pytest.raises(ValueError, match="shorter than the hold"):
-        TbParams(input_transition_time_s=6e-9)
+    assert (float(plain.rise), float(plain.delay), float(plain.width)) == pytest.approx((50e-12, 7.5e-9, 9.95e-9))
+    assert TbParams(input_transition_time_s=4.85e-9).input_transition_time_s == 4.85e-9
+    for too_long in (4.9e-9, 6e-9):
+        with pytest.raises(ValueError, match="fit the clock's low time"):
+            TbParams(input_transition_time_s=too_long)
 
 
 def test_a_run_saves_the_ports_and_the_supply_and_clock_currents() -> None:

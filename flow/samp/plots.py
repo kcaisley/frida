@@ -69,15 +69,23 @@ def plot_pedestal_vin(hold: AnalysisHold) -> Plot:
 def plot_feedthrough_vin(hold: AnalysisHold) -> Plot:
     """The input's feedthrough to the held output, in dB, over the input level."""
     # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough, in dB: 20 log10 |Delta V_out / Delta V_in|
-    # Terms: the ratio ``hold.feedthrough`` at each level (flow.samp.analysis.analyze_hold).
-    # Holds for: a feedthrough above the simulator's resolution.
+    # Terms: the ratio ``hold.feedthrough`` at each level and what its run resolves,
+    #   ``hold.feedthrough_floor`` (flow.samp.analysis.analyze_hold): the larger of the two.
+    # Ours against the source: the source gives no expression; a level whose ratio is under its
+    #   floor shows the floor, a bound from above.
+    # Holds for: a hold result with its floor; without one the ratio as it is.
+    resolved = np.abs(hold.feedthrough)
+    if hold.feedthrough_floor is not None:
+        resolved = np.fmax(resolved, hold.feedthrough_floor)
+    with np.errstate(divide="ignore"):
+        decibels = 20 * np.log10(resolved)
     return Plot(
         name="feedthrough_vin",
         title="Input feedthrough while holding, over the input level",
         x_label="Input level (V)",
         y_label="Feedthrough (dB)",
         x=[float(value) for value in hold.vin_v],
-        series={"feedthrough": [float(value) for value in 20 * np.log10(np.abs(hold.feedthrough))]},
+        series={"feedthrough": [float(value) for value in decibels]},
     )
 
 

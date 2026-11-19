@@ -48,7 +48,10 @@ class AnalysisHold(Analysis):
     halfway to the input step, its droop since the clock fell taken back, minus the output just
     before the clock falls (the charge the opening switch dumps, and its clock feedthrough);
     ``droop_v_per_s`` the held output's slope from there to the step; ``feedthrough`` the held
-    output's change over the input's step while the switch is off, its droop taken out (V/V).
+    output's change over the input's step while the switch is off, its droop taken out (V/V);
+    ``feedthrough_floor`` the ratio the run resolves, the furthest the held output strays from
+    its droop line before the step over the input's step (None: not read; a feedthrough under it
+    is not the switch's).
     """
 
     # [Razavi-Analog] Eq. (13.26), p. 550: the pedestal, the voltage error the opening switch leaves on C_H
@@ -59,6 +62,7 @@ class AnalysisHold(Analysis):
     pedestal_v: np.ndarray
     droop_v_per_s: np.ndarray
     feedthrough: np.ndarray
+    feedthrough_floor: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -124,7 +128,7 @@ class AnalysisSine(Analysis):
 
     # [Razavi-ADC] Eq. (3.85), p. 55: the harmonics of the held samples
     # [Razavi-ADC] Fig. 3.25(c), p. 37: the switch turns off as CK falls through V_in + V_TH, a signal-dependent instant
-    # [Pelgrom] Sec. 8.3.2, p. 390: signal-dependent aperture delay
+    # [Pelgrom] Sec. 8.2.3, p. 388: the aperture time, the sampling moment postponed or advanced on the switching edge
     vdd_v: np.ndarray
     vin_v: np.ndarray
     frequency_hz: np.ndarray
@@ -136,10 +140,11 @@ class AnalysisSine(Analysis):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisDroop(Analysis):
-    """The held output's droop over the middle half of each hold, at each measured point:
+    """The held output's droop over the third quarter of each hold, at each measured point:
     ``temperature_c`` the run's, ``step_v`` the step the DAC's first decision moves the held output
-    by meanwhile (0: none), ``droop_v_per_s`` its slope (the off switch's and its junctions' leakage
-    over the load), the median over the holds after the first."""
+    by meanwhile (0: none), ``droop_v_per_s`` its slope (what flows at the held output while the
+    switch is off, the off channels, the junctions and the gates, over the load), the median over
+    the holds after the first."""
 
     # [Pelgrom] Eq. (8.3), p. 387: V_droop = -I_leak T_hold / C_hold
     # [Razavi-ADC] Sec. 16.2.1, p. 346: monotonic switching moves one side's top plate while it is held

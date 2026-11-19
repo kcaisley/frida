@@ -31,12 +31,46 @@ from scipy import constants
 
 from flow.sweep.lookup import characterized, detail
 
-from .params import L_MIN_UM, NMOS_K_A_PER_V2, PMOS_K_A_PER_V2, W_MIN_UM, Params, SwitchType
+from .params import L_MIN_UM, LOAD_F, NMOS_K_A_PER_V2, PMOS_K_A_PER_V2, W_MIN_UM, Params, SwitchType
 
 
 def _finite(value: float | None) -> float:
     """``value`` as a float, zero where it is missing or not finite."""
+    # not in the reference texts: a record without an aperture fit (too few sine samples inside
+    # its settled levels) gives the model none: a + b V_in with a = b = 0
+    # Terms: a, b the record's aperture_s and aperture_s_per_v (flow.samp.analysis.analyze_sine).
+    # Holds for: a missing fit; the held value then has the track's lag and the pedestal alone.
     return float(value) if value is not None and math.isfinite(float(value)) else 0.0
+
+
+def _between(levels: np.ndarray, measured: np.ndarray, vin_v: np.ndarray) -> np.ndarray:
+    """The resistance at each of ``vin_v`` from a curve ``measured`` at increasing ``levels``: its
+    conductance linear between two levels, the curve's own value at a level."""
+    # not in the reference texts: between two measured levels the conductance 1 / R is linear in
+    # the input, as a triode device's is ([Razavi-ADC] Eq. (3.24), p. 27: 1 / R_on linear in
+    # V_X): 1 / R(v) = (1 - w) / R_0 + w / R_1, written R(v) = R_0 / (1 + w (R_0 / R_1 - 1)) so
+    # that equal neighbours give their value exactly; next to an open level (infinite R) the
+    # conductance falls to zero there
+    # Terms: R_0, R_1 the curve at the levels v_0 <= v <= v_1 on either side of the input, w =
+    #   (v - v_0) / (v_1 - v_0); the levels and R the record's ron_vin curve
+    #   (flow.samp.analysis.analyze_track).
+    # Ours against the source: a measured curve in place of the law; the law's linear conductance
+    #   is only the interpolant.
+    # Holds for: an input inside the levels (``resistance`` refuses one outside); a twelfth of the
+    #   supply between levels (a steep NMOS curve's midpoints are then within a few per cent).
+    index = np.clip(np.searchsorted(levels, vin_v, side="right") - 1, 0, len(levels) - 2)
+    weight = (vin_v - levels[index]) / (levels[index + 1] - levels[index])
+    first, second = measured[index], measured[index + 1]
+    # the finite neighbour is the base, so that an open one enters as a ratio of zero
+    swap = ~np.isfinite(first)
+    base, other, share = (
+        np.where(swap, second, first),
+        np.where(swap, first, second),
+        np.where(swap, 1 - weight, weight),
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        found = base / (1 + share * (base / other - 1))
+    return np.where(share == 0, base, np.where(np.isfinite(base), found, np.inf))
 
 
 @dataclass(frozen=True)
@@ -53,10 +87,14 @@ class Model:
     aperture_s: float = 0.0  # the sampling instant's shift, aperture_s + aperture_s_per_v * v later
     aperture_s_per_v: float = 0.0
     evidence: str | None = None  # the record's: prelayout or postlayout
-    # not in the reference texts: an ASSUMED RMS aperture jitter of the on-chip clock, 2 ps (as
-    # FRIDA-2's behavioral scans take it); the clock is not characterized here
-    # Terms: Delta T of [Razavi-ADC] Eq. (3.86), p. 55, one draw for both sides (``sample``).
-    # Holds for: an assumption until the clock path is characterized.
+    # not in the reference texts: an ASSUMED RMS aperture jitter of the on-chip clock, 2 ps; the
+    # clock is not characterized here
+    # Terms: the rms value of Delta T of [Razavi-ADC] Eq. (3.86), p. 55, one draw a sample for
+    #   both sides (``sample``).
+    # Ours against the source: none.
+    # Holds for: an assumption until the clock path is characterized; it adds Delta T dV_in/dt
+    #   to each held sample, common to the two sides and so cancelled in their difference only
+    #   where their slopes are alike (a differential input's are opposite).
     jitter_s: float = 2e-12
 
     @h.paramclass
@@ -84,7 +122,10 @@ class Model:
         # not in the reference texts: rough thresholds (0.35 V) for the triode conductances where
         # no characterization is given (``resistance``)
         # Terms: V_TH of MN (``n_threshold_v``) and |V_TH| of MP (``p_threshold_v``).
-        # Holds for: a rough estimate: constant over the input (no body effect).
+        # Ours against the source: constant over the input, where a switch's threshold rises with
+        #   its source above the bulk (body effect): a 65-nm NMOS switch's is 0.1 to 0.15 V above
+        #   this over the input range.
+        # Holds for: a rough estimate only (``resistance``: about half the simulated R_on).
         n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
         p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
         jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
@@ -104,6 +145,11 @@ class Model:
         pedestal_table_v = h.Param(
             dtype=tuple[float, ...] | None, desc="The pedestal at each of pedestal_table_vin_v", default=None
         )
+        pedestal_load_f = h.Param(
+            dtype=float | None,
+            desc="The load pedestal_table_v was measured into: each side's scales to its own; None takes it as is",
+            default=None,
+        )
         aperture_s = h.Param(dtype=float, desc="The sampling instant's delay at 0 V input", default=0.0)
         aperture_s_per_v = h.Param(dtype=float, desc="The sampling instant's delay per volt of input", default=0.0)
         track_s = h.Param(
@@ -119,8 +165,17 @@ class Model:
         # not in the reference texts: a level the characterization shows no time constant at (None,
         # or NaN) is an open switch, R = infinity
         # Terms: R the record's ron_vin curve (flow.samp.analysis.analyze_track).
-        # Holds for: a level outside the settled input range (an NMOS above V_DD - V_TH).
+        # Ours against the source: [Razavi-ADC] Eq. (3.24), p. 27 has R_on rise without bound at
+        #   V_DD - V_TH; a real switch still conducts there (weak inversion), with a time constant
+        #   past the level runs' read window.
+        # Holds for: a level outside the settled input range (an NMOS above V_DD - V_TH). The
+        #   switch there moves part of the way in a track window where the model holds the
+        #   previous sample: outside the settled range the model's error is up to the whole step.
         ron = [math.inf if y is None or not math.isfinite(y) else float(y) for y in curve["series"]["on-resistance"]]
+        # not in the reference texts: the pedestal curve keeps the levels with a finite R_on only
+        # Terms: the record's pedestal_vin curve (flow.samp.analysis.analyze_hold), level by level
+        #   with its ron_vin curve.
+        # Holds for: the settled levels; ``sample`` holds the curve's end values past them.
         pedestal = detail(record, "pedestal_vin")
         found = [
             (float(x), float(y))
@@ -151,7 +206,10 @@ class Model:
         # Terms: C ``load_f``, a side's top-plate load (the array's capacitance on vout); T
         #   ``temperature_k``.
         # Ours against the source: none; each side's own load rescales its share in ``sample``.
-        # Holds for: a switch whose bandwidth passes its own thermal noise (R_on drops out).
+        # Holds for: a switch whose bandwidth passes its own thermal noise (R_on drops out): the
+        #   equipartition value, exact for a resistance. A noise run of a kit whose device model
+        #   gives a channel in deep triode less than 4kT g_ds reads lower (about a tenth in a
+        #   65-nm kit); this is the upper, physical value.
         return Model.Behavioral(
             noise_v=float(np.sqrt(2 * constants.k * temperature_k / load_f)),
             noise_load_f=load_f,
@@ -160,6 +218,7 @@ class Model:
             ron_table_ohm=self.ron_ohm,
             pedestal_table_vin_v=self.pedestal_vin_v or None,
             pedestal_table_v=self.pedestal_v or None,
+            pedestal_load_f=LOAD_F,
             aperture_s=self.aperture_s,
             aperture_s_per_v=self.aperture_s_per_v,
         )
@@ -188,8 +247,9 @@ class Model:
         # a volt of overdrive is k' W / L
         # Terms: W / L MN's (MP's), mos_w W_MIN_UM over mos_l L_MIN_UM; k' = mu C_ox the rough
         #   NMOS_K_A_PER_V2 and PMOS_K_A_PER_V2.
-        # Ours against the source: no velocity saturation or mobility degradation: a rough value,
-        #   used only where no characterization is given.
+        # Ours against the source: no mobility degradation and no source or drain resistance: a
+        #   rough value (a 65-nm switch's simulated triode conductance a volt is about a tenth
+        #   lower), used only where no characterization is given.
         # Holds for: deep triode (the output near the input).
         aspect = params.mos_w * W_MIN_UM / (params.mos_l * L_MIN_UM)
         nmos = (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
@@ -203,42 +263,45 @@ class Model:
     @staticmethod
     def resistance(params: Params, behavioral: Model.Behavioral, vin_v: np.ndarray, gate_v: float) -> np.ndarray:
         """Return the sampler on-resistance at each input voltage; zero for an ideal switch, inf for
-        an open one. A measured curve (``ron_table_v``, ``ron_table_ohm``) is interpolated, in its
-        conductance next to an open level (which conducts nothing); an input outside its levels is
-        refused. The characterization's levels reach the supply less half the level runs' step
-        (``params.VIN_TOP``, 1.195 V of 1.2 V): an ADC whose swing a side passes it (FRIDA's 12-bit
-        sawtooth reaches 1.1935 V; one above about 0.95 V differential full scale at 1.05 times it,
-        about the 0.7 V common mode) is refused."""
+        an open one. A measured curve (``ron_table_v``, ``ron_table_ohm``) is interpolated in its
+        conductance (an open level conducts nothing); an input outside its levels is refused. The
+        characterization's levels run from a twelfth of the supply to the supply less half the
+        level runs' step (``params.VIN_SWEEP``, ``params.VIN_TOP``: 0.1 to 1.195 V of 1.2 V): an
+        ADC whose swing a side passes them is refused (flow.adc's sawtooth, 1.05 times its 0.94 V
+        differential full scale about a 0.7 V common mode, reaches 0.7 + 1.05 x 0.47 = 1.19 V a
+        side; a full scale above 0.943 V differential would pass the top level)."""
 
         if behavioral.ron_table_v is not None:
             levels = np.asarray(behavioral.ron_table_v, dtype=np.float64)
             vin_v = np.asarray(vin_v, dtype=np.float64)
+            # not in the reference texts: an input outside the measured levels is refused, not
+            # extrapolated: min_i v_i <= v <= max_i v_i
+            # Terms: v_i the curve's levels (the record's: a twelfth of the supply to the supply
+            #   less half the level runs' step).
+            # Holds for: a converter whose swing a side stays inside the levels (the docstring's
+            #   arithmetic for flow.adc's).
             if np.any(vin_v < levels.min()) or np.any(vin_v > levels.max()):
                 raise ValueError(
                     f"the sampler's input reaches {float(vin_v.min()):.4g} to {float(vin_v.max()):.4g} V, outside its "
                     f"characterized levels {float(levels.min()):.4g} to {float(levels.max()):.4g} V"
                 )
             measured = np.asarray(behavioral.ron_table_ohm, dtype=np.float64)
-            # not in the reference texts: between two measured levels the resistance is linear in
-            # the input; next to an open level (infinite R) the conductance is, so that it falls to
-            # zero there instead of the resistance jumping
-            # Terms: the levels and R the record's ron_vin curve (flow.samp.analysis.analyze_track).
-            # Holds for: an input inside the characterized levels (refused outside them).
-            with np.errstate(divide="ignore", invalid="ignore"):
-                direct = np.interp(vin_v, levels, measured)
-                toward_open = 1.0 / np.interp(vin_v, levels, 1.0 / measured)
-            return np.where(np.isfinite(direct), direct, toward_open)
+            return _between(levels, measured, vin_v)
         n_s, p_s = Model.conductances(params, behavioral)
         if n_s == 0 and p_s == 0:
             return np.zeros_like(vin_v)
-        # [Razavi-ADC] Eq. (3.23), p. 27: R_on = 1 / (mu_n C_ox (W / L)(V_DD - V_in - V_TH)); Eq. (3.36),
+        # [Razavi-ADC] Eq. (3.24), p. 27: R_on = 1 / (mu_n C_ox (W / L)(V_DD - V_X - V_TH)); Eq. (3.36),
         # p. 32: the complementary pair's two in parallel
-        # Terms: the NMOS's overdrive ``gate_v`` - V_in - ``n_threshold_v``, the PMOS's V_in -
-        #   ``p_threshold_v`` (its gate at 0 V); the conductances ``conductances`` gives.
-        # Ours against the source: a bootstrapped gate holds V_GS = ``gate_v`` whatever the input
-        #   ([Razavi-ADC] Sec. 3.8.1, p. 43), so its overdrive has no V_in; a device below its
+        # Terms: V_DD ``gate_v`` (the clock's high level), V_X the input: the NMOS's overdrive
+        #   ``gate_v`` - V_in - ``n_threshold_v``, the PMOS's V_in - ``p_threshold_v`` (its gate at
+        #   0 V); the conductances ``conductances`` gives.
+        # Ours against the source: a bootstrapped gate holds its V_GS whatever the input
+        #   ([Razavi-ADC] Sec. 3.8.1, p. 43), taken as the source's ideal V_b = ``gate_v``, so its
+        #   overdrive has no V_in: ours holds V_b' of Eq. (3.70), p. 50, 0.9 to 0.96 of the
+        #   supply, which this leaves out (an overdrive a tenth high); a device below its
         #   threshold conducts nothing; the total conductance floored at 1 pS.
-        # Holds for: no measured curve given (the rough constants); constant thresholds.
+        # Holds for: no measured curve given. A rough estimate: with the rough constants and
+        #   constant thresholds it is about half a simulated 65-nm switch's R_on (30 to 65 % low).
         source = 0.0 if params.switch_type is SwitchType.BOOTSTRAP else vin_v
         conductance = n_s * np.maximum(gate_v - source - behavioral.n_threshold_v, 0.0)
         conductance += p_s * np.maximum(vin_v - behavioral.p_threshold_v, 0.0)
@@ -291,16 +354,21 @@ class Model:
                 # [Razavi-Analog] Eq. (13.26), p. 550: the pedestal the opening switch leaves on C_H
                 # Terms: the characterized pedestal at the side's input level (the record's
                 #   pedestal_vin curve), linear between levels, its end values past them.
-                # Ours against the source: the measured curve at the bench's 1 pF, not rescaled to
-                #   ``load_f``.
-                # Holds for: a load near the bench's.
-                target = target + np.interp(
+                # Ours against the source: the measured curve (the channel's charge and the
+                #   clock's feedthrough), a charge on the load it was measured into
+                #   (``pedestal_load_f``, the bench's): a side's step is that charge on its own
+                #   load, the curve times C_bench / C_side, as the source's 1 / C_H.
+                # Holds for: a load large against the switch's own capacitance on vout (which adds
+                #   to both loads); no ``pedestal_load_f``: the curve as it is.
+                share = 1.0 if behavioral.pedestal_load_f is None else behavioral.pedestal_load_f / load_f[side]
+                target = target + share * np.interp(
                     v, np.asarray(behavioral.pedestal_table_vin_v), np.asarray(behavioral.pedestal_table_v)
                 )
             # [Razavi-ADC] Eq. (3.55), p. 39: sqrt(kT / C) on each side's own plate: a side's share of
             # the differential ``noise_v`` is noise_v / sqrt(2), scaled by sqrt(C_ref / C_side)
             # Terms: C_ref ``noise_load_f`` (the load ``noise_v`` was computed for), C_side
             #   ``load_f[side]``.
+            # Ours against the source: none; the rescaling to a side's own load is ours.
             # Holds for: independent noise on the two sides.
             scale = 1.0 if behavioral.noise_load_f is None else math.sqrt(behavioral.noise_load_f / load_f[side])
             if behavioral.noise_v:
@@ -309,10 +377,19 @@ class Model:
             # leaves exp(-T / (R C)) of the step from where the output started
             # Terms: T ``track_s``; R C the side's ``tau_s``; the start the previous sample's held
             #   value: held_n = target_n + (held_n-1 - target_n) exp(-T / tau_n).
-            # Ours against the source: the settled switch's R from the clock's rise on (its
-            #   turn-on, which the acquisition times hold, is left out); the start is the previous
-            #   held value, not where the converter left the top plate.
-            # Holds for: T long against the turn-on; without a window nothing is left.
+            # Ours against the source: the settled switch's R, at the level it settles to, from
+            #   the clock's rise on (its turn-on, which the acquisition times hold, is left out);
+            #   the start is the previous held value, not where the converter left the top plate.
+            # Holds for: a step small against the switch's overdrive, or a window of many time
+            #   constants (the residue is then nothing either way). A full-scale step starts with
+            #   the switch saturated and turning on: where T / tau is under about 10 its residue is
+            #   up to five times this law's (take it from the acquisition run there).
+            # not in the reference texts: without a window (``track_s`` None) nothing is left of
+            # the previous sample, exp(-T / tau) = 0, and an open switch (infinite R) leaves all of
+            # it, 1; the first sample's previous value is its own input, held_-1 = v_0
+            # Terms: held_-1 the recursion's start; v_0 the side's first input.
+            # Holds for: a first sample not read for its residue (an open first level then holds
+            #   the input itself).
             if behavioral.track_s is None:
                 left = np.where(tracking, 0.0, 1.0)
             else:

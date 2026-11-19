@@ -161,12 +161,13 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     each other supply (``supply_<percent>``; the nominal one is ``vin_6``), at the slow and fast
     corners and hot (``slow``, ``fast``, ``hot``), with the complementary clock an edge late
     (``skew``); at the ADC's timing: a full-scale step at the nominal supply and at the highest
-    (``acquire``, ``acquire_<percent>``), the input still at its nominal level, at 25 C and hot, at
-    a gmin below the leakage they read (``droop``, ``droop_hot``), a sine of the ADC's swing by its
+    (``acquire``, ``acquire_<percent>``), the input still at its nominal level, at 25 C and hot
+    (``droop``, ``droop_hot``), a sine of the ADC's swing by its
     cycles in the samples (``sine_<cycles>``), and the held output raised by the ADC's first step,
     hot, at the lowest level a side reaches and at the common mode (``dac_low``, ``dac_cm``). The
     level runs at the ends and the middle, the highest supply's, the full-scale steps' and the
-    DAC's save every transistor's operating values."""
+    DAC's save every transistor's operating values. Every run is at a gmin below the leakage a
+    hold shows (``params.LEAKAGE_GMIN_S``)."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     nominal = TbParams(
@@ -178,6 +179,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         track_step_v=round(SMALL_STEP * supply, 4),
         clock_period_s=LEVEL_PERIOD_S,
         clock_high_time_s=LEVEL_TRACK_S,
+        gmin_s=LEAKAGE_GMIN_S,
     )
     benches = {
         f"vin_{round(fraction * 12)}": replace(nominal, input_voltage=round(fraction * supply, 4))
@@ -205,8 +207,11 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     benches["slow"] = replace(nominal, corner=h.pdk.Corner.SLOW)
     benches["fast"] = replace(nominal, corner=h.pdk.Corner.FAST)
     benches["hot"] = replace(nominal, temperature_c=HOT_C)
-    # not in the reference texts: the complementary clock one clock edge (its transition time) late
-    # Terms: clk_b's delay over clk's, tb.clock_skew_s.
+    # [Razavi-Analog] Fig. 13.18, p. 550: Delta t, the time by which complementary switches turn off
+    # apart; here one clock edge, the complement late
+    # Terms: Delta t clk_b's delay over clk's, tb.clock_skew_s, set to tb.clock_transition_time_s:
+    #   MN switches an edge before MP (and before its own dummy, which is on clk_b).
+    # Ours against the source: the source names the time without a value; one edge is ours.
     # Holds for: a skew of the order of the edges themselves (non-overlap of one edge).
     benches["skew"] = replace(nominal, clock_skew_s=nominal.clock_transition_time_s)
     # not in the reference texts: the converter's own worst case for the switch's stress and
@@ -247,13 +252,16 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         periods=ADC_PERIODS,
         waveform_sample_interval_s=ADC_STROBE_S,
     )
-    benches["droop"] = replace(adc, gmin_s=LEAKAGE_GMIN_S)
-    benches["droop_hot"] = replace(adc, temperature_c=HOT_C, gmin_s=LEAKAGE_GMIN_S)
-    # not in the reference texts: coherent sampling, a tone of ``cycles`` whole cycles in the
-    # SINE_SAMPLES samples: f_in = cycles f_s / N
-    # Terms: f_s 1 / ADC_PERIOD_S, N SINE_SAMPLES; the amplitude SINE_AMPLITUDE of the supply about
-    #   ADC_CM of it.
-    # Holds for: cycles coprime to N (1 and 15 of 32), so every sample is a different phase.
+    benches["droop"] = adc
+    benches["droop_hot"] = replace(adc, temperature_c=HOT_C)
+    # [Pelgrom] Eq. (22.4), p. 985: T_meas = M_s / f_s = M_signal / f_signal, the two mutually prime
+    # (coherent testing): f_signal = M_signal f_s / M_s
+    # Terms: M_s SINE_SAMPLES, M_signal ``cycles``, f_s 1 / ADC_PERIOD_S; the amplitude
+    #   SINE_AMPLITUDE of the supply about ADC_CM of it. The run is M_s + 2 periods long: its
+    #   first hold is left out (it starts from the operating point) and its last has no next
+    #   rise to end it, which leaves M_s held samples (flow.samp.analysis._held).
+    # Ours against the source: none.
+    # Holds for: cycles coprime to M_s (1 and 15 of 32), so every sample is a different phase.
     for cycles in SINE_CYCLES:
         benches[f"sine_{cycles}"] = replace(
             adc,
@@ -269,8 +277,10 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     #   main plate rising less its difference plate falling; C_p a side's whole top-plate
     #   capacitance with the behavioral DAC's own parasitic: flow.adc's default array
     #   (capdac.Params()), by capdac.Model.switch.
-    # Ours against the source: the bench moves the held output by a source through half the load
-    #   (flow.samp.sim.testbench), not by a capacitor array.
+    # Ours against the source: the source lowers the higher side (its plates from V_REF to zero);
+    #   flow.adc raises the lower one, a main plate rising less its difference plate falling. The
+    #   bench moves the held output by a source through half the load (flow.samp.sim.testbench),
+    #   not by a capacitor array.
     # Holds for: flow.adc's default array; the lowest level a side reaches and the common mode.
     dac = capdac.Model.Behavioral()
     main_f, diff_f = capdac.Model.plates_f(dac, "p", capdac.Params(), supply)
@@ -285,7 +295,6 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
             dac_step_v=step,
             temperature_c=HOT_C,
             oppoint=True,
-            gmin_s=LEAKAGE_GMIN_S,
         )
     return benches
 
