@@ -108,8 +108,13 @@ ADC_PERIOD_S = 100e-9
 ADC_PERIODS = 3
 ADC_STROBE_S = 50e-12
 # Spectre's gmin for the runs that read a hold's leakage (the droop): its default, 1e-12 S across
-# every junction and channel, would draw 0.6 pA from a held 0.6 V, as much as the leakage itself
+# every junction and channel, draws 1e-12 S x 0.6 V = 0.6 pA from a held 0.6 V
 LEAKAGE_GMIN_S = 1e-18
+# the bootstrap's bottom-plate switch's resistance over its switch's, times its boost capacitor's
+# area in unit areas (flow.samp.subckt._bottom_length): the 32-unit bootstrapped switch's
+# (flow.samp.runs.bootstrap), its bottom-plate switch at the helpers' width and 8 units long (64
+# times the switch's resistance) under a boost capacitor of 96 by 16 units
+BOTTOM_LIFT = 64 * 96 * 16
 # acquisition to half an LSB of the supply, at these resolutions (bits)
 ACQUISITION_BITS = (10, 12, 14)
 # a sine of the ADC's swing a side, fractions of the supply: about its common mode, 0.44 V (its

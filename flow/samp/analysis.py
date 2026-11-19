@@ -434,7 +434,8 @@ def analyze_droop(measurements: Sequence[Meas]) -> AnalysisDroop:
 @analysis
 def analyze_energy(measurements: Sequence[Meas]) -> AnalysisEnergy:
     """Measure the energy the supply and both clocks draw over each whole period after the first:
-    the supply voltage times the charge each source delivers, at each point."""
+    the supply voltage times the supply's net charge and the charge each clock delivers, at each
+    point."""
 
     identity = measurement_identity(measurements)
     rows = []
@@ -442,9 +443,12 @@ def analyze_energy(measurements: Sequence[Meas]) -> AnalysisEnergy:
         tb = measurement.param
         vdd, period, time_s = float(tb.vdd), float(tb.clock_period_s), measurement.time_s
         # [Baker] Eq. (11.15), p. 355: P_avg = V_DD I_avg, the current drawn from V_DD: over a period,
-        # V_DD times the charge each source delivers (a source's current out of the circuit,
-        # positive; a clock's driver draws its edge's charge from V_DD and returns none of it)
-        delivered = sum(np.maximum(current, 0.0) for current in measurement.i.values())
+        # V_DD times the supply's net charge (its current out of the circuit, positive, and what
+        # the circuit returns to it) and the charge each clock delivers (a clock's driver draws its
+        # edge's charge from V_DD and returns none of it)
+        delivered = sum(
+            current if name == Nets.vdd.name else np.maximum(current, 0.0) for name, current in measurement.i.items()
+        )
         energies = [
             vdd * calc.integ(*calc.clip(np.asarray(delivered, dtype=np.float64), time_s, start, start + period))
             for start in np.arange(1, int(tb.periods)) * period + float(tb.clock_delay_s)
@@ -512,8 +516,8 @@ def metrics(
     given, the corners' (``corners``, ``corners_hold``), the droop over the ADC's hold at 25 C and
     hot (``droop``, in that order: the droop in place of the level run's), the pedestal with a
     late complementary clock (``skew``), the boost's V_GS over the input and the gate's peak
-    (``boost``), the devices' largest voltages in the level runs (``stress``) and under the DAC's
-    step (``dac_stress``), the acquisition times and the full-scale track error
+    (``boost``), the devices' largest voltages in the level runs and the full-scale step
+    (``stress``) and under the DAC's step (``dac_stress``), the acquisition times and the full-scale track error
     (``acquisition``), the sines' distortion, their distance from the model and the aperture
     (``sine``, low tone first), the droop under the DAC's step (``dac``) and the energy a cycle
     (``energy``)."""
@@ -584,7 +588,8 @@ def metrics(
     if sine is not None:
         # [Razavi-ADC] Eq. (3.85), p. 55: the held samples' distortion, the low tone's and the high one's
         found["thd_low_db"], found["thd_high_db"] = float(sine.thd_db[0]), float(sine.thd_db[-1])
-        # not in the reference texts: the largest distance of a held sample from the behavioral model's
+        # not in the reference texts: the largest distance of a held sample from the behavioral
+        # model's, over the samples inside the input range the level runs settle over
         found["model_error_v"] = _largest(sine.model_error_v)
         # [Pelgrom] Sec. 8.3.2, p. 390: the signal-dependent aperture delay, from the high tone
         found["aperture_s"], found["aperture_s_per_v"] = float(sine.aperture_s[-1]), float(sine.aperture_s_per_v[-1])

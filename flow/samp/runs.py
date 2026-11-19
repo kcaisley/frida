@@ -15,8 +15,8 @@ complementary clock an edge late, the pedestal; at the ADC's timing a full-scale
 acquisition times; the hold, at 25 C and hot, its droop; two sines of the ADC's swing, their held
 samples' distortion and the behavioral model's distance from them; the held output stepped as the
 ADC's first decision steps it, at the lowest level a side reaches and at the common mode, hot, its
-droop. Where the runs save their devices' values, their largest voltages, the level runs' apart
-from the DAC step's. Twenty-five Spectre runs an instance.
+droop. Where the runs save their devices' values, their largest voltages, the level runs' and
+the full-scale step's apart from the DAC step's. Twenty-five Spectre runs an instance.
 """
 
 from __future__ import annotations
@@ -81,10 +81,11 @@ def scaled() -> dict[str, Params]:
     """Each switch 8 to 128 units wide (a quarter to four times FRIDA-1's): the transmission gate
     with and without dummies, the NMOS and the PMOS switch, and the bootstrapped one, each width by
     name, its helpers an eighth of the switch, none under 4 units (the finest PDK's minimum width),
-    its boost capacitor 16 units long and wide enough for 32 times the switch's gate area and 16
-    times the helpers' width more (the precharge device, eight helpers wide, loads the top plate):
-    V_b' at least 0.9 V_DD at every input ([Razavi-ADC] Eq. (3.70), p. 50: C_b against C_G1 + C_G2
-    + C_p)."""
+    its boost capacitor 16 units long and wide enough for 32 times the switch's gate area and 8
+    helper widths more (128 times the helpers' width in area: the precharge device, eight helpers
+    wide, loads the top plate): V_b' at least 0.9 V_DD at every input for a switch 32 units wide
+    or wider ([Razavi-ADC] Eq. (3.70), p. 50: C_b against C_G1 + C_G2 + C_p; the 8- and 16-unit
+    switches' bottom-plate switch, longer, loads the gate more)."""
     tgate = widen(Params(switch_type=SwitchType.TGATE))
     tgate.mos_w = steps(8, 128, n=5, log=True)
     tgate.dummy = every(bool)
@@ -178,8 +179,8 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     and hot, at a gmin below the leakage they read (``droop``, ``droop_hot``), a sine of the ADC's swing by its cycles in the samples
     (``sine_<cycles>``), and the held output raised by the ADC's first step, hot, at the lowest
     level a side reaches and at the common mode (``dac_low``, ``dac_cm``). The level runs at the
-    ends and the middle, the highest supply's and the DAC's save every transistor's operating
-    values."""
+    ends and the middle, the highest supply's, the full-scale step's and the DAC's save every
+    transistor's operating values."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     nominal = TbParams(
@@ -211,6 +212,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         clock_period_s=2 * ADC_TRACK_S,
         clock_high_time_s=ADC_TRACK_S,
         periods=5,
+        oppoint=True,
     )
     adc = replace(
         nominal,
@@ -265,7 +267,9 @@ def results(measurements: dict[str, Meas]) -> Results:
     supply_track, supply_hold = analyze_track(by_supply), analyze_hold(by_supply)
     boost = analyze_boost(by_vin)
     dac = [measurements["dac_low"], measurements["dac_cm"]]
-    levels = [measurement for measurement in [*by_vin, *by_supply] if measurement.param.oppoint]
+    levels = [
+        measurement for measurement in [*by_vin, *by_supply, measurements["acquire"]] if measurement.param.oppoint
+    ]
     return Results(
         metrics=metrics(
             track=track,

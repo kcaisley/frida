@@ -6,6 +6,8 @@ half-size charge-injection dummies, and a bootstrapped NMOS gate ([Razavi-ADC] F
 primitives; the PDK's compile makes them its devices.
 """
 
+import math
+
 import hdl21 as h
 from hdl21.primitives import MosType
 
@@ -13,7 +15,7 @@ from flow.circuit.ports import module_from_ports
 from flow.layout.devices.mosfet.netlist import mos
 from flow.layout.hdl21align import Border, EdgePin, edge_pins, halves, place, row, rows
 
-from .params import Params, SwitchType
+from .params import BOTTOM_LIFT, Params, SwitchType
 
 
 @h.bundle
@@ -23,6 +25,13 @@ class Nets:
     clk, clk_b = h.Clock(), h.Clock()
     vdd = h.Power(direction=h.PortDir.INOUT)
     vss = h.Ground(direction=h.PortDir.INOUT)
+
+
+def _bottom_length(param: Params) -> int:
+    """The bootstrap's bottom-plate switch's (Mbot_in's) length in units of the minimum, at the
+    helpers' width: the shortest whose resistance over the switch's, times the boost capacitor's
+    area, reaches ``BOTTOM_LIFT``."""
+    return max(1, math.ceil(BOTTOM_LIFT * param.boot_w * param.mos_l / (param.mos_w * param.cap_w * param.cap_l)))
 
 
 # a fresh module every call: the PDK compile rewrites its devices in place, and a run's bench
@@ -47,17 +56,23 @@ def netlist(param: Params) -> h.Module:
     # puts vin on Q, so A sits C_b's charge above vin: V_GS = V_b' whatever the input
     # ([Razavi-ADC] Sec. 3.8.1, p. 43; Eq. (3.70), p. 50). Mpre's and Mgate's n-wells sit on P, which
     # is never below their other terminals ([Razavi-ADC] Sec. 3.8.2, p. 48).
-    # not in the reference texts: Mgate's gate (``gate_ctl``) follows Q while tracking (Mctl_n, its
-    # gate on A; the PMOS Mctl_on, gated by the complementary clock, starts it as tracking begins)
-    # and sits at vdd while holding (Mctl_p), so Mgate's |V_GS| stays about V_DD where a clocked
-    # gate would see P, up to two supplies, from 0 V.
-    # not in the reference texts: the edges' coupling and charge sharing held within the supply, so
-    # that at the highest supply no terminal pair passes it: Mpre eight times the helpers' width
-    # holds P at vdd while A charges from it, Mbot_in twice it lifts Q from vin as A rises, and
-    # dummies (drain and source joined) whose clock edge pushes against a node's own kick: on Q
-    # (Mbot_dummy, on Mbot's clock, against the charge Mgate's gate brings Q as tracking begins), on
-    # Mgate's gate (Mctl_dummy, opposite Mctl_p) and on the pull-down's foot (Mgate_off_dummy,
-    # opposite Mgate_off, whose kick reaches A through the cascodes)
+    # not in the reference texts: Mgate's gate (``gate_ctl``) follows Q while tracking (the PMOS
+    # Mctl_on, gated by the complementary clock, down to Q or to about its threshold above 0 V,
+    # whichever is higher) and sits at vdd while holding (Mctl_p), so Mgate's |V_GS| stays within
+    # about V_DD where a clocked gate would see P, up to two supplies, from 0 V.
+    # not in the reference texts: Mbot_in long (``_bottom_length``), so that Q, and A with it, rises
+    # from 0 V to vin no faster than the switch moves its output from the previous sample: A then
+    # never stands much more than V_b' above an output the switch has yet to move (A - vout, MN's
+    # oxide at its output end); its resistance over the switch's, times the boost capacitor's area
+    # (Q's capacitance, the capacitor's bottom plate to the substrate), at least ``BOTTOM_LIFT``.
+    # not in the reference texts: the edges' coupling and charge sharing held within a few
+    # millivolts of the highest supply where the boost capacitor is large against the helpers
+    # (a switch 16 units wide or wider; an 8-unit switch's bottom plate dips further below 0 V as
+    # tracking ends): Mpre eight times the helpers' width holds P at vdd while A
+    # charges from it, and dummies (drain and source joined) whose clock edge pushes against a
+    # node's own kick: on Q (Mbot_dummy, on Mbot's clock, against the charge Mgate's gate brings Q
+    # as tracking begins), on Mgate's gate (Mctl_dummy, opposite Mctl_p) and on the pull-down's foot
+    # (Mgate_off_dummy, opposite Mgate_off, whose kick reaches A through the cascodes)
     if bootstrap:
         Samp.gate = h.Signal(desc="Boosted switch gate")
         Samp.boot_top, Samp.boot_bot, Samp.gate_ctl = h.Signal(), h.Signal(), h.Signal()
@@ -65,7 +80,7 @@ def netlist(param: Params) -> h.Module:
         aux = {"vth": param.mos_vth, "w": param.boot_w, "l": 1}
         small = {"vth": param.mos_vth, "w": max(1, param.boot_w // 2), "l": 1}
         # the bottom plate follows vin while tracking, its gate boosted with the switch's
-        Samp.Mbot_in = mos(tp=MosType.NMOS, vth=param.mos_vth, w=2 * param.boot_w, l=1)(
+        Samp.Mbot_in = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.boot_w, l=_bottom_length(param))(
             d=Samp.boot_bot, g=Samp.gate, s=Samp.vin, b=Samp.vss
         )
         # bottom plate to vss during hold
@@ -84,9 +99,8 @@ def netlist(param: Params) -> h.Module:
         Samp.Mpre = mos(tp=MosType.PMOS, vth=param.mos_vth, w=8 * param.boot_w, l=1)(
             d=Samp.vdd, g=Samp.gate, s=Samp.boot_top, b=Samp.boot_top
         )
-        # Mgate's gate: vdd in hold, the bottom plate while tracking
+        # Mgate's gate: vdd in hold, the bottom plate (or a threshold above 0 V) while tracking
         Samp.Mctl_p = mos(tp=MosType.PMOS, **aux)(d=Samp.gate_ctl, g=Samp.clk, s=Samp.vdd, b=Samp.vdd)
-        Samp.Mctl_n = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_ctl, g=Samp.gate, s=Samp.boot_bot, b=Samp.vss)
         Samp.Mctl_on = mos(tp=MosType.PMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.gate_ctl, b=Samp.vdd)
         Samp.Mctl_dummy = mos(tp=MosType.PMOS, **small)(d=Samp.gate_ctl, g=Samp.clk_b, s=Samp.gate_ctl, b=Samp.vdd)
         # the boost capacitor: an NMOS whose channel (drain and source on the bottom plate) faces its gate
@@ -131,7 +145,6 @@ def netlist(param: Params) -> h.Module:
                 Samp.Mgate_off_dummy,
                 Samp.Mbot,
                 Samp.Mbot_dummy,
-                Samp.Mctl_n,
             ),
             row(Samp.MN, Samp.Mbot_in),
         )

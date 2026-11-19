@@ -250,6 +250,17 @@ def test_the_energy_counts_each_clocks_charge_once_though_its_source_takes_it_ba
     assert energy.energy_per_cycle_j[0] == pytest.approx(1.2 * (1e-6 * 10e-9 + 2 * 10e-15 * 1.2), rel=1e-3)
 
 
+def test_the_energy_counts_the_supplys_net_charge() -> None:
+    """[Baker] Eq. (11.15), p. 355: P_avg = V_DD I_avg, the supply's average current. A supply that
+    delivers 1 uA and takes back 10 fF x 1.2 V on each clock fall nets 1 uA x 10 ns less that
+    charge a period, the clocks' charge counted as before."""
+    run = ideal_run(TbParams(input_step_v=0.0))
+    returned = CLOCK_LOAD_F * np.minimum(np.gradient(run.v["clk"], run.time_s), 0.0)
+    energy = analyze_energy([replace(run, i={**run.i, "vdd": run.i["vdd"] + returned})])
+    net_c = 1e-6 * 10e-9 - CLOCK_LOAD_F * 1.2
+    assert energy.energy_per_cycle_j[0] == pytest.approx(1.2 * (net_c + 2 * CLOCK_LOAD_F * 1.2), rel=1e-3)
+
+
 def test_the_droop_is_the_slope_over_the_adcs_hold() -> None:
     """A held output falling 1e3 V/s over the ADC's 87.5 ns hold reads -1e3 V/s, with a DAC step
     or without (its step recorded), at the run's temperature."""

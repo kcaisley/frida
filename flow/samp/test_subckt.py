@@ -10,7 +10,7 @@ from flow import pipeline
 from flow.layout.hdl21align import issues, module_plan, pnr_input
 
 from . import runs
-from .params import Params, SwitchType
+from .params import BOTTOM_LIFT, Params, SwitchType
 from .subckt import netlist
 
 
@@ -34,9 +34,9 @@ def test_bootstrap_boosts_the_nmos_gate() -> None:
     """[Razavi-ADC] Fig. 3.41(b), p. 48: M5 (Mpre) and M3 (Mgate) PMOS, their n-wells on P
     (Sec. 3.8.2, p. 48); M2 (Mbot_in) an NMOS gated by the boosted node; the gate's pull-down M6
     under the cascode M7 gated by vdd (a second cascode, gated by P, above it); M3's gate at the
-    bottom plate while tracking (started by a PMOS on the complementary clock) and at vdd while
-    holding; M5 eight helpers wide, M2 two; dummies against the edges' kicks on Q, on M3's gate
-    and on M6's drain."""
+    bottom plate while tracking (through a PMOS on the complementary clock) and at vdd while
+    holding; M5 eight helpers wide, M2 a helper wide and long; dummies against
+    the edges' kicks on Q, on M3's gate and on M6's drain."""
     m = netlist(Params(switch_type=SwitchType.BOOTSTRAP))
     assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP") and not hasattr(m, "Mtg_p")
     assert m.Mgate.conns == {"d": m.gate, "g": m.gate_ctl, "s": m.boot_top, "b": m.boot_top}
@@ -48,9 +48,8 @@ def test_bootstrap_boosts_the_nmos_gate() -> None:
     assert m.Mgate_cas.conns == {"d": m.gate_mid, "g": m.vdd, "s": m.gate_off, "b": m.vss}
     assert m.Mgate_off.conns == {"d": m.gate_off, "g": m.clk_b, "s": m.vss, "b": m.vss}
     assert m.Mctl_p.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.vdd, "b": m.vdd}
-    assert m.Mctl_n.conns == {"d": m.gate_ctl, "g": m.gate, "s": m.boot_bot, "b": m.vss}
     assert m.Mctl_on.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
-    assert m.Mpre.of.params.w == 8 * 4 and m.Mbot_in.of.params.w == 2 * 4
+    assert m.Mpre.of.params.w == 8 * 4 and m.Mbot_in.of.params.w == 4 and not hasattr(m, "Mctl_n")
     assert m.Mbot_dummy.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.boot_bot, "b": m.vss}
     assert m.Mctl_dummy.conns == {"d": m.gate_ctl, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
     assert m.Mgate_off_dummy.conns == {"d": m.gate_off, "g": m.clk, "s": m.gate_off, "b": m.vss}
@@ -71,6 +70,31 @@ def test_every_bootstrap_of_the_space_boosts_its_gate_by_at_least_0_9_vdd_by_are
     assert found
     for params in found:
         assert params.cap_w * params.cap_l == 32 * params.mos_w * params.mos_l + 128 * params.boot_w
+
+
+def test_every_bootstrap_lifts_its_bottom_plate_no_faster_than_the_rule() -> None:
+    """The bottom-plate switch's resistance over the switch's ((L / W) over (mos_l / mos_w)) times
+    the boost capacitor's area reaches ``BOTTOM_LIFT`` at the shortest length that does: 8 units
+    for the 32-unit bootstrap, 64 for the 8-unit one, 2 for the 160-unit rung, 10 at twice the
+    length."""
+    found = [
+        params
+        for run in (runs.scaled, runs.long_channel, runs.boost_ladder)
+        for space in run.spaces("tsmc65").values()
+        for params in [space.base]
+        if params.switch_type is SwitchType.BOOTSTRAP
+    ]
+
+    def lift(params: Params, length: int) -> float:
+        return length / params.boot_w * params.mos_w / params.mos_l * params.cap_w * params.cap_l
+
+    lengths = {params: _module(params).Mbot_in.of.params.l for params in [*found, runs.bootstrap.build()]}
+    for params in found:
+        length = lengths[params]
+        assert lift(params, length) >= BOTTOM_LIFT and (length == 1 or lift(params, length - 1) < BOTTOM_LIFT)
+    by_size = {(params.mos_w, params.mos_l): lengths[params] for params in found}
+    assert by_size[(32, 1)] == lengths[runs.bootstrap.build()] == 8
+    assert (by_size[(8, 1)], by_size[(160, 1)], by_size[(32, 2)]) == (64, 2, 10)
 
 
 def test_the_parameters_refuse_what_does_not_build() -> None:
@@ -106,7 +130,7 @@ def test_the_named_structures_rows() -> None:
         "bootstrap": [
             ["Mpre", "Mgate", "Mctl_p", "Mctl_on", "Mctl_dummy"],
             ["Mcap"],
-            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mbot_dummy", "Mctl_n"],
+            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mbot_dummy"],
             ["Mn", "Mbot_in"],
         ],
     }

@@ -113,10 +113,12 @@ class AnalysisAcquisition(Analysis):
 class AnalysisSine(Analysis):
     """A sine's held samples at each measured point (a tone): ``frequency_hz`` the tone,
     ``thd_db`` the held samples' harmonic distortion, ``model_error_v`` the largest |held -
-    predicted| where predicted is the behavioral model's (``flow.samp.model.Model.sample``: the
-    input at the clock's fall lagging by R(V_in) C dV_in/dt, plus the pedestal at V_in, both from
-    the level runs), ``aperture_s`` and ``aperture_s_per_v`` the sampling instant the rest of the
-    error implies, a + b V_in later (a least-squares fit of the rest against the slope)."""
+    predicted| over the held samples whose input lies inside the input range the level runs settle
+    over (where predicted is the behavioral model's, ``flow.samp.model.Model.sample``: the input at
+    the clock's fall lagging by R(V_in) C dV_in/dt, plus the pedestal at V_in, both from the level
+    runs; outside that range the model holds the previous sample), ``aperture_s`` and
+    ``aperture_s_per_v`` the sampling instant the rest of the error over those samples implies,
+    a + b V_in later (a least-squares fit of the rest against the slope)."""
 
     # [Razavi-ADC] Eq. (3.85), p. 55: the harmonics of the held samples
     # [Razavi-ADC] Fig. 3.25(c), p. 37: the switch turns off as CK falls through V_in + V_TH, a signal-dependent instant
