@@ -1,5 +1,6 @@
 """Software-only checks of the comparator's testbench parameters and testbench (no simulator)."""
 
+import math
 from typing import Any
 
 import hdl21 as h
@@ -149,3 +150,53 @@ def test_a_run_is_one_spectre_transient_in_nutbin(monkeypatch, tmp_path, interva
     assert "cccs probe=xtop.vvdd" in meter and f"c={params.CHARGE_METER_F}" in meter
     save = next(attr for attr in captured["attrs"] if isinstance(attr, hs.Save))
     assert params.CHARGE_METER in save.targ
+
+
+def test_a_clock_with_no_gate_on_it_has_no_chain_and_stays_on_its_source() -> None:
+    """The default StrongARM (NMOS input, switched tail) clocks its tail, its tail's reset and its
+    four reset devices on clk and nothing on clkb: clk's chain alone is built, clkb's source drives
+    the port itself, so no driver of an unloaded clock is on the comparator's supply. A double
+    tail clocks its second stage on clkb: both chains, as many stages each."""
+    tb = TbParams()
+    chains, _unit = sim._clock_chains(tb)
+    assert set(chains) == {"clk"} and chains["clk"][0] == 1.0
+    bench = sim.testbench(tb)
+    assert not any(name.startswith("mclkb_") for name in bench.instances)
+    assert any(name.startswith("mclk_0") for name in bench.instances)
+    assert bench.instances["vclkb"].conns["p"] is bench.clkb
+    assert bench.instances["vclk"].conns["p"] is not bench.clk
+    double = sim._clock_chains(TbParams(params=params.Params(latch=params.Latch.DOUBLE_TAIL)))[0]
+    assert set(double) == {"clk", "clkb"} and len(double["clk"]) == len(double["clkb"])
+
+
+@pytest.mark.parametrize("latch", list(params.Latch))
+def test_a_clock_chain_tapers_by_at_most_the_fanout_to_a_last_stage_at_the_last_fanout(latch) -> None:
+    """[Baker] Eq. (11.20): N stages after the first of taper A = last^(1/N), the fewest with A at
+    most the fanout (4): each stage is A times the one before, the first a unit inverter, and the
+    last one's input is the clocked gates over the last fanout (2). By hand for a load of 40 unit
+    inverters: last = 20, N = ceil(ln 20 / ln 4) = 3, A = 20^(1/3) = 2.71, sizes 1, 2.71, 7.37, 20."""
+    tb = TbParams(params=params.Params(latch=latch))
+    chains, _unit = sim._clock_chains(tb)
+    for sizes in chains.values():
+        ratios = np.asarray(sizes[1:]) / np.asarray(sizes[:-1])
+        assert sizes[0] == 1.0 and np.all(ratios <= tb.clock_fanout * (1 + 1e-9))
+        assert np.allclose(ratios, ratios[0])
+    stages = 1 + math.ceil(math.log(20) / math.log(4))
+    by_hand = [20 ** (i / (stages - 1)) for i in range(stages)]
+    assert by_hand == pytest.approx([1.0, 2.714, 7.368, 20.0], rel=1e-3)
+
+
+def test_the_source_clock_is_high_for_the_evaluation_and_falls_a_transition_into_the_next_cycle() -> None:
+    """The pulse: low for the reset (1 ns), a 20 ps rise, a flat top of the evaluation (4 ns), a
+    20 ps fall, every cycle (5 ns): it starts to fall at 1 + 0.02 + 4 = 5.02 ns, 20 ps into the
+    next cycle, and at mid-swing is high for 4.02 ns."""
+    tb = TbParams()
+    pulse = sim.testbench(tb).instances["vclkb"].of.params
+    assert (float(pulse.delay), float(pulse.rise), float(pulse.width), float(pulse.fall), float(pulse.period)) == (
+        pytest.approx(1e-9),
+        pytest.approx(20e-12),
+        pytest.approx(4e-9),
+        pytest.approx(20e-12),
+        pytest.approx(5e-9),
+    )
+    assert float(pulse.delay) + float(pulse.rise) + float(pulse.width) - tb.cycle_s == pytest.approx(20e-12)

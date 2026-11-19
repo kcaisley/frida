@@ -155,10 +155,13 @@ def test_double_tail_shares_one_clocked_tail() -> None:
 
 
 def test_triple_tail_stages() -> None:
-    """Cascoded preamp, PMOS-latch second stage on midp/midn, clocked-tail third stage."""
+    """Cascoded preamp; a second stage that regenerates to the rails on midp/midn (a clocked tail,
+    two cross pairs, input devices on the input pair's drains); a third stage with no clocked
+    device, its tails and precharge devices gated by the second stage."""
 
     netlist.Cache.reset()
-    m = netlist(Params(latch=Latch.TRIPLE_TAIL))
+    params = Params(latch=Latch.TRIPLE_TAIL)
+    m = netlist(params)
     assert m.Mdiff_p.conns["d"] is m.cas_p and m.Mcas_p.conns["d"] is m.input_p_drain
     # the cascodes' gates reach VDD through a tie, never by metal alone
     assert m.Mcas_p.conns["g"] is m.cas_gate and m.Mcas_n.conns["g"] is m.cas_gate
@@ -168,15 +171,42 @@ def test_triple_tail_stages() -> None:
     assert m.vdd not in gates and m.vss not in gates
     assert m.Mtail2.conns["g"] is m.clkb and m.Mmid_cross_p.conns["s"] is m.tail2
     assert m.Mmid_in_p.conns["d"] is m.midp and m.Mmid_in_p.conns["g"] is m.input_p_drain
-    assert m.Mtail3.conns["g"] is m.clk and m.Mcross_on_p.conns["s"] is m.tail3
+    # stage two's init cross pair takes its losing node to ground
+    assert m.Mmid_cross_init_p.conns["d"] is m.midp and m.Mmid_cross_init_p.conns["g"] is m.midn
+    assert m.Mmid_cross_init_p.conns["s"] is m.vss and m.Mmid_cross_init_n.conns["g"] is m.midp
+    # stage three starts on stage two: no clocked device, each tail on a mid node
+    assert not hasattr(m, "Mtail3")
+    assert m.Mtail3_p.conns["g"] is m.midp and m.Mtail3_n.conns["g"] is m.midn
+    assert m.Mtail3_p.conns["d"] is m.tail3 and m.Mcross_on_p.conns["s"] is m.tail3
     assert m.Minner_init_p.conns["g"] is m.midn and m.Minner_init_n.conns["g"] is m.midp
-    # stage three's precharge outdrives its tail until stage two releases it
-    params = Params()
-    assert float(m.Minner_init_p.of.params.w) == fingers(4 * params.rst_w, "analog")[0]
-    assert float(m.Mtail3.of.params.w) == fingers(params.latch_on_w, "analog")[0]
+    stage_three = [m.Mtail3_p, m.Mtail3_n, m.Mcross_on_p, m.Mcross_on_n, m.Minner_init_p, m.Minner_init_n]
+    assert {inst.conns["g"] for inst in stage_three} <= {m.midp, m.midn, m.latch_p, m.latch_n}
     assert float(m.Mtail2.of.params.w) == fingers(2 * params.latch_on_w, "analog")[0]
     # the third stage precharges high like a StrongARM: NOR output latch
     assert m.Msr_p_p_decision.conns["d"] is m.sr_p_stack
+
+
+def test_the_triple_tails_later_stages_and_tie_are_sized_by_ratio() -> None:
+    """Whatever the reset and init sizes, stage two and stage three's contending devices are one
+    size (the latch's on size: their currents stay in one ratio), and the tie is as wide as one
+    cascode (its on-resistance times the cascodes' gate capacitance stays as the pair widens)."""
+
+    for sizes in ({}, {"rst_w": 2, "latch_on_w": 64, "latch_init_w": 4, "diffpair_w": 128, "latch_on_l": 2}):
+        netlist.Cache.reset()
+        params = Params(latch=Latch.TRIPLE_TAIL, **sizes)
+        m = netlist(params)
+        sizes_of = {name: (float(inst.of.params.w), float(inst.of.params.l)) for name, inst in m.instances.items()}
+        size = sizes_of.__getitem__
+        # a width as the netlist draws it (the active PDK's fingers, where a test before set one)
+        drawn = lambda units, length: (float(fingers(units, "analog")[0]), float(length))
+        on = drawn(params.latch_on_w, params.latch_on_l)
+        for name in ("Mmid_cross_p", "Mmid_cross_init_p", "Mmid_in_p", "Mtail3_p", "Mcross_on_p", "Minner_init_p"):
+            assert size(name) == on, name
+            assert size(name.removesuffix("_p") + "_n") == on, name
+        assert size("Mtail2") == drawn(2 * params.latch_on_w, params.latch_on_l)
+        assert size("Mtie") == drawn(params.diffpair_w, 1) == size("Mcas_p")
+        assert size("Mcross_init_p") == drawn(params.latch_init_w, params.latch_init_l)
+        assert size("Mrst_p") == drawn(params.rst_w, params.rst_l)
 
 
 def _align_netlist(params: Params, tmp_path) -> str:

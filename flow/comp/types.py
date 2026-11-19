@@ -89,8 +89,9 @@ class AnalysisDelay(Analysis):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisMetastability(Analysis):
     """The delay over the positive inputs of one common mode, smallest first (``output_delay_s``:
-    to the held outputs); the latch's regeneration time constant, the delay's growth per e-fold fall
-    of the input less the systematic offset, and that offset (``offset_v``), fitted together to the
+    to the held outputs); the regeneration time constant, the delay's growth per e-fold fall of the
+    input less the systematic offset (the latch's own where one stage regenerates alone:
+    ``analysis._regeneration``), and that offset (``offset_v``), fitted together to the
     decisions near the offset; the delays over the input less the offset (``effective_v``,
     |V - V_OS| ascending: to the latch, ``effective_delay_s``, and to the held outputs,
     ``effective_output_s``, NaN where no decision there changed them; None without an offset); and
@@ -125,8 +126,9 @@ class AnalysisClockCheck(Analysis):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisKickback(Analysis):
-    """The inputs' largest excursion over the first decision from where they started, each input
-    alone (what a DAC's top plate sees) and their difference; and the difference's error the
+    """The inputs' largest excursion over the first decision from where they started (up to the
+    next decision's first clock edge), each input alone (what a DAC's top plate sees) and their
+    difference, on the run's source; and the difference's error the
     decisions leave for the next ones, read as each later decision's clock edges reach the
     comparator (before they kick the inputs themselves) against the programmed input
     (``residual_diff_v``, the largest; NaN in a run of one decision)."""
@@ -153,13 +155,16 @@ class AnalysisPower(Analysis):
     """The supply's average power over each run, and the energy of one decision at that power (the
     run's settled decisions, every input); each input's own (``point_energy_j``: a row a run, a
     column an input of ``vin_diff_v``, NaN where the run has no settled decision there; None in a
-    power given without them)."""
+    power given without them); and each run's supply current late in the evaluation
+    (``static_current_a``: its mean over the evaluation's last quarter up to the read, of the
+    settled decisions; None in a power given without it)."""
 
     supply_v: np.ndarray
     average_power_w: np.ndarray
     energy_per_decision_j: np.ndarray
     vin_diff_v: np.ndarray | None = None
     point_energy_j: np.ndarray | None = None
+    static_current_a: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -375,7 +380,7 @@ class Metrics(pipeline.Metrics):
     0.1 mV delay and regeneration time constant, the kickback, the slowest small-input delay over the
     supply and whether it decides within the clock, all from the screen's runs (``Level.SCREEN``),
     with, where their runs ran, the delays to the held outputs and the energy where they toggle, the
-    kickback left for the next decisions, the delay after a full-scale input, at the slow corner,
+    supply's current late in the evaluation, the kickback left for the next decisions, the delay after a full-scale input, at the slow corner,
     over the common mode and on the converter's clocks, the decisions against their input's sign,
     and the devices' largest junction and terminal voltages; the nominal common mode's noise and
     offset (NaN unless valid), the fraction of its decisions unresolved (``Level.SEARCH``); the
@@ -383,16 +388,32 @@ class Metrics(pipeline.Metrics):
     did not run."""
 
     # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, the time from the clock's rising edge
-    # at V_DD/2 until |V_X - V_Y| reaches a set level (here half the supply)
+    # at V_DD/2 until |V_X - V_Y| reaches a set level
+    # V_X, V_Y: latch_p, latch_n; the level: half the latch difference's own largest value over
+    # the decision (analysis.analyze_timing), not a fixed voltage; the clock: the comparator's
+    # own, behind its drivers. The slowest of the bench's decisions at the programmed input that
+    # follow its sign. The latch's delay: the held outputs the converter reads change later, or,
+    # with a weak init pair, earlier (delay_out_0p5mv_s)
     delay_0p5mv_s: float = metric("Delay at 0.5 mV, the slowest of its decisions that follow the input's sign", "lower")
     delay_100mv_s: float = metric("Delay at 100 mV, the slowest of its decisions that follow the input's sign", "lower")
     # [Razavi-ADC] Eq. (7.6), p. 136: the delay near metastability, growing as the input falls
-    delay_0p1mv_s: float = metric("Delay at 0.1 mV", "lower")
-    # [Razavi-ADC] Eq. (5.19), p. 78: the regeneration time constant; Eq. (7.6), p. 136: from the
-    # delay's shift over the log of the input less the offset (analysis._regeneration)
-    regeneration_tau_s: float = metric("Regeneration time constant", "lower")
+    # the source's input is the imbalance from the balance point; this one is at the programmed
+    # 0.1 mV, the offset not taken off: near metastability only where the systematic offset is
+    # small against 0.1 mV (the curve over the input less the offset: analyze_metastability)
+    delay_0p1mv_s: float = metric("Delay at a programmed input of 0.1 mV (the offset not taken off)", "lower")
+    # [Razavi-ADC] Eq. (5.19), p. 78: the regeneration time constant
+    # [Razavi-ADC] Eq. (7.6), p. 136: from the delay's shift over the log of the input less the
+    # offset (analysis._regeneration, where its terms and where it holds are)
+    regeneration_tau_s: float = metric(
+        "Regeneration time constant: the delay's growth per e-fold fall of the input less the offset (the latch's "
+        "own where one stage regenerates alone)",
+        "lower",
+    )
     # [Baker] Eq. (11.15), p. 355: the power, V_DD times the supply's average current; a decision's
     # energy that power over the clock's frequency
+    # the supply: the comparator's (vvdd), its clock chains on it; a cycle of the bench's clock
+    # (analysis.analyze_power); holds as a decision's own for a latch that cuts its current once
+    # decided (idd_static_a)
     energy_0p5mv_j: float = metric(
         "Energy per decision at 0.5 mV after 0.5 mV (the held outputs unchanged), the clock's drivers included",
         "lower",
@@ -403,12 +424,21 @@ class Metrics(pipeline.Metrics):
     )
     # [Razavi-ADC] Sec. 5.7.4, p. 88: kickback noise, the error the comparator's switching leaves
     # at its input
-    kickback_v: float = metric("Largest excursion of either input over a decision", "lower")
-    kickback_diff_v: float = metric("Largest excursion of the input difference over a decision", "lower")
+    # the source's is a current through the driving impedance; these are the voltages it leaves
+    # on the kickback run's source (params.KICKBACK_SOURCE: 1 pF a side behind 1 Mohm), over a
+    # decision and its reset, and hold for that source alone
+    kickback_v: float = metric("Largest excursion of either input over a decision, on the 1 pF source", "lower")
+    kickback_diff_v: float = metric(
+        "Largest excursion of the input difference over a decision, on the 1 pF source", "lower"
+    )
     # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, at each supply of the sweep
+    # the largest over params.SUPPLY_SWEEP of each corner's slowest 0.5 mV decision (NaN where a
+    # corner did not resolve), the common mode following the supply
     delay_max_supply_s: float = metric("Slowest 0.5 mV delay over the supply", "lower")
-    # [Razavi-ADC] Eq. (7.7), p. 136: 10 uV decided n tau_reg ln 10 after 0.1 mV; not in the
-    # reference texts: every decision resolved and alike, the delays within 10 %, at twice the clock
+    # [Razavi-ADC] Eq. (7.7), p. 136: 10 uV from the offset decided n tau_reg ln 10 after the
+    # decision nearest the offset
+    # not in the reference texts: the verdict's other tests: every decision resolved and the same,
+    # the delays within 10 %, at twice the clock (analysis.analyze_clock_check)
     decides_in_time: bool | None = metric("Decides within the clock", "true", None)
     # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred rms noise, the sigma of the Gaussian whose
     # cumulative area gives the decisions' shares
@@ -421,17 +451,38 @@ class Metrics(pipeline.Metrics):
     # allowed (here the latch short of half the supply apart when read)
     unresolved_fraction: float | None = metric("Fraction of the S-curve's decisions unresolved", "lower", None)
     # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred noise, at each common mode of the sweep
+    # the largest sigma of the valid S-curve fits over params.CM_SWEEP; from more than one common
+    # mode alone
     noise_max_v: float | None = metric("Largest valid noise over the common mode", "lower", None)
-    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, part of the converter's decision time;
-    # [Baker] Fig. 10.9, p. 333: timed to the output's 50 % point
+    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, part of the converter's decision time
+    # [Baker] Fig. 10.9, p. 333: a propagation delay, to an output's 50 % point
+    # timed to outp = outn, between the two outputs' 50 % points (analysis._output_delay), on
+    # TbParams.output_load_f a side, at the input less the offset
     delay_out_0p5mv_s: float | None = metric(
         "Delay to the held outputs at 0.5 mV from the offset, the outputs toggling after 100 mV", "lower", None
     )
     delay_out_100mv_s: float | None = metric(
         "Delay to the held outputs at 100 mV from the offset, the outputs toggling after 100 mV", "lower", None
     )
+    # [Baker] Eq. (11.15), p. 355: the power, V_DD times the supply's average current; a decision's
+    # energy that power over the clock's frequency
+    # as energy_0p5mv_j, of the +0.5 mV decisions that change the held outputs (each after 100 mV
+    # of either sign): the SR latch, the buffers and TbParams.output_load_f a side switch too
     energy_toggle_0p5mv_j: float | None = metric(
         "Energy per decision at 0.5 mV toggling the held outputs (after 100 mV), the clock's drivers included",
+        "lower",
+        None,
+    )
+    # [Razavi-PLL] Example 3.5, p. 70: the supply current, I_DD, over time
+    # its mean over the last quarter of the evaluation up to the read, the larger of the 0.5 mV
+    # and 100 mV runs': leakage for a latch that cuts its current once it has decided
+    # ([Razavi-ADC] Sec. 5.8.4, pp. 96-97: no static power); where it is more, the energies
+    # above grow with the clock's high time. A decision still settling then shows its own
+    # current, and a capacitor to the supply that is still charging (a dynamic bias's) a
+    # negative one
+    idd_static_a: float | None = metric(
+        "Supply current over the last quarter of the evaluation (static: a latch that cuts its current draws "
+        "leakage alone)",
         "lower",
         None,
     )
@@ -440,13 +491,20 @@ class Metrics(pipeline.Metrics):
     kickback_residual_diff_v: float | None = metric(
         "Input difference's error left as the next decisions' clock edges begin, on the 1 pF source", "lower", None
     )
-    # [Razavi-ADC] Sec. 7.1, Fig. 7.2, pp. 129-130: dynamic offset, what a decision leaves behind
-    # for the next; [Pelgrom] Sec. 12.2.4, p. 620: hysteresis
+    # not in the reference texts: the delay of a small decision after a full-scale one of the
+    # other sign (the converter's first decision's, params.ADC_FULL_SCALE of the supply). It
+    # probes what the sources define as a voltage: the dynamic offset of [Razavi-ADC] Sec. 7.1,
+    # Fig. 7.2, pp. 129-130 (the difference a decision leaves on the pair's drains) and the
+    # hysteresis of [Pelgrom] Sec. 12.2.4, p. 620 (the trip level's memory)
     delay_recovery_0p5mv_s: float | None = metric(
         "Delay at 0.5 mV after a full-scale decision of the other sign, the slowest that follows the input's sign",
         "lower",
         None,
     )
+    # [Razavi-ADC] Eqs. (5.2)-(5.3), p. 72: the decision a comparator owes its input's sign
+    # counted: the delay benches' resolved decisions against their programmed input's sign (the
+    # offset not taken off: an input between zero and the offset counts; a latch that repeats its
+    # last decision at a small input counts in the runs that follow an input of either sign)
     decisions_against_sign: int | None = metric(
         "Delay benches' resolved decisions against their input's sign (0.5 and 100 mV, the supply, after full "
         "scale, the delay over the input and to the held outputs)",

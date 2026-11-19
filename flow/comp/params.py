@@ -13,6 +13,9 @@ one (``ADC_FULL_SCALE``), the slow corner and the converter's clocks (``ClockDri
 
 The behavioral model (``flow.comp.model``) estimates a StrongARM's noise from its sizing with the
 rough device constants here (``W_MIN_UM`` to ``COX_F_PER_UM2``).
+
+Every constant and default that states a rule carries its source beside it (docs/references.md),
+its terms as this bench's and this circuit's names, and where it holds.
 """
 
 import math
@@ -101,8 +104,14 @@ class ClockDrive(Enum):
 
 
 class OutputStage(Enum):
+    """The output stage's two views, the same gates and wiring (``subckt``): the simulations netlist
+    ``TRANSISTORS``, the layout draws ``STDCELLS`` (``layout_view``). Their sizes are set apart
+    (``srlatch_n_w`` and ``srlatch_p_w`` against the cells' drives), so the two are one circuit only
+    where those widths are what the cells draw: the latch nodes' load, the outputs' delay and the
+    toggling energy differ between them otherwise (readme.md)."""
+
     TRANSISTORS = auto()  # decision inverters, SR latch and buffers drawn transistor by transistor
-    STDCELLS = auto()  # the same stage as generic logic cells, mapped to a library by the PDK
+    STDCELLS = auto()  # the same gates as generic logic cells at fixed drives, mapped to a library by the PDK
 
 
 @h.paramclass
@@ -127,6 +136,17 @@ class Params:
     )
 
     # device sizes, in unit widths and minimum lengths
+    # not in the reference texts: the defaults, the characterization's short-channel sizes (frida's
+    # own): the input pair (Mdiff_p/n) 32 units two lengths long on a tail (Mtail) half as wide and
+    # as long, every reset and latch device 8 units at the minimum length. Two of their ratios
+    # meet a source:
+    # [Razavi-ADC] Fig. 7.4, p. 131: the output inverters with W_P = 2 W_N (srlatch_p_w = 2
+    # srlatch_n_w, every gate of the output stage)
+    # [Bindra] Sec. V, p. 6: C_TAIL / C_P = 3.5 for a 0.5 V fall of the drains; the defaults' 100
+    # over 60 fF departs from it (bias_c_ff, preamp_c_ff: a grid sets its own, runs.dynamic_bias)
+    # Holds in any PDK (a unit is the kit's unit width and minimum length); a width is netlisted
+    # at the nearest even count of whole-unit fingers (flow.circuit.devices.fingers), so an odd
+    # one is drawn a unit off
     diffpair_w = h.Param(dtype=PositiveInt, desc="Diff pair width multiplier", default=32)
     diffpair_l = h.Param(dtype=PositiveInt, desc="Diff pair length multiplier", default=2)
     tail_w = h.Param(dtype=PositiveInt, desc="Tail width multiplier", default=16)
@@ -144,7 +164,7 @@ class Params:
     # the dynamic bias's capacitors, MOS capacitors of nominal capacitance (unused with a switched tail)
     preamp_c_ff = h.Param(
         dtype=PositiveInt,
-        desc="Dynamic bias: C_P, the MOS capacitance on each input-pair drain to its evaluation rail (fF)",
+        desc="Dynamic bias: the MOS capacitance added to each input-pair drain, to its evaluation rail (fF)",
         default=60,
     )
     bias_c_ff = h.Param(dtype=PositiveInt, desc="Dynamic bias: C_TAIL, the tail's MOS capacitance (fF)", default=100)
@@ -163,6 +183,12 @@ STRUCTURE = ("latch", "input_pair", "bias")
 pipeline.Params.register(Params)
 
 
+# not in the reference texts: the fabricated FRIDA-1 comparator's sizes (a StrongARM: single stage,
+# NMOS input, switched tail), as given. Holds as drawn, not as simulated: a width is netlisted at
+# the nearest even count of whole-unit fingers (flow.circuit.devices.fingers), so its odd widths
+# are simulated a unit off: the tail (Mtail, which sets the delay) 6 units wide for its 5, the
+# pair and the latch's pairs a unit narrower or wider by the kit's fingers; the clock's load
+# (sim._clock_chains) counts the sizes given here
 FRIDA1 = Params(
     diffpair_w=37,
     tail_w=5,
@@ -179,84 +205,147 @@ FRIDA1 = Params(
     latch=Latch.STRONGARM,
     input_pair=MosType.NMOS,
     bias=Bias.SWITCHED,
-)  # the fabricated FRIDA-1 comparator: single stage, NMOS input, switched tail
+)
 
 
-# The clock: 1 ns of reset, then 4 ns of evaluation (a comparator that needs longer is too slow for
-# the converter, which allows about 2 ns), and twice both, against which a comparator's decisions
-# are checked (flow.comp.analysis.analyze_clock_check)
+# not in the reference texts: the bench's clock, RESET_S of reset (clk low) then EVALUATION_S of
+# evaluation (clk high), the same for every comparator: the evaluation twice the time the
+# converter allows a decision (DECISION_S: flow.adc), so that a comparator it could use decides
+# well inside it. Holds for every run that gives no clock of its own (TbParams.reset_time_s,
+# evaluation_time_s)
 RESET_S = 1e-9
 EVALUATION_S = 4e-9
+# not in the reference texts: twice the reset and twice the evaluation, the clock a comparator's
+# decisions are checked against (analysis.analyze_clock_check): a comparator that neither phase of
+# the bench's clock shapes decides alike on both
 CHECK_CLOCK_S = (2 * RESET_S, 2 * EVALUATION_S)
-TRANSITION_S = 20e-12  # the clock's and the input's edges
-# not in the reference texts: a fanout-4 inverter taper to a last stage at fanout 2 (the clock
-# drivers, TbParams.clock_fanout): the last stage's input at least half the clocked gates (a fanout
-# of 4 or more into the comparator is too slow an edge); their energy is the comparator's, their
-# area is not (the converter's digital control drives it)
+# not in the reference texts: the edges of the clocks' sources and of each input step, 0 to 100 %
+# (TbParams.transition_time_s). The comparator's own clock edge is its chain's
+# (sim._clock_chains); the input's step (sim.testbench) and the read (TbParams.decision_time_s)
+# are placed by it
+TRANSITION_S = 20e-12
+# [Baker] Eq. (11.20), p. 360: a buffer's taper, A = (C_load / C_in1)^(1/N), each stage A times
+# the one before (its terms as the bench's: sim._clock_chains)
+# not in the reference texts: the two values. CLOCK_FANOUT, the largest A a chain takes (the
+# source's least delay is at A = e, Eq. (11.25), p. 360: 4 takes fewer stages). CLOCK_LAST_FANOUT,
+# the clocked gates over the last stage's input, 2 (the source's last stage drives A times its
+# input, Eq. (11.19), p. 360): a sharper edge into the comparator than the stages before it see.
+# The drivers' energy is counted as the comparator's, their area is not (the converter's digital
+# control drives the clock). Holds where TbParams.clock_fanout is given (None: ideal sources)
 CLOCK_FANOUT = 4.0
 CLOCK_LAST_FANOUT = 2.0
-# Spectre's output: every 2 ps for the noise-free runs (readme.md: the strobe's error), every 5 ps
-# for the transient-noise S-curves, half a period of the noise's bandwidth (TbParams.noise_fmax_hz),
-# the step Spectre's noise sources take
+# not in the reference texts: the simulator's output step (Spectre's strobe period,
+# TbParams.waveform_sample_interval_s). STROBE_S, the noise-free runs': a delay is read between
+# two of its points (readme.md: the error it leaves). NOISE_STROBE_S, the transient-noise
+# S-curves': half a period of the noise's bandwidth, 1 / (2 TbParams.noise_fmax_hz), the step the
+# noise sources need; the two are set together (test_params checks the default)
 STROBE_S = 2e-12
 NOISE_STROBE_S = 5e-12
-# the supply's charge, integrated by the simulator (exact at any output step): the supply source's
-# current mirrored onto this capacitor, whose voltage is the charge drawn since the run began over it
+# not in the reference texts: the supply's charge, its current's integral, V(qmeter) x
+# CHARGE_METER_F: the current of the supply's source (vvdd: the comparator's and its clock
+# chains') mirrored by a unity-gain current-controlled source onto this capacitor (sim.METER) and
+# integrated by the simulator on its own steps, so exact at any output step. Not metered:
+# vdd_clock, the supply of clk's chain where the converter drives the clocks
+# (ClockDrive.CONVERTER)
 CHARGE_METER_F = 1e-12
 CHARGE_METER = "qmeter"  # its node, as a measurement names it
-# the input source: 1 ohm onto 100 fF a side, as quiet and stiff as a CDAC's top plate (a 1 kohm
-# source adds thermal noise of its own and lets the input pair's kickback pull the input);
-# for kickback, 1 pF a side behind 1 Mohm (a microsecond's time constant: the charge a decision
-# kicks onto them stays for the decisions after it)
+# [Razavi-Analog] Eq. (7.16), p. 228: a resistor's thermal noise, 4kT R a hertz
+# R: SOURCE_RESISTANCE_OHM a side (rsrc_p, rsrc_n: 2 R between the inputs), onto
+# SOURCE_CAPACITANCE_F a side (csrc_p, csrc_n). The source adds none of its own where 4kT (2 R)
+# NBW is far below the comparator's noise power, NBW the comparator's noise bandwidth, 1 / (2
+# T_int) of its integration time ([vanElzakker] Eq. (5), (6), (11), p. 1011: the DAC's noise
+# resistance far below the comparator's); the total on the capacitor is kT/C a side at any R
+# ([Razavi-Analog] Eq. (7.23), p. 229), spread to 1 / (2 pi R C), far above that band at 1 ohm.
+# Stiff besides: a decision's kickback returns through R within R C, 0.1 ps
 SOURCE_RESISTANCE_OHM = 1.0
 SOURCE_CAPACITANCE_F = 100e-15
+# not in the reference texts: the kickback run's source (ohm, F a side), a DAC's top plates left
+# to themselves: tau = R C = 1 us, far above the cycle (TbParams.cycle_s), so the charge a decision
+# kicks onto the inputs stays for the decisions after it ([Razavi-ADC] Sec. 5.7.4, p. 88 has the
+# kickback's currents through the source's impedance); kickback_v and kickback_diff_v are the
+# voltages on this source alone
 KICKBACK_SOURCE = (1e6, 1e-12)
-# the stimuli, each a fraction of the PDK's core supply or an input in volts: the nominal common
-# mode and its sweep (3/8 to 5/8 of the supply), the supply sweep (90 and 110 % besides nominal:
-# never past the models' limits, which some kits' core devices check above 110 %), the small and
-# large inputs (the slowest and fastest response)
+# not in the reference texts: the input common mode as a fraction of the PDK's core supply, the
+# bench's own: NOMINAL_CM (13/24: 0.65 V of 1.2 V) and its sweep, 3/8 to 5/8 in twelfths
 NOMINAL_CM = 13 / 24
 CM_SWEEP = (9 / 24, 11 / 24, 13 / 24, 15 / 24)
+# not in the reference texts: the supply's corners, 90 and 110 % of the nominal besides it, the
+# flow's own (flow.circuit.oppoint.SUPPLY_CORNER_MAX): never past the largest, above which a kit's
+# device models may warn
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
+# [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed at a small input (the source: half an LSB)
+# not in the reference texts: the two inputs, the bench's own: SMALL_V, the slow response the
+# metrics name (about one LSB of a 12-bit converter here, runs.adc_12bit, not the source's half),
+# and LARGE_V, a fast one
 SMALL_V, LARGE_V = 0.5e-3, 100e-3
-# the delay over the input, one noise-free decision each: each of METASTABILITY_V after its negative,
-# so that every decision but the first follows one of the other sign (a latch the reset leaves
-# holding its last decision, which inputs of one sign cannot show, decides it again, or late); 1 to
-# 2 mV apart from 2 to 15 mV, so that a systematic offset up to 12 mV either way leaves inputs
-# within 1 mV of it on both sides, where the latch regenerates from a small imbalance
-# (analysis.analyze_metastability fits the offset with the time constant)
+# not in the reference texts: the span about the offset over which the delay law of [Razavi-ADC]
+# Eq. (7.6), p. 136 is fitted (analysis._regeneration) and the model's delay table extrapolated
+# (model._tau): the inputs at most this far from the offset. The bench's own choice, with
+# METASTABILITY_V's spacing: at least two inputs lie within it whatever the offset up to 12 mV
+REGENERATION_SPAN_V = 3e-3
+# not in the reference texts: the delay curve's inputs, one noise-free decision each, each of
+# METASTABILITY_V after its negative, so that every decision but the first follows one of the other
+# sign (a latch the reset leaves holding its last decision, which inputs of one sign cannot show,
+# decides it again, or late). 1 to 3 mV apart from 2 to 15 mV: a systematic offset up to 12 mV
+# either way leaves an input within 2 mV of it on each side and at least two within
+# REGENERATION_SPAN_V, which the fit of the offset with the time constant needs
+# (analysis.analyze_metastability)
 METASTABILITY_V = (0.1e-3, 0.3e-3, 1e-3, 2e-3, 3e-3, 4e-3, 6e-3, 8e-3, 10e-3, 12e-3, 15e-3, 30e-3, 100e-3)
 METASTABILITY_RUN_V = tuple(v for value in METASTABILITY_V for v in (-value, value))
-# the S-curve: 0 and 16 magnitudes from 5 uV to 3 mV a side (33 points, log-spaced, finest at the
-# centre), for 10 uV to 1.5 mV of noise: 15 points within 2 sigma of a 37 uV comparator (a 14-bit
-# converter's quantization noise), 29 of a 560 uV one (10 bits); SCURVE_DECISIONS at each, a pass
-# through every input at a time in a fresh random order (InputOrder.SHUFFLED), so that noise slower
-# than a pass moves every input alike (readme.md: a reading's scatter between seeds)
+# not in the reference texts: the S-curve's inputs, 0 and 16 magnitudes from 5 uV to 3 mV a side
+# (33 points, log-spaced, finest at the centre), for 10 uV to 1.5 mV of noise; SCURVE_DECISIONS at
+# each, a pass through every input at a time in a fresh random order (InputOrder.SHUFFLED), so that
+# noise slower than a pass moves every input alike (readme.md: a reading's scatter between seeds).
+# [Razavi-ADC] Eq. (12.6), p. 239: the quantization noise, LSB / sqrt(12)
+# the quietest and the loudest comparator the grid is laid for: 15 points lie within 2 sigma of a
+# 14-bit converter's (34 uV at a 1.2 V supply, runs.adc_14bit), 29 of a 10-bit one's (541 uV)
 SCURVE_UV = (5, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 3000)
 SCURVE_V = (*(-round(uv * 1e-6, 9) for uv in reversed(SCURVE_UV)), 0.0, *(round(uv * 1e-6, 9) for uv in SCURVE_UV))
 SCURVE_DECISIONS = 80
 
-# Rough 65-nm device constants, for the behavioral model's noise estimate from a StrongARM's sizing
-# (flow.comp.model.Model.strongarm_noise): the width and the length one size unit stands for, the
-# drain junction capacitance per width and the gate capacitance per area
+# not in the reference texts: rough device constants of one kit's 65 nm core devices, for the
+# behavioral model's noise estimate from a StrongARM's sizing (model.Model.strongarm_noise, which
+# takes no PDK: it ranks sizings, it does not predict another kit's noise).
+# [Razavi-Analog] Sec. 2.4.2, pp. 29-30: a device's capacitances, the gate's W L C_ox and each
+# junction's, proportional to the width
+# W_MIN_UM, L_MIN_UM: the width and length a size unit stands for in that kit (each kit's own:
+# flow.circuit.devices.core_unit). COX_F_PER_UM2: C_ox, the gate capacitance per area.
+# JUNCTION_F_PER_UM: what a drain or source puts on its node per width, an upper estimate within
+# a factor of two: it lumps the junction, the gate overlap and wiring, where the junction and the
+# overlap of a shared-finger drain alone are about two thirds of it
 W_MIN_UM = 0.12
 L_MIN_UM = 0.06
 JUNCTION_F_PER_UM = 0.8e-15
 COX_F_PER_UM2 = 14e-15
 
-# The optimization's problems (flow.comp.runs): a comparator for a converter of each resolution. Its
-# noise at most the converter's quantization noise (LSB / sqrt(12), every noise source about equal
-# to it), the LSB twice the full scale over 2^bits, the full scale ADC_FULL_SCALE of the supply (the
-# converter's arrays reach at least 80 % of the reference: flow.adc.runs); its layout within a
-# square of AREA_SIDE_UM a side, the same in every PDK (a denser PDK fits more in it); its delay at
-# 0.5 mV within DECISION_S (the converter allows about 2 ns a decision), deciding within the clock.
-# Its cost, in J um^2: energy x area^AREA_WEIGHT x (1 + (noise / LSB-noise)^2)^NOISE_WEIGHT, the
-# last factor the converter's noise power over its quantization noise alone, near 1 where it no
-# longer gains from a quieter comparator; a design that only scales settles at noise / LSB-noise =
-# 1 / sqrt(NOISE_WEIGHT / (1 + AREA_WEIGHT) - 1), 0.71 here.
+# The optimization's problems (flow.comp.runs): a comparator for a converter of each resolution, its
+# noise at most the converter's quantization noise (every noise source about equal to it), its
+# layout within a square, its delay within the converter's decision time, deciding within the clock.
+# [Razavi-ADC] Eq. (12.6), p. 239: the quantization noise power, LSB^2 / 12 (its rms the bound on
+# the comparator's noise: runs.adc_10bit has the LSB's terms)
+# not in the reference texts: ADC_FULL_SCALE, the converter's full scale a side over its supply
+# (its arrays reach at least 80 % of the reference: flow.adc.runs), so the differential full
+# scale is twice it
 ADC_FULL_SCALE = 0.8
+# not in the reference texts: the side of the square a comparator's layout must fit, by the
+# converter's bits, the same in every PDK (a denser PDK fits more in it): design budgets, not
+# derived (none of the sources or of the block's runs gives them)
 AREA_SIDE_UM = {10: 15.0, 12: 20.0, 14: 63.0}
+# not in the reference texts: the time the converter allows a decision, the bound on the delay at
+# SMALL_V: a fifth inside the 2.5 ns a decision has in flow.adc's sequence at its nominal rate
 DECISION_S = 2e-9
+# not in the reference texts: the cost, energy x area^AREA_WEIGHT x (1 + (noise /
+# LSB-noise)^2)^NOISE_WEIGHT, in J um^2 (flow.pipeline.Problem builds it: a metric with a scale
+# enters as (1 + (metric / scale)^2)^weight). The last factor is the converter's noise power over
+# its quantization noise alone (Eq. (12.6)), near 1 where it no longer gains from a quieter
+# comparator. Its least for a design that only scales, the code's own derivation from two laws:
+# [Razavi-ADC] Sec. 5.8.4, p. 97: the power, f_CK (C_X + C_P + C_Q) V_DD^2, so the energy (and
+# the area) proportional to the widths' scale s
+# [Razavi-ADC] Eq. (6.60), p. 116: the noise power, inversely proportional to C_1, so to 1 / s
+# so cost ~ u^-(1 + AREA_WEIGHT) (1 + u)^NOISE_WEIGHT in u = (noise / LSB-noise)^2, least at
+# u = 1 / (NOISE_WEIGHT / (1 + AREA_WEIGHT) - 1): noise / LSB-noise = 0.71 with these weights.
+# Holds where the laws do: every width scaled together, above the noise's floor, the area's fixed
+# part (the output stage) small
 AREA_WEIGHT = 1.0
 NOISE_WEIGHT = 6.0
 
@@ -276,8 +365,10 @@ class TbParams(pipeline.TbParams):
 
     pdk: str = "tsmc65"
     params: Params = field(default_factory=Params)
+    # not in the reference texts: a core supply of 1.2 V and NOMINAL_CM of it where a run gives
+    # neither (runs.testbenches gives every run the PDK's supply and its common mode)
     vdd: float = 1.2
-    vin_cm_values_v: tuple[float, ...] = (0.65,)
+    vin_cm_values_v: tuple[float, ...] = (round(NOMINAL_CM * 1.2, 4),)
     vin_diff_values_v: tuple[float, ...] = (0.0,)
     conversions: int = 1
     input_order: InputOrder = InputOrder.BLOCKED
@@ -285,8 +376,9 @@ class TbParams(pipeline.TbParams):
     corner: h.pdk.Corner = h.pdk.Corner.TYP
     temperature_c: float = 25.0
     clock_drive: ClockDrive = ClockDrive.CHAINS
-    # the converter's clkb inverter (flow.adc.subckt: clk_comp_b), in unit widths and minimum
-    # lengths, where clock_drive is CONVERTER
+    # not in the reference texts: the converter's clkb inverter (flow.adc.subckt: clk_comp_b), both
+    # of its devices this width and length, in unit widths and minimum lengths: the converter's own
+    # size, copied here; holds where clock_drive is CONVERTER
     clkb_inverter: tuple[int, int] = (10, 1)
     device_values: bool = False
     accuracy: Accuracy | None = None
@@ -295,6 +387,9 @@ class TbParams(pipeline.TbParams):
     transition_time_s: float = TRANSITION_S
     source_resistance_ohm: float = SOURCE_RESISTANCE_OHM
     source_capacitance_f: float = SOURCE_CAPACITANCE_F
+    # not in the reference texts: the load on each held output (cload_p, cload_n): the converter's
+    # logic gate inputs and their wire, taken as 10 fF, the bench's own; the outputs' delay and
+    # the toggling energy hold for it
     output_load_f: float = 10e-15
     # the clock's drivers (flow.comp.sim.testbench): each clock an inverter chain from a unit
     # inverter, on the comparator's supply, tapering by clock_fanout a stage to a last stage whose
@@ -303,8 +398,13 @@ class TbParams(pipeline.TbParams):
     clock_fanout: float | None = CLOCK_FANOUT
     clock_last_fanout: float = CLOCK_LAST_FANOUT
     waveform_sample_interval_s: float | None = STROBE_S
-    # transient noise's bandwidth where noise (Spectre's noisefmax): an integrating input pair
-    # saturated for tens of picoseconds loses a tenth of its variance above 25 GHz (readme.md)
+    # not in the reference texts: transient noise's bandwidth where noise (Spectre's noisefmax),
+    # the code's own derivation from
+    # [Razavi-ADC] Eq. (6.52), p. 115: white noise integrated for a time T
+    # T: the time the input pair (Mdiff_p/n) integrates onto its drains, tens of picoseconds. An
+    # integration over T passes sinc^2(f T): a tenth of the variance lies above 1 / T and a
+    # fortieth above 4 / T, 100 GHz for 40 ps. Holds for the integration alone: the regeneration
+    # after it takes in more of the band (readme.md: the noise read at a quarter of this bandwidth)
     noise_fmax_hz: float = 100e9
     # TODO: matching a building-block Monte Carlo result to a higher-level run
     # by seed and iteration alone is not valid; the two runs draw independent
@@ -354,6 +454,8 @@ class TbParams(pipeline.TbParams):
     @property
     def cycle_s(self) -> float:
         """One decision: the reset, then the evaluation."""
+        # not in the reference texts: the clock's period, the reset then the evaluation; every
+        # energy per decision is a cycle's and every power that energy over it
         return float(self.reset_time_s) + float(self.evaluation_time_s)
 
     @property
@@ -394,6 +496,9 @@ class TbParams(pipeline.TbParams):
     @property
     def decision_time_s(self) -> np.ndarray:
         """When each decision is read: just before its evaluation ends (two input transitions)."""
+        # not in the reference texts: the read, two transitions before the cycle's end: the next
+        # input steps over the first transition of the next cycle and the source clock falls with
+        # it (sim.testbench), so the read sees the decision held, a transition clear of both
         return self.trial_start_s + self.cycle_s - 2 * float(self.transition_time_s)
 
     @property

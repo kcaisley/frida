@@ -1115,6 +1115,21 @@ def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
     assert np.array_equal(bout(reference_noise_v=1e-12), bout())
 
 
+def test_a_decision_that_toggles_the_comparators_held_outputs_costs_its_toggling_energy() -> None:
+    """A noise-free comparator of 1 J a decision and 3 J where the decision changes its held
+    outputs: a conversion of n decisions with c changes among them costs n + 2 c J (the first
+    decision against a coin toss: one more change, or none); without a toggling energy, n J."""
+    comp = comp_model.Model.Behavioral(noise_v=0.0, decision_energy_j=1.0, toggle_energy_j=3.0)
+    vin_v = np.linspace(-0.3, 0.3, 64)
+    result = sim._convert(sim._Behavioral(tb=_TB, comp=comp), vin_v)
+    decisions = result.bout.shape[1]
+    changes = np.count_nonzero(result.bout[:, 1:] != result.bout[:, :-1], axis=1)
+    first = (result.energy_j["vdd_a"] - decisions) / 2 - changes
+    assert np.all(np.isclose(first, 0.0) | np.isclose(first, 1.0)) and np.any(changes > 0)
+    plain = comp_model.Model.Behavioral(noise_v=0.0, decision_energy_j=1.0)
+    np.testing.assert_allclose(sim._convert(sim._Behavioral(tb=_TB, comp=plain), vin_v).energy_j["vdd_a"], decisions)
+
+
 # A run's raw output read back (``sim.read``), the probes a codes-only run saves, and the stimulus as
 # the behavioral converter sees it
 

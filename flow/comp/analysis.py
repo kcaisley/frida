@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
+from hdl21.primitives import MosType
 from scipy.optimize import minimize, minimize_scalar
 from scipy.special import log_ndtr
 from scipy.stats import norm
@@ -32,7 +33,7 @@ from flow.analysis import calc
 from flow.circuit import oppoint
 from flow.pipeline import Meas, analysis, check_identity, measurement_identity
 
-from .params import CHARGE_METER, CHARGE_METER_F, LARGE_V, SMALL_V, Validity
+from .params import CHARGE_METER, CHARGE_METER_F, LARGE_V, REGENERATION_SPAN_V, SMALL_V, Validity
 from .subckt import netlist
 from .types import (
     AnalysisClockCheck,
@@ -64,11 +65,17 @@ def analyze_decisions(meas: Meas) -> AnalysisDecisions:
     tb = meas.param
     at_s = tb.decision_time_s
     # [Razavi-ADC] Sec. 5.8.5, p. 98: the RS latch holds the decision through the precharge
+    # its outputs: outp, outn, read at tb.decision_time_s; a decision is high where outp is above
+    # outn (subckt wires latch_p, and so outp, high for inp > inn). Holds once the outputs have
+    # settled: a decision still on its way when read counts as the one before it
     out_p, out_n = (calc.value(meas.v[name], meas.time_s, at_s) for name in ("outp", "outn"))
     # The output stage holds the last decision while the regenerative latch is still undecided, so
     # a trial is resolved only where the latch's own nodes are half the supply apart by then.
     # [Razavi-ADC] Sec. 6.2.1, p. 109: a metastable state, the output short of its final value in
     # the time allowed (the book's 90 %; here the latch half the supply apart)
+    # the output: latch_p - latch_n; the time allowed: up to the read. Half the supply, not the
+    # source's 90 %: past it the decision inverters have switched in every latch here; holds for
+    # a latch whose nodes end a supply apart
     resolved = None
     if "latch_p" in meas.v and "latch_n" in meas.v:
         latch = calc.value(meas.v["latch_p"], meas.time_s, at_s) - calc.value(meas.v["latch_n"], meas.time_s, at_s)
@@ -93,9 +100,10 @@ def analyze_timing(meas: Meas, *, decisions: AnalysisDecisions) -> AnalysisTimin
     """Each trial's clock-to-decision delay, to the latch's half swing and to the held outputs'
     crossing, and its settling, on the raw points of its own cycle.
 
-    A trial is unresolved where its latch is still within 0.1 V of balance at the cycle's end, or
-    where it was read undecided (``decisions.resolved``); an unresolved trial is timed nowhere
-    downstream. The outputs' delay is NaN where they end the cycle as they were at the clock's rise
+    The clock is the one that starts the evaluation at the comparator: clk's rise for an NMOS
+    input pair, clkb's fall for a PMOS one (where the run saved it). A trial is unresolved where
+    its latch is still within half the supply of balance at the cycle's end, or where it was read
+    undecided (``decisions.resolved``); an unresolved trial is timed nowhere downstream. The outputs' delay is NaN where they end the cycle as they were at the clock's rise
     (the decision of the trial before held).
     """
 
@@ -109,13 +117,23 @@ def analyze_timing(meas: Meas, *, decisions: AnalysisDecisions) -> AnalysisTimin
     for trial, (start_s, end_s) in enumerate(zip(tb.trial_start_s, ends_s, strict=True)):
         window = slice(*np.searchsorted(meas.time_s, (start_s, end_s), side="left"))
         time_s = meas.time_s[window]
-        clock = meas.v["clk"][window]
+        # the edge that turns the input pair's tail on: clk rising under an NMOS pair, clkb falling
+        # under a PMOS one (mirrored, so that it is timed as a rise too)
+        falling = tb.params.input_pair == MosType.PMOS and "clkb" in meas.v
+        clock = -meas.v["clkb"][window] if falling else meas.v["clk"][window]
         # Settling is a property of the dynamic comparator core: the held output latch keeps the
         # previous decision through reset, so the outputs would often look resolved before the clock.
         difference = meas.v["latch_p"][window] - meas.v["latch_n"][window]
         response = np.abs(difference)
         # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, from the clock's rise at V_DD/2
-        # until |V_X - V_Y| reaches a set level; both signals timed at the midpoint of their own swing
+        # until |V_X - V_Y| reaches a set level
+        # the clock: the comparator's own (behind its drivers), at the midpoint of its swing;
+        # V_X, V_Y: latch_p, latch_n; the level: half the largest |latch_p - latch_n| of the
+        # trial's cycle (the source's is a fixed 200 mV), about half the supply for a latch that
+        # ends at the rails, more where the precharge's release kicks the difference past it.
+        # The held outputs are not timed by it: the decision inverters trip on one latch node, so
+        # outp and outn may change before this level where the init pair is weak
+        # (clock_to_output_s is theirs)
         trigger_s, _response_s, delay_s = calc.delay(
             clock,
             response,
@@ -123,13 +141,20 @@ def analyze_timing(meas: Meas, *, decisions: AnalysisDecisions) -> AnalysisTimin
             float((calc.ymin(clock) + calc.ymax(clock)) / 2.0),
             float(calc.ymax(response) / 2.0),
         )
-        # a latch still within 0.1 V of balance at the cycle's end has not resolved
-        is_unresolved = abs(difference[-1]) < 0.1 or (decisions.resolved is not None and not decisions.resolved[trial])
+        # [Razavi-ADC] Example 6.8, p. 112: metastability, V_XY short of a level at the end of the
+        # comparison time
+        # V_XY: latch_p - latch_n at the cycle's end; the level: half the supply (the source's
+        # 0.9 V_DD), the same as the read's (analyze_decisions), which counts too
+        is_unresolved = abs(difference[-1]) <= float(tb.vdd) / 2 or (
+            decisions.resolved is not None and not decisions.resolved[trial]
+        )
         settling_s = math.nan
         if math.isfinite(trigger_s) and not is_unresolved:
             evaluation_v, evaluation_s = calc.clip(difference, time_s, trigger_s, float(time_s[-1]))
             # [Razavi-ADC] Sec. 8.2.2, p. 150: settling time, the output inside an error band about
             # its final value (here 1 % of the final latch step)
+            # the output: latch_p - latch_n from the clock's edge to the cycle's end, its final
+            # value the last point's; holds for a resolved trial
             settled_at_s = calc.settlingTime(evaluation_v, evaluation_s, percent_of_step=1.0)
             settling_s = settled_at_s - trigger_s if math.isfinite(settled_at_s) else math.nan
         clock_to_decision.append(delay_s)
@@ -152,9 +177,13 @@ def _output_delay(output_v: np.ndarray, time_s: np.ndarray, trigger_s: float) ->
     """The time from ``trigger_s`` to the differential output's (``output_v``, on ``time_s``) last
     zero crossing after it, where the output ends on the other side of zero than at the trigger;
     NaN where it does not (the output held) or there is no trigger."""
-    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, critical in some converters; [Baker]
-    # Fig. 10.9, p. 333: a propagation delay, to the output's 50 % point (both outputs cross at
-    # once where the differential output crosses zero)
+    # [Razavi-ADC] Sec. 7.5, p. 134: the RS latch's delay, critical in some converters
+    # [Baker] Fig. 10.9, p. 333: a propagation delay, to an output's 50 % point
+    # the outputs: outp, outn behind the output stage's buffers. Timed here at outp = outn, not at
+    # either's 50 %: the SR latch's two sides change a gate delay apart, so the differential's
+    # zero lies between the two outputs' 50 % points, up to a gate delay from either, and no
+    # nearer the rails than the level at which they cross. Holds for a decision that changes the
+    # held outputs
     if not math.isfinite(trigger_s):
         return math.nan
     after, after_s = calc.clip(output_v, time_s, trigger_s, float(time_s[-1]))
@@ -176,14 +205,19 @@ def analyze_delay(meas: Meas, *, decisions: AnalysisDecisions, timing: AnalysisT
     shape = (len(vin_cm_v), len(vin_diff_v))
     delay_s, slowest_s, output_s, output_slowest_s = (np.full(shape, np.nan) for _ in range(4))
     against = np.zeros(shape, dtype=np.int64)
-    # a decision follows its input's sign: high for a positive input, low for a negative one
+    # [Razavi-ADC] Eqs. (5.2)-(5.3), p. 72: the decision a comparator owes its input's sign, low
+    # for a negative input and high for a positive one
+    # V_in: the programmed differential input (inp - inn), V_out: the decision read off the held
+    # outputs; the offset is not taken off, so an input between zero and the offset counts
+    # against its sign; a zero input follows either way
     follows = (decisions.vin_diff_v == 0) | ((np.asarray(decisions.decision) == 1) == (decisions.vin_diff_v > 0))
     for row, cm_v in enumerate(vin_cm_v):
         for column, diff_v in enumerate(vin_diff_v):
             at = np.isclose(decisions.vin_cm_v, cm_v) & np.isclose(decisions.vin_diff_v, diff_v) & ~timing.unresolved
             against[row, column] = int(np.count_nonzero(at & ~follows))
             # not in the reference texts: a point's delay the median of its resolved trials (each
-            # a decision of [Razavi-ADC] Sec. 7.3, p. 131), its slowest their largest
+            # a decision of [Razavi-ADC] Sec. 7.3, p. 131), its slowest their largest; of the
+            # trials that follow the input's sign alone, to the latch and to the held outputs
             for times_s, median, slowest in (
                 (timing.clock_to_decision_s, delay_s, slowest_s),
                 (timing.clock_to_output_s, output_s, output_slowest_s),
@@ -225,6 +259,11 @@ def analyze_metastability(
     the latch and to the held outputs (NaN where no decision there changed them); NaN with
     decisions of one value alone."""
 
+    # [Razavi-ADC] Eq. (7.6), p. 136: the delay near metastability, an input alpha times smaller
+    # regenerating tau_reg ln(alpha) later
+    # the input: the programmed one less the offset this run's decisions give (Sec. 5.1, p. 71);
+    # the delay: each trial's, to the latch (analyze_timing) and to the held outputs. Holds
+    # within REGENERATION_SPAN_V of the offset (_regeneration)
     identity = measurement_identity([meas])
     check_identity(
         [delay, *(item for item in (decisions, timing) if item is not None)], identity, name="comparator delay"
@@ -233,6 +272,9 @@ def analyze_metastability(
     input_v, delay_s = delay.vin_diff_v[positive], delay.delay_s[0][positive]
     output_s = None if delay.output_delay_s is None else delay.output_delay_s[0][positive]
     if decisions is not None and timing is not None:
+        # not in the reference texts: the decisions the fit takes, every resolved, timed one of
+        # the first common mode but the run's first, which starts from the operating point and
+        # not from a decision before it
         use = (
             np.isclose(decisions.vin_cm_v, delay.vin_cm_v[0])
             & ~timing.unresolved
@@ -251,6 +293,9 @@ def analyze_metastability(
     if math.isfinite(offset_v):
         inputs_v = np.unique(trial_v)
         # each input's decisions: the median of their delays (of those that changed the outputs)
+        # not in the reference texts: the curve over the effective input, |V - V_OS| ascending,
+        # V_OS the offset fitted above ([Razavi-ADC] Sec. 5.1, p. 71: the input at which the
+        # comparator balances)
         at = [trial_v == value for value in inputs_v]
         latch = np.asarray([_median(latch_s[mask]) for mask in at])
         toggled = np.asarray([_median(toggled_s[mask]) for mask in at])
@@ -275,23 +320,35 @@ def analyze_metastability(
 def _regeneration(inputs_v: np.ndarray, high: np.ndarray, delay_s: np.ndarray) -> tuple[float, float]:
     """The regeneration time constant and the systematic offset of decisions at ``inputs_v``
     (``high`` where one decided high) taking ``delay_s``: the offset V_OS and t_0, tau of least
-    squares of t_0 - tau ln|V - V_OS| over the decisions within 3 mV of V_OS (at least the three
-    nearest; chosen again at each new V_OS until they stay), V_OS searched between the largest
+    squares of t_0 - tau ln|V - V_OS| over the decisions within ``REGENERATION_SPAN_V`` of V_OS (at
+    least the three nearest; chosen again at each new V_OS until they stay), V_OS searched between the largest
     input decided low and the smallest decided high (where they overlap, between the two); NaN
     with decisions of one value alone or fewer than three."""
     # [Razavi-ADC] Sec. 5.1, p. 71: the offset, the input at which the comparator balances, so the
-    # latch's initial imbalance is proportional to V - V_OS; Eq. (7.6), p. 136: an imbalance alpha
-    # times smaller delays the regeneration by tau_reg ln(alpha); not in the reference texts: the
-    # least-squares fit of both
+    # latch's initial imbalance is proportional to V - V_OS
+    # [Razavi-ADC] Eq. (7.6), p. 136: an imbalance alpha times smaller delays the regeneration by
+    # tau_reg ln(alpha)
+    # not in the reference texts: the least-squares fit of both, t = t_0 + tau ln(1 / |V - V_OS|)
+    # V: inputs_v, the decisions' programmed inputs; V_OS: offset_v; tau_reg: minus the slope of
+    # the delay over ln|V - V_OS|; t_0: the intercept; alpha: the ratio of two decisions'
+    # |V - V_OS|. The source's tau_reg is one regenerating pair's; ours is the delay's growth per
+    # e-fold fall of the input, whatever the latch: the latch's own time constant where one stage
+    # regenerates alone from the input's imbalance (the StrongARM), below it where a stage
+    # before the latch still amplifies as it regenerates (the double tails, the dynamic bias),
+    # and no single time constant where two stages regenerate in turn (the triple tail). Holds
+    # within REGENERATION_SPAN_V of V_OS, for a noise-free run
     if not np.any(high) or np.all(high) or len(inputs_v) < 3:
         return math.nan, math.nan
+    # not in the reference texts: the offset's bounds, the largest input decided low and the
+    # smallest decided high (between the two where they overlap): the decisions' own bracket of
+    # the input at which the comparator balances
     low_v, high_v = float(calc.ymax(inputs_v[~high])), float(calc.ymin(inputs_v[high]))
     bounds = (min(low_v, high_v), max(low_v, high_v))
 
     offset_v, near = (bounds[0] + bounds[1]) / 2, None
     for _ in range(10):
         distance = np.abs(inputs_v - offset_v)
-        chosen = distance <= max(3e-3, float(np.sort(distance)[2]))
+        chosen = distance <= max(REGENERATION_SPAN_V, float(np.sort(distance)[2]))
         if near is not None and np.array_equal(chosen, near):
             break
         near = chosen
@@ -343,15 +400,22 @@ def analyze_clock_check(
     (at, longer), (at_delay, longer_delay) = decisions, metastability
     evaluation_s = float(meas[0].param.evaluation_time_s)
     unresolved = 0 if at.resolved is None else int(np.count_nonzero(~at.resolved))
-    # the decisions from 0.3 mV up (the first starts from the operating point, and a systematic
-    # offset of 0.1 mV leaves either at the latch's threshold)
+    # not in the reference texts: the same decisions at both clocks, those from 0.3 mV up (the
+    # first starts from the operating point, and a systematic offset of 0.1 mV leaves either at
+    # the latch's threshold): a comparator the clock does not shape decides alike at twice it
     match = bool(np.array_equal(at.decision[2:], longer.decision[2:]))
+    # not in the reference texts: each input's delay at the clock over its delay at twice the
+    # clock, less one: how far the reset or the evaluation shapes it (of the inputs both timed)
     with np.errstate(invalid="ignore", divide="ignore"):
         change = np.abs(at_delay.delay_s / longer_delay.delay_s - 1)
     delay_change = float(np.nanmax(change)) if np.any(np.isfinite(change)) else math.nan
-    # 10 uV from the offset, the delay nearest the offset extrapolated by the regeneration time
-    # constant: a fifth of the quietest noise the grid asks for
     # [Razavi-ADC] Eq. (7.7), p. 136: the delay at an input 10^n smaller, n tau_reg ln 10 later
+    # here from the timed decision nearest the fitted offset (its |V - V_OS| and its delay) down
+    # to 10 uV from the offset, a fifth of the quietest noise the grid asks for; tau_reg: the
+    # run's fitted regeneration_tau_s. An upper bound where the decision before, of the other
+    # sign, helps the next (each input here follows its negative): such a latch decides a smaller
+    # input sooner than the law says, and one that repeats its last decision does not show here
+    # (decisions_against_sign counts those, from the runs that follow an input of either sign)
     nearest_v, nearest_s = math.nan, math.nan
     if at_delay.effective_v is not None and at_delay.effective_delay_s is not None:
         timed = np.flatnonzero(np.isfinite(at_delay.effective_delay_s) & (at_delay.effective_v > 0))
@@ -387,33 +451,49 @@ def analyze_clock_check(
 
 @analysis
 def analyze_kickback(meas: Meas) -> AnalysisKickback:
-    """The inputs' largest excursion over the first decision's cycle from their values at its
-    start; and the difference's error as each later decision's clock edges begin (the comparator's
-    own clk leaving 1 % of the supply as it rises, its clkb 99 % as it falls, whichever first:
-    behind its drivers, and before the edges kick the inputs themselves) against its programmed
-    input, the largest (what the decisions before leave for it; NaN in a run of one decision)."""
+    """The inputs' largest excursion over the first decision, from their values at its cycle's
+    start up to the next decision's first clock edge (its own reset included, which the clock's
+    fall starts a little into the next cycle; the cycle alone in a run of one decision); and the
+    difference's error as each later decision's clock edges begin (the comparator's own clk
+    leaving 1 % of the supply as it rises, its clkb 99 % as it falls, whichever first, of the
+    clocks that have a gate in the comparator: behind their drivers, and before the edges kick the
+    inputs themselves) against its programmed input, the largest (what the decisions before leave
+    for it; NaN in a run of one decision)."""
 
     # [Razavi-ADC] Sec. 5.7.4, p. 88: kickback noise, the input currents a comparator's switching
-    # draws and the error voltage they leave at its input; Sec. 7.8, p. 137: its common-mode and
-    # differential components, and when it happens deciding whether it does harm
+    # draws through the impedance that drives it
+    # [Razavi-ADC] Sec. 7.8, p. 137: its common-mode and differential components, and when it
+    # happens deciding whether it does harm
+    # The source has currents; reported here are the voltages they leave on the run's source,
+    # inp and inn behind tb.source_resistance_ohm on tb.source_capacitance_f a side
+    # (params.KICKBACK_SOURCE in the characterization): they hold for that source alone, and
+    # scale with its impedance
     identity = measurement_identity([meas])
     tb = meas.param
-    window = slice(*np.searchsorted(meas.time_s, (0.0, tb.cycle_s), side="left"))
-    inp, inn = meas.v["inp"][window], meas.v["inn"][window]
+    end_s = tb.cycle_s
     residual_v = math.nan
     if len(tb.trial_point) > 1:
         starts_s = tb.trial_start_s[1:]
-        # each later decision's first edge of each clock after its cycle began, the earlier of them
-        edges = [calc.cross(meas.v["clk"], meas.time_s, 0.01 * float(tb.vdd), edge="rising")]
-        if "clkb" in meas.v:
+        # each later decision's first edge of each clock after its cycle began, the earlier of them;
+        # a clock with no gate in the comparator has no driver (sim._clock_chains), so its port's
+        # edge is its source's, ahead of the comparator's own, and is left out
+        clocked = _clocked(tb.params)
+        edges = []
+        if "clk" in clocked or "clkb" not in clocked or "clkb" not in meas.v:
+            edges.append(calc.cross(meas.v["clk"], meas.time_s, 0.01 * float(tb.vdd), edge="rising"))
+        if "clkb" in clocked and "clkb" in meas.v:
             edges.append(calc.cross(meas.v["clkb"], meas.time_s, 0.99 * float(tb.vdd), edge="falling"))
         firsts = [np.r_[found, np.inf][np.searchsorted(found, starts_s)] for found in edges]
         rise_s = np.minimum.reduce(firsts)
+        if np.isfinite(rise_s[0]):
+            end_s = float(rise_s[0])
         read = np.isfinite(rise_s)
         rise_s = rise_s[read]
         programmed_v = np.asarray(tb.points, dtype=np.float64)[tb.trial_point[1:][read], 1]
         read_v = calc.value(meas.v["inp"] - meas.v["inn"], meas.time_s, rise_s) - programmed_v
         residual_v = float(calc.ymax(np.abs(read_v))) if len(read_v) else math.nan
+    window = slice(*np.searchsorted(meas.time_s, (0.0, end_s), side="left"))
+    inp, inn = meas.v["inp"][window], meas.v["inn"][window]
     return AnalysisKickback(
         group=identity.group,
         index=identity.index,
@@ -422,6 +502,12 @@ def analyze_kickback(meas: Meas) -> AnalysisKickback:
         kickback_diff_v=float(calc.ymax(np.abs((inp - inn) - (inp[0] - inn[0])))),
         residual_diff_v=residual_v,
     )
+
+
+def _clocked(params) -> set[str]:
+    """The clocks (``clk``, ``clkb``) with a gate of the comparator ``params`` on them."""
+    gates = (instance.conns.get("g") for instance in netlist(params).instances.values())
+    return {gate.name for gate in gates if gate is not None} & {"clk", "clkb"}
 
 
 @analysis
@@ -433,27 +519,50 @@ def analyze_power(meas: Sequence[Meas], *, decisions: Sequence[AnalysisDecisions
     at its negative (the outputs toggling); the run's first starts from the operating point, and a
     decision after another input carries that change. With each run's ``decisions``, over those
     that changed the held outputs instead (a decision other than the one before it), the run's
-    first left out. The power that is over a cycle; and each input's own energy (the inputs of every
-    run, ascending: NaN where a run has none counted)."""
+    first left out. The power that is over a cycle; each input's own energy (the inputs of every
+    run, ascending: NaN where a run has none counted); and the supply's current late in the
+    evaluation, over its last quarter up to the read, of the same decisions.
 
-    # [Baker] Eq. (11.14), p. 355: the supply's average current, the charge a cycle over its period;
-    # Eq. (11.15), p. 355: the power, V_DD times it (a decision's energy V_DD times its charge)
+    The energy is a cycle's of the bench's clock: the reset the decision before left to do (the
+    clock falls a little into the cycle) and its own evaluation. It is a decision's own, whatever
+    the clock, only for a latch that cuts its current once it has decided; one that keeps drawing
+    (``static_current_a`` well above leakage) spends that current times the clock's high time."""
+
+    # [Baker] Eq. (11.14), p. 355: the supply's average current, the charge a cycle over its period
+    # [Baker] Eq. (11.15), p. 355: the power, V_DD times it (a decision's energy V_DD times its
+    # charge)
+    # Q_Ctot: the charge the supply's source (vvdd: the comparator and its clock chains) delivers
+    # over a cycle, read off the charge meter; T: tb.cycle_s; V_DD: tb.vdd. The source's is one
+    # capacitance charged a cycle; ours sums every node's and any current that flows between the
+    # rails, which the meter does not tell apart
     identity = measurement_identity(meas)
     if decisions is not None:
         check_identity(list(decisions), identity, name="comparator decisions")
     supply_v = np.asarray([float(run.param.vdd) for run in meas])
     inputs_v = np.unique(np.concatenate([np.asarray(run.param.points, dtype=np.float64)[:, 1] for run in meas]))
-    energy_j, point_energy_j = [], np.full((len(meas), len(inputs_v)), np.nan)
+    energy_j, static_a, point_energy_j = [], [], np.full((len(meas), len(inputs_v)), np.nan)
     for row, (run, vdd) in enumerate(zip(meas, supply_v, strict=True)):
         tb = run.param
         charge_c = run.v[CHARGE_METER] * CHARGE_METER_F
         start, end = (calc.value(charge_c, run.time_s, tb.trial_start_s + offset) for offset in (0.0, tb.cycle_s))
         trial_v = np.asarray(tb.points, dtype=np.float64)[tb.trial_point, 1]
+        # not in the reference texts: the decisions whose energy counts, those after one of the
+        # same magnitude (the run's first starts from the operating point, and one after another
+        # input carries that change's charge); with the run's decisions, those that changed the
+        # held outputs
         steady = np.flatnonzero(np.isclose(np.abs(trial_v[1:]), np.abs(trial_v[:-1]), rtol=1e-9, atol=1e-15)) + 1
         if decisions is not None:
             decided = np.asarray(decisions[row].decision)
             steady = np.flatnonzero(decided[1:] != decided[:-1]) + 1
         energy_j.append(float(vdd * np.mean((end - start)[steady])) if len(steady) else math.nan)
+        # [Razavi-PLL] Example 3.5, p. 70: the supply current, I_DD, over time
+        # here its mean over the last quarter of the evaluation up to the read (the charge
+        # meter's rise over that time): what the comparator still draws once it has decided,
+        # leakage for a latch that cuts its current; a slow decision's own current too where it
+        # is still settling then
+        late_s = float(tb.evaluation_time_s) / 4
+        before, at_read = (calc.value(charge_c, run.time_s, tb.decision_time_s - back) for back in (late_s, 0.0))
+        static_a.append(float(np.mean(((at_read - before) / late_s)[steady])) if len(steady) else math.nan)
         for column, value in enumerate(inputs_v):
             at = steady[np.isclose(trial_v[steady], value, rtol=1e-9, atol=1e-15)]
             if len(at):
@@ -464,10 +573,12 @@ def analyze_power(meas: Sequence[Meas], *, decisions: Sequence[AnalysisDecisions
         index=identity.index,
         dut=identity.dut,
         supply_v=supply_v,
+        # [Baker] Eq. (11.15), p. 355: P_avg, the energy a cycle over the period (T: tb.cycle_s)
         average_power_w=energy / np.asarray([run.param.cycle_s for run in meas]),
         energy_per_decision_j=energy,
         vin_diff_v=inputs_v,
         point_energy_j=point_energy_j,
+        static_current_a=np.asarray(static_a),
     )
 
 
@@ -479,10 +590,14 @@ def analyze_stress(meas: Sequence[Meas]) -> AnalysisStress:
     (``flow.circuit.oppoint.stress``), against the nominal supply times the largest corner."""
 
     identity = measurement_identity(meas)
+    # not in the reference texts: the nominal supply, the median of the runs' (the corners sit
+    # either side of it); the limit on a terminal pair is it times the largest corner
     nominal_v = float(np.median([float(run.param.vdd) for run in meas]))
     devices = oppoint.mos_devices(netlist(meas[0].param.params))
     found = oppoint.stress([*meas, *(run.sweeps["opdc"] for run in meas)], devices, nominal_v=nominal_v)
     # [Razavi-Analog] Sec. 15.4.2, p. 641: a junction forward-biased by 300 mV conducts negligibly
+    # the junctions: each device's source-bulk and drain-bulk, at every operating point and over
+    # each transient; the largest forward bias of any (the guard's limit, flow.circuit.oppoint)
     forward_v, forward_device = max(
         (float(calc.ymax(values)), device)
         for device, by_junction in found.junction_v.items()
@@ -516,6 +631,9 @@ def analyze_scurve(decisions: Sequence[AnalysisDecisions]) -> AnalysisScurve:
     high) and the fraction unresolved."""
 
     # [Razavi-ADC] Eq. (6.62), p. 117: the decisions' shares at a constant input under noise
+    # the input: each programmed vin_diff_v; the share: the high decisions among the resolved
+    # ones there. Holds for decisions drawn alike at an input (noise slower than a pass of the
+    # inputs moves every point together: InputOrder.SHUFFLED)
     identity = measurement_identity(decisions)
     # inputs rounded to 1 pV, finer than any programmed step
     vin_diff_v = np.round(np.concatenate([item.vin_diff_v for item in decisions]), decimals=12)
@@ -532,6 +650,8 @@ def analyze_scurve(decisions: Sequence[AnalysisDecisions]) -> AnalysisScurve:
         at = vin_diff_v == value
         decided = at & ~unresolved
         probability.append(calc.average(decision[decided]) if np.any(decided) else math.nan)
+        # [Razavi-ADC] Sec. 6.2.1, p. 109: a metastable state; here the share of an input's trials
+        # read unresolved (analyze_decisions)
         undecided.append(calc.average(unresolved[at]))
     return AnalysisScurve(
         group=identity.group,
@@ -578,6 +698,9 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     )
     unresolved_fraction = 1.0 - float(np.mean(resolved))
     # more than 1 % undecided: the comparator is too slow for its clock, and its curve is kept as read
+    # not in the reference texts: the 1 %, the fit's own tolerance: an unresolved trial reads the
+    # decision before it, and that share of trials moves a point by less than its own binomial
+    # error at SCURVE_DECISIONS a point; beyond it the curve is not the comparator's
     if unresolved_fraction <= 0.01:
         vin_diff_v, decision = vin_diff_v[resolved], decision[resolved]
     unique_input, inverse = np.unique(vin_diff_v, return_inverse=True)
@@ -586,6 +709,9 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     count = np.bincount(inverse, minlength=len(unique_input)).astype(np.int64)
     decision_count = np.bincount(inverse, weights=np.asarray(decision, dtype=np.float64), minlength=len(unique_input))
     probability = decision_count / count
+    # not in the reference texts: the polarity, the sign of the shares' covariance with the input
+    # over the curve: +1 where the share of high decisions rises with the input (a simulation's
+    # always; a capture's wiring may invert it)
     trend = float(np.dot(unique_input - calc.average(unique_input), probability - calc.average(probability)))
     decision_polarity: Literal[-1, 1] = 1 if trend >= 0.0 else -1
 
@@ -594,6 +720,9 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     # acquire an almost-certain false failure from repeated pairwise tests.
     # not in the reference texts: Wilson score intervals, Bonferroni-adjusted, and a between-batch
     # Student t interval, to call a reversal significant
+    # n: each input's trials (count); p: its share high (probability); z: the normal quantile of
+    # 95 % shared over the neighbouring pairs. Holds for independent trials at an input (a
+    # capture's batches widen the interval below)
     comparison_count = max(len(unique_input) - 1, 1)
     z_monotonic = float(norm.ppf(1.0 - 0.05 / (2.0 * comparison_count)))
     denominator = 1.0 + z_monotonic**2 / count
@@ -653,6 +782,8 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
         oriented_lower = 1.0 - upper_probability
         oriented_upper = 1.0 - lower_probability
 
+    # a reversal is significant where a point's lower bound lies above its right neighbour's upper
+    # bound (not in the reference texts: the intervals above)
     significant_reversal = np.any(
         (oriented_probability[:-1] > oriented_probability[1:]) & (oriented_lower[:-1] > oriented_upper[1:])
     )
@@ -663,12 +794,18 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     # [Razavi-ADC] Eq. (6.63), p. 118: the input-referred noise, the sigma of the Gaussian whose
     # cumulative area gives the decisions' shares (Phi(-1) = 15.87 % at a sigma's input); [Pelgrom]
     # Practical Hint 12.1, Fig. 12.8, p. 607: the decisions' cumulative Gaussian about the trip level
+    # the curve: the shares' running maximum over the input (monotonic), each level at its first
+    # rising contact; sigma: half the span between the 15.87 % and 84.13 % inputs. Holds for a
+    # curve that crosses all three inside its inputs (the valid fit below takes every point)
     p16 = calc.cross(fitted_probability, unique_input, 0.158655, occurrence=1)
     # [Razavi-ADC] Sec. 5.1, p. 71: the input-referred offset, the input at which the circuit
     # balances (the curve's 50 % point)
     p50 = calc.cross(fitted_probability, unique_input, 0.5, occurrence=1)
     p84 = calc.cross(fitted_probability, unique_input, 0.841345, occurrence=1)
     noise_sigma_v = abs(p84 - p16) / 2.0 if math.isfinite(p16) and math.isfinite(p84) else math.nan
+    # not in the reference texts: the inputs inside the transition, those whose share is strictly
+    # between 0 and 1; fewer than two cannot tell a width from the inputs' spacing (two
+    # parameters, the offset and the noise, need two points that carry information)
     inside = int(np.count_nonzero((oriented_probability > 0.0) & (oriented_probability < 1.0)))
     validity: Validity
     if unresolved_fraction > 0.01:
@@ -711,6 +848,8 @@ def _probit_fit(
     from ``mean`` and ``sigma``."""
     # not in the reference texts: the Gaussian of most likelihood through the binomial counts (the
     # probit model's maximum-likelihood fit), searched by Nelder-Mead in the mean and log sigma
+    # P: [Razavi-ADC] Eq. (6.63), p. 118's cumulative Gaussian of the input-referred noise; mean:
+    # the offset; sigma: the noise. Holds for independent trials at each input
     x, k, n = (np.asarray(values, dtype=np.float64) for values in (axis, successes, trials))
     steps = minimize(
         lambda step: (
@@ -900,6 +1039,8 @@ def analyze_scope_edges(conversions: Sequence[AnalysisConversions]) -> AnalysisS
     for capture_index, (comp_v, comp_out_v) in enumerate(zip(comp_records, comp_out_records, strict=True)):
         # Take logic levels from the 5th/95th percentiles, which ignore edge
         # overshoot, and require at least 50 mV of swing to call it a logic signal.
+        # [Baker] Fig. 10.9, p. 333: the 50 % points a delay is timed between; here the midpoint of
+        # a record's 5th and 95th percentiles, for COMP (seq_comp) and for COMP_OUT (comp_out)
         comp_low, comp_high = np.percentile(comp_v, (5, 95))
         out_low, out_high = np.percentile(comp_out_v, (5, 95))
         if comp_high - comp_low < 0.05 or out_high - out_low < 0.05:
@@ -917,10 +1058,14 @@ def analyze_scope_edges(conversions: Sequence[AnalysisConversions]) -> AnalysisS
         clock_falls_s[capture_index] = _falls(
             clock_edges, calc.cross(comp_v, time_s, comp_level, edge="falling"), decision_period_s
         )
+        # [Razavi-PLL] Sec. 2.2.5, p. 52: absolute jitter; the noiseless clock: the record's first
+        # COMP rise plus whole programmed decision periods
         jitter_s[capture_index] = clock_edges - clock_edges[0] - np.arange(decisions) * decision_period_s
         rising_edges = calc.cross(comp_out_v, time_s, out_level, edge="rising")
         output_edges = calc.cross(comp_out_v, time_s, out_level, edge="either")
         for decision, clock_edge in enumerate(clock_edges):
+            # the delay: COMP's rise to COMP_OUT's one crossing of its midpoint within the decision;
+            # holds where it crosses once and ends on the side it crossed to (counted apart otherwise)
             matching = output_edges[(output_edges >= clock_edge) & (output_edges < clock_edge + decision_period_s)]
             if len(matching) == 1:
                 rising = bool(np.any(rising_edges == matching[0]))
@@ -957,9 +1102,14 @@ def analyze_scope_edges(conversions: Sequence[AnalysisConversions]) -> AnalysisS
         conversion_rate_hz=first.conversion_rate_hz,
         voltage_v=voltage_v,
         eye_time_s=eye_time_s,
+        # [Razavi-PLL] Fig. 2.14, p. 42: the eye, every decision folded at its COMP rise; over the
+        # conversion from its first rise (not in the reference texts: the same map unfolded)
         eye_share=_share(_folded(records, time_s, clock_edges_s, eye_time_s), voltage_v),
         timing_time_s=timing_time_s,
         timing_share=_share(_folded(records, time_s, clock_edges_s[:, :1], timing_time_s), voltage_v),
+        # not in the reference texts: the clock's high time, each rise to its fall at the 50 %
+        # level, and each decision's rise and fall from the conversion's first rise: their
+        # medians over every record (a record's edges move with its jitter)
         clock_high_s=_median(clock_falls_s - clock_edges_s),
         rise_s=np.asarray([_median(column) for column in (clock_edges_s - clock_edges_s[:, :1]).T]),
         fall_s=np.asarray([_median(column) for column in (clock_falls_s - clock_edges_s[:, :1]).T]),
@@ -999,6 +1149,9 @@ def analyze_edge_eye(conversions: AnalysisConversions) -> AnalysisEdgeEye:
         record_edges.append(clock_edges)
         record_falls.append(calc.cross(wave.v["clk_comp"][record], time, threshold, edge="falling"))
     record_edges = np.asarray(record_edges)
+    # not in the reference texts: the decision period and each decision's clock rise from the
+    # conversion's first, medians over the saved conversions; the clock's high time and falls
+    # alike below (at half the digital supply)
     period_s = float(np.median(np.diff(record_edges, axis=1)))
     decision_edge_s = np.median(record_edges - record_edges[:, :1], axis=0)
     falls_s = np.asarray(
@@ -1093,6 +1246,8 @@ def analyze_response(conversions: AnalysisConversions) -> AnalysisResponse:
                 last = np.flatnonzero(evaluation)[-1]
                 final_p = float(latch_p[last])
                 final_n = float(latch_n[last])
+                # the level: half the analog supply, each XC node its own way (the source times
+                # their difference); holds for a decision valid through the end of its window
                 midpoint = 0.5 * analog_supply
                 if final_p != final_n:
                     target = 1 if final_p > final_n else -1
@@ -1221,6 +1376,7 @@ def metrics(
     decides within the clock (``clock``); where their runs ran, the delays to the held outputs at
     0.5 and 100 mV from the offset (``outputs``) and the energy where they toggle (``toggle``: its
     +0.5 mV input's),
+    the supply's current late in the evaluation (the larger of the small and large runs'),
     the kickback's error left for the next decisions, the delay at 0.5 mV after a full-scale input
     (``recovery``), at the slow corner (``slow``), the slowest over the common mode (``small`` and
     ``common_mode_delay``), on the converter's clocks and its energy there (``converter``,
@@ -1242,6 +1398,8 @@ def metrics(
     )
     over_common_mode = common_mode is not None and len(common_mode.vin_cm_v) > 1
     measured = nominal is not None
+    # [Razavi-ADC] Eqs. (5.2)-(5.3), p. 72: the decision a comparator owes its input's sign; counted
+    # here, the resolved decisions against it in every delay bench (analyze_delay.against_sign)
     against = [delay.against_sign for delay in (small, large, *supply, *([recovery] if recovery else []))]
     # the delay curves' runs, where they counted theirs
     curves = [run.against_sign for run in (metastability, outputs) if run is not None and run.against_sign is not None]
@@ -1267,6 +1425,13 @@ def metrics(
         delay_out_0p5mv_s=_from_offset(outputs, SMALL_V) if outputs is not None else None,
         delay_out_100mv_s=_from_offset(outputs, LARGE_V) if outputs is not None else None,
         energy_toggle_0p5mv_j=_at(toggle.vin_diff_v, toggle.point_energy_j, SMALL_V) if toggle is not None else None,
+        idd_static_a=(
+            None
+            if power.static_current_a is None
+            else float(np.nanmax(power.static_current_a))
+            if np.any(np.isfinite(power.static_current_a))
+            else math.nan
+        ),
         kickback_residual_diff_v=kickback.residual_diff_v if math.isfinite(kickback.residual_diff_v) else None,
         delay_recovery_0p5mv_s=_at(recovery.vin_diff_v, _slowest(recovery), SMALL_V) if recovery is not None else None,
         decisions_against_sign=None

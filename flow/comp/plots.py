@@ -127,6 +127,8 @@ def plot_offset_cm(common_mode: AnalysisCommonMode) -> Plot:
 def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the small input over the supply (``SUPPLY_SWEEP``)."""
     # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to |V_X - V_Y| at a set level
+    # each supply's median delay at its first input, 0.5 mV (the metric delay_max_supply_s takes
+    # each corner's slowest decision)
     return Plot(
         name="delay_supply_0p5mv",
         title="Delay at 0.5 mV over the supply",
@@ -141,6 +143,7 @@ def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
 def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the large input over the supply (``SUPPLY_SWEEP``)."""
     # [Razavi-ADC] Sec. 7.3, p. 131: the comparator's speed, clock to |V_X - V_Y| at a set level
+    # each supply's median delay at its last input, 100 mV
     return Plot(
         name="delay_supply_100mv",
         title="Delay at 100 mV over the supply",
@@ -158,6 +161,8 @@ def plot_energy_supply(power: AnalysisPower) -> Plot:
     input's, each run's own)."""
     # [Baker] Eq. (11.15), p. 355: the power, V_DD times the supply's average current; a decision's
     # energy that over the clock's frequency
+    # each supply run's energy of its settled 0.5 mV decisions (analysis.analyze_power), the
+    # held outputs unchanged
     energy = power.energy_per_decision_j
     if power.point_energy_j is not None and power.vin_diff_v is not None:
         energy = power.point_energy_j[:, int(np.argmin(np.abs(power.vin_diff_v - SMALL_V)))]
@@ -210,6 +215,8 @@ def plot_offset_noise(offset: AnalysisOffsetNoise) -> Plot:
     # gives the decisions' shares; Sec. 5.1, p. 71: the offset, where the circuit balances
     valid = offset.validity == Validity.VALID
     located = offset.validity in (Validity.VALID, Validity.UNDERSAMPLED)
+    # the band: the offset less and plus one sigma, the Gaussian's 16 % and 84 % inputs (Eq. (6.63)),
+    # drawn for a valid fit alone
     low, high = offset.offset_v - offset.noise_sigma_v, offset.offset_v + offset.noise_sigma_v
     return Plot(
         name="offset_noise",

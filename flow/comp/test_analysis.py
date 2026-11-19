@@ -35,7 +35,8 @@ from .analysis import (
     analyze_timing,
     metrics,
 )
-from .params import CHARGE_METER, CHARGE_METER_F, Params, TbParams
+from .params import CHARGE_METER, CHARGE_METER_F, SMALL_V, Params, TbParams
+from .test_known_answers import kick, latch_run
 from .types import AnalysisDecisions
 
 INFO = MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 24, tzinfo=UTC))
@@ -248,6 +249,7 @@ def test_the_metrics_are_the_records_keys() -> None:
         "energy_100mv_j",
         "kickback_v",
         "kickback_diff_v",
+        "idd_static_a",
         "noise_v",
         "offset_v",
         "noise_max_v",
@@ -720,3 +722,78 @@ def test_the_response_requires_both_xc_rails_and_times_one_sr_output() -> None:
     assert np.isnan(result.internal_response_s[2])
     assert np.isfinite(result.sr_response_s[2])
     assert np.isfinite(result.internal_response_s[3])
+
+
+# ---------------------------------------------------------------- the expressions' fixes
+
+
+def test_the_kickback_counts_the_decisions_own_reset_up_to_the_next_clock_edge() -> None:
+    """inp kicked 4 mV during the first evaluation (1.1 ns), 6 mV during the reset that follows it
+    (5.5 ns: the second cycle has begun, its clock has not risen) and 15 mV after the second
+    decision's clock edge (6.3 ns): the first decision's kickback is the 6 mV, on inp alone, so
+    the difference's too; the 15 mV belongs to the second decision. The synthetic clock rises at
+    6 ns, so the window ends as it leaves 1 % of the supply there."""
+    tb = TbParams(vin_diff_values_v=(SMALL_V,), conversions=2)
+    meas = latch_run(
+        tb,
+        [200e-12, 200e-12],
+        kick_p=lambda t: kick(1.1e-9, 4e-3)(t) + kick(5.5e-9, 6e-3)(t) + kick(6.3e-9, 15e-3)(t),
+    )
+    kickback = analyze_kickback(meas)
+    assert kickback.kickback_v == pytest.approx(6e-3, rel=1e-3)
+    assert kickback.kickback_diff_v == pytest.approx(6e-3, rel=1e-3)
+
+
+def test_a_latch_short_of_half_the_supply_at_the_cycles_end_is_unresolved_at_any_supply() -> None:
+    """One criterion, a fraction of the supply: a latch that splits 4.5 ns after its clock's
+    midpoint in a 4 ns evaluation is still balanced at the cycle's end, at 1.2 V and at 0.9 V
+    alike; one that splits after 200 ps is resolved and timed there."""
+    for vdd in (1.2, 0.9):
+        tb = TbParams(vdd=vdd, vin_diff_values_v=(SMALL_V,), conversions=2)
+        meas = latch_run(tb, [200e-12, 4.5e-9])
+        timing = analyze_timing(meas, decisions=analyze_decisions(meas))
+        assert timing.unresolved.tolist() == [False, True]
+        assert timing.clock_to_decision_s[0] == pytest.approx(200e-12, abs=1e-12)
+
+
+def test_a_pmos_input_pair_is_timed_from_clkbs_fall() -> None:
+    """A PMOS pair's tail turns on as clkb falls: with clkb falling 30 ps before clk rises and the
+    latch splitting 200 ps after clk's midpoint, the delay is 230 ps from clkb; an NMOS pair's,
+    from clk, stays 200 ps whatever clkb does."""
+    from hdl21.primitives import MosType
+
+    for input_pair, expected_s in ((MosType.PMOS, 230e-12), (MosType.NMOS, 200e-12)):
+        tb = TbParams(params=Params(input_pair=input_pair), vin_diff_values_v=(SMALL_V,), conversions=2)
+        meas = latch_run(tb, [200e-12, 200e-12])
+        early = np.interp(meas.time_s + 30e-12, meas.time_s, meas.v["clk"])
+        meas.v["clkb"] = float(tb.vdd) - early
+        timing = analyze_timing(meas, decisions=analyze_decisions(meas))
+        assert timing.clock_to_decision_s[1] == pytest.approx(expected_s, abs=2e-12)
+
+
+def test_the_static_current_is_the_charge_drawn_late_in_the_evaluation_over_its_time() -> None:
+    """A supply drawing its charge evenly over each cycle (30, 10 and 10 fC in 5 ns): the settled
+    decisions, the second and third, draw 10 fC / 5 ns = 2 uA at any time, so over the last
+    quarter of the evaluation too; and the record's number is the larger of its two runs'."""
+    tb = TbParams(vin_diff_values_v=(1e-3,), conversions=3)
+    one = latch_run(tb, [200e-12] * 3, charge_c=[30e-15, 10e-15, 10e-15])
+    two = latch_run(tb, [200e-12] * 3, charge_c=[30e-15, 20e-15, 20e-15])
+    power = analyze_power([one, two])
+    np.testing.assert_allclose(power.static_current_a, [2e-6, 4e-6], rtol=1e-9)
+
+
+def test_the_kickbacks_error_is_read_at_the_first_edge_of_a_clock_the_comparator_has_a_gate_on() -> None:
+    """Two decisions at 0.5 mV; inp carries a bump of 1 mV centred 150 ps before the second
+    decision's clk rise (width 50 ps), and clkb falls 150 ps before clk rises. A double tail has a
+    gate on clkb (its second stage's tail): the error is read as clkb leaves the rail, on the
+    bump's peak, 1 mV. A StrongARM on a switched tail has none (clkb is its bare source): read as
+    clk begins to rise, 150 ps after the peak, where the bump has fallen to exp(-9) of 1 mV,
+    0.12 uV."""
+    from .params import Latch
+
+    for latch, expected_v in ((Latch.DOUBLE_TAIL, 1e-3), (Latch.STRONGARM, 1e-3 * math.exp(-9))):
+        tb = TbParams(params=Params(latch=latch), vin_diff_values_v=(SMALL_V,), conversions=2)
+        rise_s = tb.cycle_s + tb.reset_time_s
+        meas = latch_run(tb, [200e-12, 200e-12], kick_p=kick(rise_s - 150e-12, 1e-3))
+        meas.v["clkb"] = float(tb.vdd) - np.interp(meas.time_s + 150e-12, meas.time_s, meas.v["clk"])
+        assert analyze_kickback(meas).residual_diff_v == pytest.approx(expected_v, rel=0.05)

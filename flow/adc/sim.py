@@ -1255,6 +1255,7 @@ def _convert(
     # the comparator's SR latch holds its last decision: the previous conversion's last, a coin
     # toss here, before the first
     held = rng.integers(0, 2, conversions)
+    toggles = np.zeros(conversions)  # each conversion's decisions that changed the held outputs
     # each side's capacitance whose bottom plates sit at the reference (main and difference plates),
     # kept up to date stage by stage
     at_main_f = {side: state[side] @ caps[side][0] for side in ("p", "n")}
@@ -1296,6 +1297,7 @@ def _convert(
             tb.params.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
         )
         bout[:, decision] = decided
+        toggles += decided != held
         held = decided
         if decision == stages:
             break
@@ -1364,7 +1366,14 @@ def _convert(
     return _Conversions(
         bout=bout,
         energy_j={
-            "vdd_a": np.full(conversions, params.comp.decision_energy_j * (stages + 1)),
+            # each decision at the comparator's energy, one that toggles its held outputs at
+            # that energy where the model gives it (comp.model: toggle_energy_j)
+            "vdd_a": np.full(conversions, params.comp.decision_energy_j * (stages + 1))
+            + (
+                0.0
+                if params.comp.toggle_energy_j is None
+                else (params.comp.toggle_energy_j - params.comp.decision_energy_j) * toggles
+            ),
             "vdd_d": registers * logic_edges * params.salogic.clock_energy_j + writes * params.salogic.write_energy_j,
             "vdd_dac": float(tb.vdd_dac.dc) * dac_charge + transitions * params.cdac.driver_energy_j,
         },

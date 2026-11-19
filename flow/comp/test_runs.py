@@ -352,8 +352,9 @@ def test_the_model_reads_its_delay_table_by_the_effective_input(monkeypatch) -> 
 
 
 def test_the_strongarms_noise_estimate_is_razavis_input_pair_and_precharge_terms() -> None:
-    """[Razavi-ADC] Eq. (6.59), p. 116: sigma^2 = r (2 kT gamma / C + r kT / (2 C)), r = V_ov / V_TH:
-    halving the input pair's term from 4 kT gamma leaves the precharge's."""
+    """[Razavi-ADC] Eq. (6.60), p. 116 (Eq. (6.59) with a square-law pair): sigma^2 = r (2 kT gamma / C
+    + r kT / (2 C)), r = V_ov / V_TH: halving the input pair's term from 4 kT gamma leaves the
+    precharge's."""
     params = Params()
     c_pq = calc.ymax(
         np.asarray(
@@ -382,3 +383,32 @@ def test_the_figures_label_their_quantities_in_words_in_si_units() -> None:
 
     figure = plots.plot_offset_noise(offset_noise_of("valid"))
     assert "mV" not in figure.title and "0.0001 V" in figure.title
+
+
+def test_the_base_strongarms_tail_is_the_even_width_the_netlist_draws() -> None:
+    """4 k units, even: 2 ceil(2 k). k = 3 gives 12, k = 1.5 gives 6, and k = 1.25, whose 5 units
+    would be drawn as two fingers of three, gives those 6."""
+    from flow.pipeline import Pdk
+
+    for pdk in Pdk:
+        for name, space in runs.base_strongarm.spaces(pdk).items():
+            k = float(name.split("k=")[1])
+            assert space.base.tail_w == 2 * math.ceil(2 * k) and space.base.tail_w % 2 == 0, (pdk, name)
+    assert runs.base_strongarm.spaces(Pdk.TSMC65)["tail_l=14, k=3"].base.tail_w == 12
+    assert runs.base_strongarm.spaces(Pdk.IHP130)["tail_l=28, k=1.25"].base.tail_w == 6
+    assert runs.base_strongarm.spaces(Pdk.IHP130)["tail_l=11, k=1.5"].base.tail_w == 6
+
+
+def test_an_optimization_bounds_the_delay_to_the_nets_the_converter_reads(monkeypatch) -> None:
+    """The converter reads the held outputs: their delay at 0.5 mV is bounded by the decision's
+    time beside the latch's, and the noise by LSB / sqrt(12): 2 x 0.8 x 1.2 V / 2^12 / sqrt(12) =
+    135.3 uV for 12 bits."""
+    from flow.pipeline import Pdk
+
+    install = SimpleNamespace(supply_voltage=lambda corner: 1.2)
+    monkeypatch.setattr(runs.importlib, "import_module", lambda name: SimpleNamespace(install=install))
+    problem = runs.adc_12bit.problem(Pdk.TSMC65)
+    limits = {bound.metric: bound.limit for bound in problem.bounds}
+    assert limits["delay_0p5mv_s"] == limits["delay_out_0p5mv_s"] == 2e-9
+    assert limits["noise_v"] == pytest.approx(135.3e-6, rel=1e-3)
+    assert limits["layout_area_um2"] == 400.0

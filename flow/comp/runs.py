@@ -96,6 +96,13 @@ def topologies() -> Params:
     space = widen(Params())
     space.latch = every(Latch)
     space.bias = every(Bias)
+    # not in the reference texts: the grid's sizes (frida's own). The input pair alone widens (32,
+    # 128, 512 units; the reset, the tail and the latch stay at the defaults); with a dynamic
+    # bias, preamp_c_ff 30 or 120 fF against the default bias_c_ff of 100 fF.
+    # [Bindra] Eq. (8), p. 5: the drains fall by at most C_TAIL / (C_TAIL + 2 C_P) of the supply
+    # C_TAIL: bias_c_ff; C_P: preamp_c_ff and the drain's own. So the grid's two points allow at
+    # most 0.6 and 0.3 of the supply: a latch the drains must switch decides at neither where
+    # that fall is short of its devices' threshold, and the grid records it so (decides_in_time)
     space.diffpair_w = steps(32, 512, n=3, log=True)
     space.preamp_c_ff = steps(30, 120, n=2, log=True, when=Bias.DYNAMIC)
     return space
@@ -107,8 +114,11 @@ def base_strongarm(pdk: Pdk) -> dict[str, Params]:
     ladder at its longest tail), where the base StrongARM is the more frugal topology: each PDK's
     tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100,
     70 and 50 uV, where its noise floor reaches them), each point by its tail's length in minimum
-    lengths and its width factor (``tail_l=14, k=3``); TSMC28 at TSMC65's physical sizes (three of
-    its 40 nm units to one of 120 nm, the tail 840 nm long)."""
+    lengths and its width factor (``tail_l=14, k=3``); TSMC28 at TSMC65's widths (three of its
+    40 nm units to one of 120 nm: its 18, 36 and 192 are TSMC65's 6, 12 and 64; its 72 has no
+    TSMC65 point) and tail length (840 nm), its other lengths its own minimum's multiples."""
+    # not in the reference texts: each PDK's ladder, tail lengths by width factors, given: chosen
+    # from the families' own characterization (readme.md: the fits), no source's
     ladders = {
         Pdk.TSMC65: {14: (3, 6, 12, 32, 64)},
         Pdk.TSMC28: {28: (18, 36, 72, 192)},
@@ -129,6 +139,15 @@ def base_strongarm(pdk: Pdk) -> dict[str, Params]:
     }
     # the StrongARM at the short-channel sizes with every width times k but its tail, 4 k units wide
     # and tail_l minimum lengths long: the tail's length sets the delay, k the noise
+    # [Razavi-ADC] Eq. (6.60), p. 116: the noise power, proportional to (V_GS - V_TH)_1,2 / C_1
+    # C_1: the capacitance on input_p_drain and input_n_drain, proportional to k; (V_GS -
+    # V_TH)_1,2: Mdiff_p/n's overdrive, set by Mtail's current a unit of the pair's width. The
+    # integration time, (2 C_1 / I_SS) V_THN (p. 116), is set by I_SS / C_1, and I_SS by the tail
+    # ([Razavi-ADC] Sec. 7.4, p. 133). So tail_l sets the delay and, through the overdrive, the
+    # noise too; k sets the noise alone because the tail's width follows it (4 k: I_SS / C_1 and
+    # the overdrive stay as k changes). The tail takes an even width (2 ceil(2 k)), the width the
+    # netlist draws: an analog device has an even count of fingers
+    # (flow.circuit.devices.fingers). Holds above the family's noise floor
     base = Params()
     widths = ("diffpair_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
     return {
@@ -136,7 +155,7 @@ def base_strongarm(pdk: Pdk) -> dict[str, Params]:
             Params(
                 latch=Latch.STRONGARM,
                 **{name: round(k * getattr(base, name)) for name in widths},
-                tail_w=round(4 * k),
+                tail_w=2 * math.ceil(2 * k),
                 tail_l=tail_l,
             )
         )
@@ -158,6 +177,19 @@ def dynamic_bias(pdk: Pdk) -> dict[str, Params]:
     # minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4,
     # latch 16, reset 4, no device under 4) times k, C_TAIL ratio times C_P, every device at the
     # minimum length: the ratio sets the delay, k the noise
+    # [Bindra] Eq. (15), p. 6: the pair's input-referred noise power, inversely proportional to C_P
+    # [Bindra] Sec. III, p. 4: a minimum-sized tail switch (its M3a: Mtail, here 4 k units at the
+    # minimum length)
+    # [Bindra] Eq. (7), p. 5: the drains' fall, C_TAIL / (2 C_P) of the tail capacitor's voltage
+    # [Bindra] Eq. (8), p. 5: at most C_TAIL / (C_TAIL + 2 C_P) of the supply
+    # C_P: preamp_c_ff, 60 k fF, the part added to each drain (the node's own, the pair's drain
+    # and the latch's gates, comes on top: the ratio the nodes have is a little below the name's);
+    # C_TAIL: bias_c_ff, the ratio times it. k sets the noise through C_P; the ratio enters it too,
+    # through the drains' fall (Eq. (7)), with the delay. The source's ratio is 3.5, for a 0.5 V
+    # fall (Sec. V, p. 6), on its own latch; ours is the modified double tail's, whose inner on
+    # devices that fall must turn on.
+    # not in the reference texts: the widths per 60 fF and each PDK's ratios and factors (frida's
+    # own, from the family's characterization)
     units = {
         "diffpair_w": 64,
         "tail_w": 4,
@@ -238,7 +270,17 @@ def adc_10bit(pdk: Pdk) -> Problem:
     the evaluation); the dynamic bias's capacitors with it."""
 
     supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    # [Razavi-ADC] Eq. (12.6), p. 239: the quantization noise, LSB / sqrt(12)
+    # the LSB ([Razavi-ADC] Sec. 12.2.1, p. 237: the full scale over 2^bits): the converter's
+    # differential full scale, twice ADC_FULL_SCALE of the supply, over 2^10. The comparator's
+    # noise bound, and the scale of its cost's noise factor
     quantization_v = 2 * ADC_FULL_SCALE * supply / 2**10 / math.sqrt(12)
+    # not in the reference texts: the search's ranges (frida's own), each size on a log scale and
+    # free of the others: every width from 2 units to thousands, the pair's, the tail's and the
+    # latch's lengths to 16, 64 and 32 minimum lengths, the dynamic bias's capacitors from 10 fF.
+    # No rule ties them: the search meets the ones the netlist states (C_TAIL against C_P,
+    # [Bindra] Eq. (8), p. 5; the reset devices against the reset time) through its bounds, a
+    # design outside them recorded as not deciding in time
     space = widen(Params(input_pair=MosType.NMOS))
     space.latch = every(Latch)
     space.bias = every(Bias)
@@ -255,11 +297,14 @@ def adc_10bit(pdk: Pdk) -> Problem:
     space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
     return Problem(
         cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        # not in the reference texts: the bounds (frida's own; their constants in params)
         bounds=(
             # its devices over a layout's densest packing already exceed it: no layout can meet it
             Bound("layout_area_um2", AREA_SIDE_UM[10] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
+            # the layout only adds capacitance: a design too slow before it is too slow after;
+            # the latch's delay and the delay to the held outputs, the nets the converter reads
             Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("delay_out_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
             Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
             # the layout moves the noise either way: judged after it alone
             Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
@@ -277,7 +322,17 @@ def adc_12bit(pdk: Pdk) -> Problem:
     the evaluation); the dynamic bias's capacitors with it."""
 
     supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    # [Razavi-ADC] Eq. (12.6), p. 239: the quantization noise, LSB / sqrt(12)
+    # the LSB ([Razavi-ADC] Sec. 12.2.1, p. 237: the full scale over 2^bits): the converter's
+    # differential full scale, twice ADC_FULL_SCALE of the supply, over 2^12. The comparator's
+    # noise bound, and the scale of its cost's noise factor
     quantization_v = 2 * ADC_FULL_SCALE * supply / 2**12 / math.sqrt(12)
+    # not in the reference texts: the search's ranges (frida's own), each size on a log scale and
+    # free of the others: every width from 2 units to thousands, the pair's, the tail's and the
+    # latch's lengths to 16, 64 and 32 minimum lengths, the dynamic bias's capacitors from 10 fF.
+    # No rule ties them: the search meets the ones the netlist states (C_TAIL against C_P,
+    # [Bindra] Eq. (8), p. 5; the reset devices against the reset time) through its bounds, a
+    # design outside them recorded as not deciding in time
     space = widen(Params(input_pair=MosType.NMOS))
     space.latch = every(Latch)
     space.bias = every(Bias)
@@ -294,11 +349,14 @@ def adc_12bit(pdk: Pdk) -> Problem:
     space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
     return Problem(
         cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        # not in the reference texts: the bounds (frida's own; their constants in params)
         bounds=(
             # its devices over a layout's densest packing already exceed it: no layout can meet it
             Bound("layout_area_um2", AREA_SIDE_UM[12] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
+            # the layout only adds capacitance: a design too slow before it is too slow after;
+            # the latch's delay and the delay to the held outputs, the nets the converter reads
             Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("delay_out_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
             Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
             # the layout moves the noise either way: judged after it alone
             Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
@@ -316,7 +374,17 @@ def adc_14bit(pdk: Pdk) -> Problem:
     the evaluation); the dynamic bias's capacitors with it."""
 
     supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    # [Razavi-ADC] Eq. (12.6), p. 239: the quantization noise, LSB / sqrt(12)
+    # the LSB ([Razavi-ADC] Sec. 12.2.1, p. 237: the full scale over 2^bits): the converter's
+    # differential full scale, twice ADC_FULL_SCALE of the supply, over 2^14. The comparator's
+    # noise bound, and the scale of its cost's noise factor
     quantization_v = 2 * ADC_FULL_SCALE * supply / 2**14 / math.sqrt(12)
+    # not in the reference texts: the search's ranges (frida's own), each size on a log scale and
+    # free of the others: every width from 2 units to thousands, the pair's, the tail's and the
+    # latch's lengths to 16, 64 and 32 minimum lengths, the dynamic bias's capacitors from 10 fF.
+    # No rule ties them: the search meets the ones the netlist states (C_TAIL against C_P,
+    # [Bindra] Eq. (8), p. 5; the reset devices against the reset time) through its bounds, a
+    # design outside them recorded as not deciding in time
     space = widen(Params(input_pair=MosType.NMOS))
     space.latch = every(Latch)
     space.bias = every(Bias)
@@ -333,11 +401,14 @@ def adc_14bit(pdk: Pdk) -> Problem:
     space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
     return Problem(
         cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        # not in the reference texts: the bounds (frida's own; their constants in params)
         bounds=(
             # its devices over a layout's densest packing already exceed it: no layout can meet it
             Bound("layout_area_um2", AREA_SIDE_UM[14] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
+            # the layout only adds capacitance: a design too slow before it is too slow after;
+            # the latch's delay and the delay to the held outputs, the nets the converter reads
             Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("delay_out_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
             Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
             # the layout moves the noise either way: judged after it alone
             Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
@@ -370,6 +441,7 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
     small = replace(nominal, vin_diff_values_v=(SMALL_V,), conversions=3)
     # [Razavi-ADC] Sec. 7.1, p. 130: the comparator designed at its worst corner, slow devices, a
     # low supply (here the supply sweep's lowest) and 75 C
+    # the source's supply is 5 % low; ours 10 %, the flow's corner, the common mode following it
     slow_vdd = SUPPLY_SWEEP[0] * supply
     # the held outputs' delay: each of the delay curve's inputs and the small one, of either sign,
     # after the large input of each sign in turn, so that one of its two decisions toggles the
@@ -398,8 +470,9 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
             source_capacitance_f=KICKBACK_SOURCE[1],
             accuracy=Accuracy.SMALL_DIFFERENCE,
         ),
-        # the converter's largest input, its first decision's, ADC_FULL_SCALE of the supply
-        # differentially, before each small one of the other sign
+        # not in the reference texts: the converter's largest input, its first decision's,
+        # ADC_FULL_SCALE of the supply differentially, before each small one of the other sign
+        # (Metrics.delay_recovery_0p5mv_s)
         "recovery": replace(
             small,
             vin_diff_values_v=(-round(ADC_FULL_SCALE * supply, 4), SMALL_V),
