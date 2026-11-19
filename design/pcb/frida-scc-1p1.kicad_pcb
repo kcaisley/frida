@@ -245,7 +245,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/2aa49da9-f96d-463c-9d31-bf6145910a8b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -434,7 +434,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/3f92a408-4946-4d1e-ba6d-de13d8daeada")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -623,7 +623,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/2be38d67-1fe9-4a2b-833b-b77733a5419a")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -814,7 +814,7 @@
 		)
 		(path "/561317c8-bd4b-4573-8dcb-13e57ad1cb90")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -1305,7 +1305,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/de7f98f1-12f0-4077-a925-dabd1407d0b8")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -1665,7 +1665,7 @@
 		(property ki_fp_filters "Molex_SMA_733910070*")
 		(path "/a4961319-29bf-4596-b7e5-c403474188a2")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -1980,7 +1980,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/170acd68-827f-47a7-8bc9-f26ab1b9baf9")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -2169,7 +2169,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/74b42850-89c9-444e-a73d-50166b5f8cfb")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -2358,7 +2358,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/dd4992a5-1e4d-4072-b9be-ca47f1776702")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -2547,7 +2547,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/9dd7c9b3-056a-422c-b615-05cd2bc3872c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -2949,7 +2949,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/26069918-b24d-4ad4-a458-d89650819164")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -3139,7 +3139,7 @@
 		(property ki_fp_filters "MountingHole*Pad*")
 		(path "/bdf39be5-a496-48cd-a3c4-de31fcf47f63")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -3387,7 +3387,7 @@
 		(property ki_fp_filters "Inductor_* L_* *Ferrite*")
 		(path "/12830e30-d16d-4072-a03e-836a2b4eee4e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -3576,7 +3576,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/00a87953-dc9e-4634-9022-c269602470f2")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -3765,7 +3765,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/951d15be-2111-46cc-8968-926ece1c4ea3")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -3954,7 +3954,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/5467945c-3bb1-420e-955a-044c42b0da5e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -4143,7 +4143,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/c8af7156-7baf-4bc1-882c-dcf65bb906f3")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -4501,7 +4501,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/45626b4e-8902-48c7-ba8f-3d862949fd79")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -6616,7 +6616,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/3883e4fd-aced-4dba-b3db-af707f6c53ba")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -6805,7 +6805,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/a9510496-f930-4e13-9709-da93c17cfa28")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -6996,7 +6996,7 @@
 		(property ki_fp_filters "Molex_SMA_733910070*")
 		(path "/98b87b7c-a53e-4ae7-9859-b03625111d7b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -7311,7 +7311,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/db85598f-6ee2-4ee5-b732-319d328b833c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -7513,7 +7513,7 @@
 		(property ki_fp_filters "Molex_MiniFitJr_469990014")
 		(path "/c45c0ad3-8a04-4090-a714-96974e8bddca")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -7934,7 +7934,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/675db373-1714-4565-aa7a-e0a973ee4e9b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -8123,7 +8123,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/0779f5c1-479c-4c32-828f-302df6087f98")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -8313,7 +8313,7 @@
 		(property ki_fp_filters "SolderJumper*Open*")
 		(path "/a251bb5a-83bb-4d81-8418-778e86c6cd4c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -8627,7 +8627,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/9fe6095e-39aa-4c5c-a56e-b9a5c400b8e7")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -9030,7 +9030,7 @@
 		(property ki_fp_filters "8P8C* RJ31* RJ32* RJ33* RJ34* RJ35* RJ41* RJ45* RJ49* RJ61*")
 		(path "/e76e32b7-5a0a-4e80-bcae-33275b7d06ba")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -9427,7 +9427,7 @@
 		(property ki_fp_filters "TI_DiffAmp_THS4541* Texas_RUN0010A* WQFN*10*2x2mm*")
 		(path "/1be3c638-9b7a-439c-a940-cd2df0fa9368")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -9920,7 +9920,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/e3be49ab-d9d1-495a-879d-76681e47c7ca")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -10278,7 +10278,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/55177e05-7bfc-473a-9529-6111f34c4595")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -10467,7 +10467,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/4d7e5b13-2498-44bd-87c2-8b7ad77063ad")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -10656,7 +10656,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/8d1aa18c-2967-4e77-86f5-6859c9caf8dd")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -10846,7 +10846,7 @@
 		(property ki_fp_filters "SolderJumper*Open*")
 		(path "/a4bec971-7f4a-4212-8546-be1d4a656603")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -11340,7 +11340,7 @@
 		(property ki_fp_filters "MountingHole*Pad*")
 		(path "/0dfad4b2-e212-4a75-b765-f092aab9d91c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -11588,7 +11588,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/91fde1cd-2b3f-4887-8a5f-b4625d88a8c6")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -11777,7 +11777,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/6177191f-05ad-4097-b716-d0b89905a877")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -11966,7 +11966,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/6073e551-4a0e-4369-8d42-24d5a5290ee0")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -12155,7 +12155,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/d31bab67-2885-4ffd-b961-1b834409eaa6")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -12344,7 +12344,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/5e38323e-b0f4-477e-856f-5a362fd616eb")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -12533,7 +12533,7 @@
 		(property ki_fp_filters "SOT?23*")
 		(path "/ee167952-3e2c-4a6d-a1d6-d31db0d70c9b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -12946,7 +12946,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/355a9532-16a3-447f-aa99-5b6fedd7a81a")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -13304,7 +13304,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/913861c5-cc6f-46db-84ea-a58d26bc0dd7")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -13493,7 +13493,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/5187c507-03bf-423a-88c9-0e25e7f664fc")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -13682,7 +13682,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/9f6d91b4-92c4-4585-9984-bfe0b266170f")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -13871,7 +13871,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/b91b4c6c-2c0e-4ccb-b74a-26950efe6b7e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -14060,7 +14060,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/6b0cbcc4-aee1-45bd-9814-170307c44f49")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -14249,7 +14249,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/688f14fc-6b0a-46b2-91a6-f155cece4589")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -14439,7 +14439,7 @@
 		(property ki_fp_filters "MountingHole*Pad*")
 		(path "/a5b8f64c-4b5e-49c8-be18-e686887afa3e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -14687,7 +14687,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/d071d34d-176c-49b3-88be-fde15f4561dc")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -14876,7 +14876,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/7517e3dd-192a-4d59-b9aa-51b948fa7b75")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -15065,7 +15065,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/60f5b408-14f2-42c9-88e4-d9c489162f18")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -15254,7 +15254,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/268feb23-4144-40e2-bf9e-5ffb605898cc")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -15508,7 +15508,7 @@
 		)
 		(path "/6ab6f942-bcc3-42c2-8ced-b62e5fdb6418")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -16221,7 +16221,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/1cd27823-03c8-4f17-b658-c7812fe0f60e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -16410,7 +16410,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/dbcaf402-8461-414c-a30f-25a7ea29a4b8")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -16599,7 +16599,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/b9232294-92bd-4ff3-93fa-1a52b9d27368")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -16788,7 +16788,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/6c1dc6a3-30fa-48b0-9691-1a214dc9557b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -17614,7 +17614,7 @@
 		(property ki_fp_filters "Inductor_* L_* *Ferrite*")
 		(path "/20b3c218-a970-4259-bdf8-ce1cfcee9f3e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -17803,7 +17803,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/d1227f3d-7423-4444-b386-e35fb3de028a")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -17992,7 +17992,7 @@
 		(property ki_fp_filters "TI_LevelShifter_SN74AXC8T245RJWR")
 		(path "/8b628d7f-b440-469c-95d8-7414e7154191")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -19302,7 +19302,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/7a110825-b775-449b-b18e-ac11c73ab352")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -19491,7 +19491,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/efc15e4d-f47f-4715-8aff-ca7a740b0e2d")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -19680,7 +19680,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/c4a56146-1bfa-4644-90b7-cb8a77c11467")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -19869,7 +19869,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/abc97ac2-d560-4387-b0e1-d4a4b6a58556")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -20058,7 +20058,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/5155092c-2181-464b-8aac-169a62f14893")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -20639,7 +20639,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/e78b1ea3-a185-4a8e-a933-c68161473716")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -20828,7 +20828,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/d515d1e3-51b9-4533-9ed2-85c58f1b980d")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21017,7 +21017,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/1977e5b3-a732-438e-97d0-7d8fdae1620c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21206,7 +21206,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/4f328d63-16d0-444d-8166-dafffa999a43")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21395,7 +21395,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/c73d74bb-06f6-419f-87f3-bd469baa4705")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21584,7 +21584,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/e1b3f0b1-1545-4d8b-b56a-b229ee071b61")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21773,7 +21773,7 @@
 		(property ki_fp_filters "Inductor_* L_* *Ferrite*")
 		(path "/87058d21-076d-45b1-83dd-4163beced4de")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -21962,7 +21962,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/d84b42e7-e2bc-416d-b73a-75fbeeb625dd")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -22151,7 +22151,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/b0ab4c34-e3ba-45b9-93b2-b04e93ed062d")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -22463,7 +22463,7 @@
 			)
 		)
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
@@ -22870,7 +22870,7 @@
 		(property ki_fp_filters "SOT?23*")
 		(path "/0e874479-727c-42bf-b50c-c1830f300ec3")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -23283,7 +23283,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/628cc64d-151d-4b29-b80c-10c227ff2de8")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -23472,7 +23472,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/b8f3b10b-d83a-471d-ba95-9bdb2fb4193e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -23661,7 +23661,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/13b47255-8d5f-4c8d-adc1-e19e7359728f")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -23850,7 +23850,7 @@
 		(property ki_fp_filters "Connector*:*_2x??_*")
 		(path "/bab0db19-f620-403c-bb2e-f49cd41865d3")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -24470,7 +24470,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/a3838403-7340-4b3e-8639-7b66c806737c")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -24661,7 +24661,7 @@
 		(property ki_fp_filters "Molex_SMA_733910070*")
 		(path "/528c9ea8-1522-496d-8ca4-ba791200bb50")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -24976,7 +24976,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/fc4f0476-f98b-4296-a70a-2101d87f4893")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -25165,7 +25165,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/57642b06-c8fb-4a78-90dc-2ab5f36beb2a")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -25354,7 +25354,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/ce9a2042-2556-4e58-a9a0-bc3242164588")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -25543,7 +25543,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/caec8e9e-e80d-4562-b910-b90d38c98e1a")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -25732,7 +25732,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/8d172769-97c9-405e-bcb6-3874ea395be1")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -25921,7 +25921,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/42c3bb40-eed3-4181-a2af-7e73ccc6238e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -26111,7 +26111,7 @@
 		(property ki_fp_filters "MountingHole*Pad*")
 		(path "/7aa9c9e5-a962-4cf9-bea4-1d6ed184a2cd")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -26359,7 +26359,7 @@
 		(property ki_fp_filters "C_*")
 		(path "/a7bef97b-ce10-4323-957b-8d3f859c3e72")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -26548,7 +26548,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/510c3efb-1940-4eb1-bbdd-a9247345b32b")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -26737,7 +26737,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/af14258f-436b-4169-828d-2543e3adfe83")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -26932,7 +26932,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/42f60683-b5d7-4cf3-b35e-941516e1fd4d")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -27121,7 +27121,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/cb12fc0d-fb70-4eb8-9631-d37540462880")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -27310,7 +27310,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/e3c1397b-c3ed-4353-9e1c-659ec4c81928")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -27499,7 +27499,7 @@
 		(property ki_fp_filters "R_*")
 		(path "/d0a42e94-68ae-4c91-900f-82e6db9b926d")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")
@@ -27689,7 +27689,7 @@
 		(property ki_fp_filters "*NTC* *Thermistor* PIN?ARRAY* bornier* *Terminal?Block* R_*")
 		(path "/6aeef0a5-24a2-4cb2-8589-99fefb4d7f4e")
 		(sheetname "/")
-		(sheetfile "frida65A.kicad_sch")
+		(sheetfile "frida-scc-1p1.kicad_sch")
 		(units
 			(unit
 				(name "A")

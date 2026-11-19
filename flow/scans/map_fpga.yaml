@@ -4,7 +4,7 @@
 #   - obelix1-daq/obelix1/system/DAQ.yaml
 #   - CordiaADC/ADC_01/host/meas_ADC01.yaml
 #
-# Signal names match PCB schematic: frida/pcb/frida65A.kicad_sch
+# Signal names match PCB schematic: design/pcb/frida-scc-1p1.kicad_sch
 #
 # Hardware setup:
 #   Host PC <--Ethernet--> BDAQ-core (KX2 FPGA) <--LVDS/SPI--> FRIDA chip PCB

@@ -509,7 +509,7 @@
   },
   "libraries": {
     "pinned_footprint_libs": [
-      "frida65A",
+      "frida-scc-1p1",
       "frida"
     ],
     "pinned_symbol_libs": [
@@ -517,7 +517,7 @@
     ]
   },
   "meta": {
-    "filename": "frida65A.kicad_pro",
+    "filename": "frida-scc-1p1.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -750,8 +750,8 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "frida65A.kicad_sch",
-        "name": "frida65A",
+        "filename": "frida-scc-1p1.kicad_sch",
+        "name": "frida-scc-1p1",
         "uuid": "fa3d0b93-951b-4460-b2d5-04f3ffae1154"
       }
     ],
@@ -761,7 +761,7 @@
   "sheets": [
     [
       "fa3d0b93-951b-4460-b2d5-04f3ffae1154",
-      "frida65A"
+      "frida-scc-1p1"
     ]
   ],
   "text_variables": {},

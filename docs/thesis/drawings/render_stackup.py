@@ -840,7 +840,7 @@ def role_piece_die(
 
 # ------------------------------------------------------------------------------ the test board
 
-PCB = ROOT / "design" / "pcb" / "frida65A.kicad_pcb"
+PCB = ROOT / "design" / "pcb" / "frida-scc-1p1.kicad_pcb"
 DIE = Path(check.TOOLS).parent / "frida-1.gds"  # the chip's layout, built in the main checkout
 BOARD_STYLES = {  # the mask a little translucent, so the copper under it shows as lighter lines
     "mask": {"color": "#1E4A2C", "roughness": 0.5, "coat": 0.0, "alpha": 0.8},
@@ -867,7 +867,7 @@ def kicad_cli() -> str:
 def board_glb() -> Path:
     """The board with its parts as GLB (kicad-cli), exported again when the board changes."""
 
-    out = STACKUPS / "frida65A.glb"
+    out = STACKUPS / "frida-scc-1p1.glb"
     sources = [PCB, *(PCB.parent / "frida.pretty").iterdir()]  # the board and its parts' models
     if not out.exists() or out.stat().st_mtime < max(path.stat().st_mtime for path in sources):
         # a copy whose zones are filled afresh (a saved board keeps its last fill, maybe stale),

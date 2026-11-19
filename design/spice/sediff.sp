@@ -13,7 +13,7 @@
 *
 * Gain = Rf/Rin = 499/499 = 1 (unity, differential)
 *
-* Reference: design/pcb/frida65A.kicad_sch (input amplifier section)
+* Reference: design/pcb/frida-scc-1p1.kicad_sch (input amplifier section)
 
 * ths4541.sp must be included by any top-level wrapper using this model.
 

@@ -1,11 +1,11 @@
 % Probe points of the 8-9 Oct 2026 interferer hunt on the FRIDA65A chip-card schematic,
 % for docs/slides/2026_10_09_interferer_hunt.tex. \input this file in the deck preamble.
 %
-% frida65A_schematic.pdf is the KiCad export of design/pcb/frida65A.kicad_sch
+% frida-scc-1p1_schematic.pdf is the KiCad export of design/pcb/frida-scc-1p1.kicad_sch
 % (A3, 420 x 297 mm). Regenerate it from the repository root after schematic edits:
 %
 %   flatpak run --filesystem=/local/frida --command=kicad-cli org.kicad.KiCad \
-%     sch export pdf -o docs/images/interferer_hunt/frida65A_schematic.pdf design/pcb/frida65A.kicad_sch
+%     sch export pdf -o docs/images/interferer_hunt/frida-scc-1p1_schematic.pdf design/pcb/frida-scc-1p1.kicad_sch
 %
 % and re-check the arrow targets below, which are sheet millimetres from the
 % top-left corner. \schematicprobes{j11} draws the whole sheet with one arrow
@@ -38,7 +38,7 @@
     schematicbox/.style={draw=NordOrange, line width=1.8mm, dash pattern=on 6mm off 4mm, rounded corners=3mm},
   ]
     \node[inner sep=0pt, anchor=north west] at (0,0)
-      {\includegraphics[width=420mm]{../images/interferer_hunt/frida65A_schematic.pdf}};
+      {\includegraphics[width=420mm]{../images/interferer_hunt/frida-scc-1p1_schematic.pdf}};
     % Probe locations: key, target point on the sheet, direction the arrow comes from.
     \schematic@arrow[45]{j11}{370.5}{34.5}{45}% J11 TP AMP pins 2/4: VIN_P/VIN_N, ADC side
     \schematic@arrow{j10}{352}{86}{120}% J10 VIN CFG pins 3/5: THS4541 outputs
