@@ -308,7 +308,7 @@
     "classes": [
       {
         "bus_width": 12,
-        "clearance": 0.15,
+        "clearance": 0.1,
         "diff_pair_gap": 0.2,
         "diff_pair_via_gap": 0.25,
         "diff_pair_width": 0.18,
@@ -326,7 +326,7 @@
         "wire_width": 6
       },
       {
-        "clearance": 0.15,
+        "clearance": 0.1,
         "diff_pair_gap": 0.2,
         "diff_pair_width": 0.18,
         "name": "100Ohm Diff",
@@ -339,7 +339,7 @@
         "via_drill": 0.3
       },
       {
-        "clearance": 0.15,
+        "clearance": 0.1,
         "name": "50Ohm SE",
         "pcb_color": "rgb(0, 0, 194)",
         "priority": 1,

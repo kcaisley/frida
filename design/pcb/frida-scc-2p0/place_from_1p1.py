@@ -14,6 +14,7 @@ The script also checks the port: over every shared part, the nets of the two boa
 correspond one to one. It lists each net that does not.
 """
 
+import collections
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,32 @@ def pad_nets(footprint: Any) -> dict[str, str]:
     """Return ``{pad number: net name}`` over a footprint's connected, numbered pads."""
 
     return {pad.GetNumber(): pad.GetNetname() for pad in footprint.Pads() if pad.GetNumber() and pad.GetNetname()}
+
+
+def net_map(old: Any, new: Any) -> dict[str, str]:
+    """frida-scc-1p1 net -> the net on the same pad here, over the parts both boards have."""
+
+    by_path = {fp.GetFieldText("Path").rsplit(".", 1)[0]: fp for fp in new.GetFootprints()}
+    votes: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
+    pads_on = collections.Counter(pad.GetNetname() for fp in new.GetFootprints() for pad in fp.Pads())
+    for reference, path in SAME.items():
+        here = list(by_path[path].Pads())
+        for pad in old.FindFootprintByReference(reference).Pads():
+            spot = pad.GetPosition()
+            twins = [
+                p for p in here if abs(p.GetPosition().x - spot.x) < 20000 and abs(p.GetPosition().y - spot.y) < 20000
+            ]
+            # a net on one pad only is a pin left open here: no counterpart
+            if twins and pad.GetNetname() and pads_on[twins[0].GetNetname()] > 1:
+                votes[pad.GetNetname()][twins[0].GetNetname()] += 1
+    mapping = {}
+    for name, counts in sorted(votes.items()):
+        (best, most), *others = counts.most_common()
+        if others and most < 2 * others[0][1]:
+            print(f"net {name}: no clear counterpart ({dict(counts)}); its tracks are left behind")
+            continue
+        mapping[name] = best
+    return mapping
 
 
 def copy_outline(old: Any, new: Any) -> int:

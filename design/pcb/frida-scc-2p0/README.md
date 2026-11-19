@@ -24,6 +24,7 @@ pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch
 pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
 $KICAD_APPDIR/bin/python3.11 place_from_1p1.py    # frida-scc-1p1's outline and shared placement
 $KICAD_APPDIR/bin/python3.11 place_new.py         # the new parts, around them
+$KICAD_APPDIR/bin/python3.11 route_from_1p1.py    # frida-scc-1p1's tracks and ground plane for the shared parts
 ```
 
 The board file owns the geometry (placement, routing, outline); later `pcb layout` runs keep it
@@ -35,8 +36,11 @@ rotation and side of the part it replaces on frida-scc-1p1 (the tap resistors si
 the 1 kohm loads they replace). It also checks that the two boards' nets correspond one to one
 over those parts, and moves every other part beside the outline. `place_new.py` then places
 those: the supplies and the signal source left of the chip, the four probe channels and the
-second RJ45 right of it, each small part beside the pin it serves. Run the two in this order to
-place the board again from nothing.
+second RJ45 right of it, each small part beside the pin it serves. `route_from_1p1.py` copies frida-scc-1p1's tracks and vias onto the nets that are on the same
+pads here, drops what a new part or a changed pad is in the way of, removes the loose ends that
+led to parts that are gone, and gives the inner layers its ground plane: the LVDS pairs and the
+analog input keep the routing that was measured. Run the three in this order to lay the board
+out again from nothing.
 
 Autorouting runs FreeRouting on this machine, driven directly (the `pcb` tool's own `route`
 command was removed after release 0.4.60): KiCad writes the board as a Specctra design,

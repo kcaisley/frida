@@ -23,10 +23,14 @@ from __future__ import annotations
 
 import collections
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
 import pcbnew
+
+sys.path.insert(0, str(Path(__file__).parent))
+from place_from_1p1 import net_map
 
 HERE = Path(__file__).parent
 OLD = HERE.parent / "frida-scc-1p1.kicad_pcb"
@@ -34,6 +38,7 @@ NEW = HERE / "eda" / "frida-scc-2p0.kicad_pcb"
 GAP = 0.15  # between courtyards
 EDGE = 1.0  # from a courtyard to the outline
 REACH = 14.0  # how far a NEAR part may end up from its pin
+KEEP_OFF = 0.55  # from a pad's centre to the edge of a frida-scc-1p1 track or via of another net
 
 # part -> (x, y, rotation) of its courtyard's centre
 FIXED = {
@@ -41,14 +46,14 @@ FIXED = {
     "SOURCE.U_DAC": (113.8, 64.0, 0),
     "SOURCE.U_BUF_P": (121.0, 64.0, 0),
     "SOURCE.U_BUF_N": (121.0, 72.5, 0),
-    "INPUT.J_SRC": (128.6, 65.3, 0),
-    "SUPPLIES.J_SEL_DAC": (132.6, 87.5, 0),
-    "SUPPLIES.J_SEL_A": (132.6, 96.4, 0),
-    "SUPPLIES.J_SEL_D": (132.6, 105.3, 0),
-    "SUPPLIES.J_SEL_IO": (132.6, 114.2, 0),
+    "INPUT.J_SRC": (136.5, 73.5, 0),  # right of the IN- trace that runs down at x = 129
+    "SUPPLIES.J_SEL_DAC": (132.6, 92.9, 0),  # below the IN- trace that runs across at y = 85
+    "SUPPLIES.J_SEL_A": (132.6, 101.8, 0),
+    "SUPPLIES.J_SEL_D": (132.6, 110.7, 0),
+    "SUPPLIES.J_SEL_IO": (132.6, 119.6, 0),
     "SUPPLIES.J_EXT": (105.0, 127.0, 0),
-    "SUPPLIES.C_P_BULK": (127.0, 122.6, 0),
-    "SUPPLIES.C_N_BULK": (133.0, 122.6, 0),
+    "SUPPLIES.C_P_BULK": (127.5, 122.6, 0),
+    "SUPPLIES.C_N_BULK": (121.5, 122.6, 0),
     "AUX.J_AUX": (191.7, 123.35, 90),  # facing the right edge, set in from it as the first RJ45 is from the lower one
 }
 
@@ -130,7 +135,8 @@ NEAR = {
     **{f"{ch}.C_SEL": f"{ch}.U_SEL" for ch in CHANNELS},
 }
 
-# the COMP_OUT taps: pad 1 where frida-scc-1p1's probe header (J2) met each leg of the pair
+# the COMP_OUT taps, on the back: pad 1 under the point where frida-scc-1p1's probe header (J2) met
+# each leg of the pair (the top side is full of LVDS lines there); route_from_1p1.py adds the via
 ON_LINE = {"TAP_COMP_OUT.R_P": ("J2", "5"), "TAP_COMP_OUT.R_N": ("J2", "6")}
 
 mm = pcbnew.ToMM
@@ -229,6 +235,40 @@ def main() -> None:
     pads_on = collections.Counter(pad.GetNetname() for fp in board.GetFootprints() for pad in fp.Pads())
     clashes = []
 
+    # frida-scc-1p1's tracks and vias on the nets they will have here, in 2 mm cells
+    mapping = net_map(old, board)
+    cells: dict[tuple[int, int], list[tuple[float, float, float, float, str, bool, float]]] = collections.defaultdict(
+        list
+    )
+    for track in old.GetTracks():
+        name = mapping.get(track.GetNetname())
+        if name is None:
+            continue
+        a, b = (track.GetPosition(),) * 2 if track.Type() == pcbnew.PCB_VIA_T else (track.GetStart(), track.GetEnd())
+        x0, y0, x1, y1 = mm(a.x), mm(a.y), mm(b.x), mm(b.y)
+        for cx in range(int((min(x0, x1) - 1) // 2), int((max(x0, x1) + 1) // 2) + 1):
+            for cy in range(int((min(y0, y1) - 1) // 2), int((max(y0, y1) + 1) // 2) + 1):
+                half = mm(track.GetWidth(pcbnew.F_Cu) if track.Type() == pcbnew.PCB_VIA_T else track.GetWidth()) / 2
+                cells[(cx, cy)].append((x0, y0, x1, y1, name, track.GetLayer() == pcbnew.B_Cu, half))
+
+    def off_tracks(part: Part, x: float, y: float, degrees: float) -> bool:
+        """No pad of the part within KEEP_OFF of a track of another net."""
+
+        for number in part.pads:
+            px, py = part.pad(number, x, y, degrees)
+            for x0, y0, x1, y1, name, back, half in cells.get((int(px // 2), int(py // 2)), ()):
+                if name == part.nets.get(number) or back:
+                    continue
+                dx, dy = x1 - x0, y1 - y0
+                along = (
+                    0.0
+                    if dx == dy == 0
+                    else max(0.0, min(1.0, ((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy)))
+                )
+                if math.hypot(px - x0 - along * dx, py - y0 - along * dy) < KEEP_OFF + half:
+                    return False
+        return True
+
     def place(path: str, x: float, y: float, degrees: float) -> None:
         part = waiting.pop(path)
         box = part.courtyard(x, y, degrees)
@@ -245,16 +285,32 @@ def main() -> None:
                 if f"{instance}.{name}" in waiting:
                     place(f"{instance}.{name}", ox + dx, oy + dy, degrees)
 
-    # the COMP_OUT taps: pad 1 on the line, the body pointing where there is room
+    # the COMP_OUT taps, on the back: pad 1 under its leg, turned clear of the back's tracks and vias
     for path, (reference, number) in ON_LINE.items():
         spot = old.FindFootprintByReference(reference).FindPadByNumber(number).GetPosition()
-        part = waiting[path]
-        for degrees in (270, 90, 0, 180):
-            px, py = part.pad("1", 0.0, 0.0, degrees)
-            x, y = mm(spot.x) - px, mm(spot.y) - py
-            if free(part.courtyard(x, y, degrees)):
+        fp = waiting.pop(path).fp
+        if not fp.IsFlipped():
+            fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+        for degrees in (90, 270, 0, 180):
+            fp.SetOrientationDegrees(degrees)
+            fp.SetPosition(pcbnew.VECTOR2I(0, 0))
+            first = fp.FindPadByNumber("1").GetPosition()
+            fp.SetPosition(pcbnew.VECTOR2I(spot.x - first.x, spot.y - first.y))
+            crowded = False
+            for pad in fp.Pads():
+                px, py = mm(pad.GetPosition().x), mm(pad.GetPosition().y)
+                for x0, y0, x1, y1, name, back, half in cells.get((int(px // 2), int(py // 2)), ()):
+                    via = (x0, y0) == (x1, y1)
+                    if (
+                        name != pad.GetNetname()
+                        and (back or via)
+                        and math.hypot(px - x0, py - y0) < KEEP_OFF + half + 0.4
+                    ):
+                        crowded = True
+            if not crowded:
                 break
-        place(path, x, y, degrees)
+        else:
+            clashes.append(path)
 
     # the small parts, each beside the pin it shares a net with
     far = []
@@ -281,7 +337,7 @@ def main() -> None:
                 if best is not None and reach > best[0] + 2.5:
                     continue
                 for degrees in (0, 90, 180, 270):
-                    if not free(part.courtyard(x, y, degrees)):
+                    if not free(part.courtyard(x, y, degrees)) or not off_tracks(part, x, y, degrees):
                         continue
                     px, py = part.pad(own, x, y, degrees)
                     score = math.hypot(px - target[0], py - target[1])
