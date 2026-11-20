@@ -231,6 +231,8 @@ _RAIL_UM, _RAIL_SPACE_UM = 1.0, 0.5
 _UTILIZATION = 0.6
 # no cell within this much (um, whole sites) beside a block: its implants and wells reach past it
 _HALO_UM = 1.0
+# the die's long side at most this many times its short one
+_ASPECT = 1.25
 # a bridge from a block's rail line to the rows' rail reaches this far into the block, over the line
 _BRIDGE_IN_UM = 0.1
 
@@ -388,9 +390,9 @@ def _boxes(region: db.Region, dbu: float, origin: db.Point) -> list[str]:
 def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = None) -> tuple[list[str], dict[str, Any]]:
     """A block's LEF abstracts from its layout, and what the floorplan needs of it. Its outline is
     its boundary layer's (else its shapes'): its rows are the standard cells' rows, so it stands in
-    them like a cell, its rails meeting theirs. A pin for each label on a metal's pin or text layer,
-    the metal's shapes under it, its supplies' (``vdd``, ``vss``) of their use; its every metal and
-    cut an obstruction but its pins. Geometry in the outline's frame, its lower left corner at the
+    them like a cell, its rails meeting theirs (bridged: ``_rail_ends``). A pin for each label on
+    a metal's pin or text layer, the metal's shapes under it, its supplies' (``vdd``, ``vss``) of
+    their use; its every metal and cut an obstruction but its pins. Geometry in the outline's frame, its lower left corner at the
     origin (the layout's own origin at ``offset_um``).
 
     A block with rows left free under its capacitors (``free``, ``_free``: capdac's side, its
@@ -743,48 +745,63 @@ def _floorplan(
     site: tuple[str, float, float],
     straps: tuple[float, float] = (_RAIL_UM, _RAIL_SPACE_UM),
 ) -> dict[str, Any]:
-    """Where everything goes, FRIDA-1's floorplan on the sites' and rows' grid: the DAC's two sides
-    form the outline, the P side as drawn on the left and the N side mirrored on the right (each
-    side's drivers in its corners, its MSB outside), a narrow column between them; the comparator
-    at the top of that column, a sampler beside it on each side; the supply rails (``straps``: a
-    rail's width, the space in a pair) outside the sides on the left and right. The die is the
-    DAC's height: the pins are on its edges, the inputs at the top of the column, the outputs and
-    controls at its bottom, each side's preset values beside its free rows (``pins``).
+    """Where everything goes, on the sites' and rows' grid: a die about square (its long side at
+    most ``_ASPECT`` times its short one), as small as the logic at ``_UTILIZATION`` of its rows
+    allows; the DAC's two sides at its left and right, the P side as drawn and the N side
+    mirrored, centred in its height; the comparator at the top in the middle, a sampler beside it
+    on each side; the supply rails (``straps``: a rail's width, the space in a pair) outside the
+    sides; the logic in every row the blocks leave, below, between, above and (where it may route
+    there) under the arrays. The pins are on the die's edges: the inputs at the top over the
+    samplers, the outputs and controls at the bottom, each side's preset values beside its free
+    rows where the logic stands there (``pins``).
 
     Every block stands in the cells' rows, its rails on theirs (its bottom on a row whose rail is
-    its own bottom rail's). The cells fill the rows the blocks leave, the middle column and each
-    side's rows under its array between its two bands of drivers (``_abstract``; ``obstructions``:
-    what the side has over them, translated and mirrored with it): its logic there too where the
-    second and third metals are free under the array (``stacked``), else decaps and fillers alone
-    (``decap_only``: blocked while the logic is placed). The column is as narrow as the comparator
-    and its samplers and the logic at ``_UTILIZATION`` of its rows allow."""
+    its own bottom rail's). A side's rows under its array, between its two bands of drivers
+    (``_abstract``; ``obstructions``: what the side has over them, translated and mirrored with
+    it), take the logic too where the second and third metals are free under the array
+    (``stacked``), else decaps and fillers alone (``decap_only``: blocked while the logic is
+    placed). Where the comparator stands level with the sides the column between them takes it
+    and its samplers, else it is a channel for the routes."""
     _name, site_w, row_h = site
     cap, comp, samp = blocks["cap"], blocks["comp"], blocks["samp"]
     up = lambda value, step: math.ceil(round(value / step, 6)) * step
     down = lambda value, step: math.floor(round(value / step, 6)) * step
+    even = lambda y: down(y, 2 * row_h)  # a block's bottom: a row of its own bottom rail
     rail_w, rail_space = straps
     pair = 2 * rail_w + rail_space
     rail = up(pair + 6 * site_w, site_w)  # the column of a pair of rails, three sites either side
     split = cap["free"]  # the side two bands of drivers, rows between them
     stacked = split and cap["logic_under"]  # the cells' logic in those rows too, else decaps alone
     halo = up(_HALO_UM, site_w)  # cell-free beside a block, its implants and wells past its outline
-    narrowest = comp["w_um"] + 2 * samp["w_um"] + 2 * site_w + 2 * halo + 2 * site_w
+    group = comp["w_um"] + 2 * samp["w_um"] + 2 * site_w  # the comparator and its samplers abreast
     blocked = comp["w_um"] * comp["h_um"] + 2 * samp["w_um"] * samp["h_um"]
     if stacked:
         blocked += 2 * cap["w_um"] * (cap["free_um"][0] + cap["h_um"] - cap["free_um"][1])
     else:
         blocked += 2 * cap["w_um"] * cap["h_um"]
-    gap = up(narrowest, 2 * site_w)
-    while (2 * rail + 2 * cap["w_um"] + gap) * cap["h_um"] - blocked < cells_um2 / _UTILIZATION:
-        gap += 2 * site_w
-    die_w = 2 * rail + 2 * cap["w_um"] + gap
-    y0 = 0.0  # the core's bottom: the sides' bottom, row 0
-    die_h = cap["h_um"]
-    x_p, x_n = rail, rail + cap["w_um"] + gap
-    even = lambda y: y0 + down(y - y0, 2 * row_h)
-    top = y0 + (cap["free_um"][1] - row_h if stacked else cap["h_um"])
-    comp_x = down(die_w / 2 - comp["w_um"] / 2, site_w)  # the column's middle
-    comp_y = even(top - comp["h_um"])
+    need = cells_um2 / _UTILIZATION + blocked
+
+    def fit(die_h: float) -> tuple[float, float, float]:
+        """The narrowest die ``die_h`` tall, about square: its width, the sides' and the
+        comparator's bottoms."""
+        dac_y = even((die_h - cap["h_um"]) / 2)
+        comp_y = even(die_h - row_h - comp["h_um"])  # a row above it at least: the inputs' pins
+        level = comp_y < dac_y + cap["h_um"]  # the comparator beside the sides, between them
+        gap = group + 2 * halo if level else 2 * halo + 2 * site_w
+        width = max(2 * rail + 2 * cap["w_um"] + gap, 2 * rail + need / die_h, die_h / _ASPECT)
+        return up(width, 2 * site_w), dac_y, comp_y
+
+    fits = []
+    die_h = up(max(cap["h_um"], comp["h_um"]), row_h)
+    while die_h <= 4 * (cap["h_um"] + comp["h_um"]):
+        width, dac_y, comp_y = fit(die_h)
+        if width <= _ASPECT * die_h:
+            fits.append((width * die_h, die_h, width, dac_y, comp_y))
+        die_h = round(die_h + row_h, 6)
+    _area, die_h, die_w, y0, comp_y = min(fits)
+    x_p, x_n = rail, die_w - rail - cap["w_um"]
+    gap = x_n - x_p - cap["w_um"]
+    comp_x = down(die_w / 2 - comp["w_um"] / 2, site_w)  # the middle, at the top
     samp_y = even(comp_y + comp["h_um"] - samp["h_um"])
     samp_p_x = comp_x - site_w - samp["w_um"]  # a site from the comparator
     samp_n_x = comp_x + comp["w_um"] + site_w
@@ -836,10 +853,10 @@ def _floorplan(
             reach, into = (edge - halo, edge + _BRIDGE_IN_UM) if side == "left" else (edge - _BRIDGE_IN_UM, edge + halo)
             bridges.append((supply, reach, y + bottom, into, y + top))
     # no cell in the rails' columns: between the rails and the die's edge a cell reaches nothing
-    halos += [(0.0, y0, x_p, die_h), (x_n + cap["w_um"], y0, die_w, die_h)]
+    halos += [(0.0, 0.0, x_p, die_h), (x_n + cap["w_um"], 0.0, die_w, die_h)]
     return {
         "die": (0.0, 0.0, die_w, die_h),
-        "core": (0.0, y0, die_w, y0 + cap["h_um"]),
+        "core": (0.0, 0.0, die_w, die_h),
         "blocks": placed,
         "halos": halos,
         "decap_only": decap_only,
@@ -848,10 +865,13 @@ def _floorplan(
         # each pair of rails three sites in from the die's edge: its first rail's middle (pdngen's
         # offset, from the core's left edge; it snaps a rail to its layer's tracks)
         "rails": (3 * site_w + rail_w / 2, die_w - 3 * site_w - pair + rail_w / 2),
-        # where the pins go: along the column's edges, clear of the sides' halos; beside the
-        # sides' free rows (stacked kits; elsewhere the sides reach no cell)
+        "rail_column": rail,
+        # where the pins go: the inputs over the samplers; the outputs and controls along the
+        # bottom between the rails (between the sides where they stand on it); the preset values
+        # beside the sides' free rows (where the logic stands there; elsewhere at the bottom)
         "pins": {
-            "x": (x_p + cap["w_um"] + halo, x_n - halo),
+            "top": (samp_p_x, samp_n_x + samp["w_um"]),
+            "bottom": (x_p + halo, x_n + cap["w_um"] - halo) if y0 >= row_h else (x_p + cap["w_um"] + halo, x_n - halo),
             "y": (y0 + cap["free_um"][0], y0 + cap["free_um"][1]) if stacked else (),
         },
         "gap_um": gap,
@@ -888,7 +908,7 @@ make_tracks
 
 ###########################################################################
 # 3. The blocks, fixed on the rows: the DAC's sides as the outline, the comparator and its
-#    samplers at the top of the column between them; no cell within a few sites beside a block;
+#    samplers at the top in the middle; no cell within a few sites beside a block;
 #    over a side's free rows, its capacitors as routing obstructions, and those rows held for the
 #    decaps where no route may use their metal
 
@@ -929,9 +949,31 @@ foreach offset $rails {
     -pitch [expr {2 * ($rail_width + $rail_space)}] -offset $offset -number_of_straps 1 -extend_to_boundary
 }
 add_pdn_connect -grid core -layers [list $cell_rail_layer $rail_layer]
-# a rail between two blocks reaches no strap: the blocks' own rails, which it meets, carry it
+# a stretch of a row between two blocks reaches the rails along the blocks' own rail lines
+# (bridged below), else pdngen strapped it; such a strap that lands on a block goes
 pdn::allow_repair_channels 1
 pdngen
+set outlines {}
+foreach inst [$block getInsts] {
+  if {[[$inst getMaster] isBlock]} { lappend outlines [$inst getBBox] }
+}
+foreach net {vdd vss} {
+  foreach wire [[$block findNet $net] getSWires] {
+    foreach box [$wire getWires] {
+      set x [ord::dbu_to_microns [expr {([$box xMin] + [$box xMax]) / 2}]]
+      if {[$box getWireShapeType] ne "STRIPE" || $x < $rail_column || $x > [lindex $die 2] - $rail_column} {
+        continue
+      }
+      foreach outline $outlines {
+        if {[$box xMax] > [$outline xMin] && [$box xMin] < [$outline xMax]
+            && [$box yMax] > [$outline yMin] && [$box yMin] < [$outline yMax]} {
+          odb::dbSBox_destroy $box
+          break
+        }
+      }
+    }
+  }
+}
 # a block's rail lines bridged to the rows' rails, which pdngen keeps a space from its pins
 foreach bridge $bridges {
   lassign $bridge net x0 y0 x1 y1
@@ -940,8 +982,8 @@ foreach bridge $bridges {
 }
 
 ###########################################################################
-# 5. The pins on the DAC's outline: the converter's inputs at the top of the column, each side's
-#    preset values beside its free rows, the rest (its outputs and controls) at the column's bottom
+# 5. The pins on the die's edges: the converter's inputs at the top over the samplers, each side's
+#    preset values beside its free rows, the rest (its outputs and controls) along the bottom
 
 set edges [dict create top {} left {} right {} bottom {}]
 foreach bterm [$block getBTerms] {
@@ -951,9 +993,10 @@ foreach bterm [$block getBTerms] {
   set edge [expr {$bus in $top_pins ? "top" : $bus in $left_pins ? "left" : $bus in $right_pins ? "right" : "bottom"}]
   dict lappend edges $edge $name
 }
-lassign $pin_x x0 x1
+lassign $pin_top x0 x1
+lassign $pin_bottom x2 x3
 lassign $pin_y y0 y1
-foreach {edge range} [list top $x0-$x1 bottom $x0-$x1 left $y0-$y1 right $y0-$y1] {
+foreach {edge range} [list top $x0-$x1 bottom $x2-$x3 left $y0-$y1 right $y0-$y1] {
   if {[llength [dict get $edges $edge]]} {
     set_io_pin_constraint -pin_names [dict get $edges $edge] -region $edge:$range
   }
@@ -1046,8 +1089,8 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
     )
     straps = _straps(tech_lef, vertical)
     plan = _floorplan(blocks, _cells_area(view, _cell_widths(stdcell_lef)) * site[2], site, straps)
-    top_metal = max(int(metal[1:]) for block in blocks.values() for metal in block["layers"])
     rail_layer, rail_width = _rails(stdcell_lef, set(lef.values()))
+    top_metal = max(int(metal[1:]) for block in blocks.values() for metal in block["layers"])
     power, ground = tech.STD_SUPPLY
     variables = {
         "init": init,
@@ -1067,11 +1110,13 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
         "rail_width": straps[0],
         "rail_space": straps[1],
         "rails": plan["rails"],
+        "rail_column": plan["rail_column"],
         "top_pins": ("vin_p", "vin_n"),
         # each side's preset values beside it (none where the sides leave no free rows)
         "left_pins": ("dac_astate_p", "dac_bstate_p") if plan["pins"]["y"] else (),
         "right_pins": ("dac_astate_n", "dac_bstate_n") if plan["pins"]["y"] else (),
-        "pin_x": plan["pins"]["x"],
+        "pin_top": plan["pins"]["top"],
+        "pin_bottom": plan["pins"]["bottom"],
         "pin_y": plan["pins"]["y"],
         "pin_hor": lef["M3"],
         # the pins along the top and bottom on the fourth metal where it runs vertically, above the
