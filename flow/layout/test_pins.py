@@ -233,3 +233,20 @@ def test_a_generators_edge_pins_ride_on_its_module() -> None:
 
     with pytest.raises(ValueError, match="not its port"):
         edge_pins(Other, EdgePin(h.Input(name="b"), Border.LEFT))
+
+
+def test_a_pad_keeps_the_line_end_space_both_ways() -> None:
+    """On a metal with a line-end rule (150 nm in front of an end under 150 nm, 50 nm past its
+    sides): a pad 120 nm beside another net's line end does not fit (its plain space, 100 nm, it
+    keeps), nor a narrow pad whose own end stands 120 nm from another's wire; 150 nm off, or a pad
+    as wide as the rule's edge length, they fit."""
+    other = db.Region(db.Box(0, 0, 1000, 100)) + db.Region(db.Box(1500, 520, 3000, 820))
+    space = pins._Space({"M3": other}, {"a": {"M3": db.Region()}})
+    space.ends = {"M3": ((150, 150, 50),)}
+    beside = db.Box(1120, -200, 1220, 300)  # facing the line end at x = 1000
+    assert space.clear("a", "M3", beside, 100) and not space.fits("a", "M3", beside, 100)
+    assert space.fits("a", "M3", beside.moved(30, 0), 100)
+    below = db.Box(2000, 0, 2100, 400)  # its top end 120 nm under the wide wire
+    assert space.clear("a", "M3", below, 100) and not space.fits("a", "M3", below, 100)
+    assert space.fits("a", "M3", below.moved(0, -30), 100)
+    assert space.fits("a", "M3", db.Box(2000, 0, 2150, 400), 100)  # no line end: as wide as the rule's edge

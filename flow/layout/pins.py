@@ -16,7 +16,9 @@ the record of where each one is (the layout step's ``pins``).
   the converter's double-width routes take) on which the route and the landing keep their space
   from every other net, with nothing of the block over the landing on any metal above: the lowest
   above everything the block draws there. Every pad and wire keeps its metal's space from other
-  nets' metal, every cut its space from every other cut. A shielded edge pin (``EdgePin.shield``:
+  nets' metal and, where the kit gives its metal a line-end rule (``end_of_line`` in its
+  ``RULES``), its line-end space both ways: every line end around it from it, and every line end
+  it makes from every other shape; every cut its space from every other cut. A shielded edge pin (``EdgePin.shield``:
   a top plate's, whose wire would couple to the plates' routes it runs over) lands within
   ``SHIELD_WITHIN_NM`` of its spot on the highest landing metal whose metal under the wire is free
   of other signals, and where another signal's metal lies under the wire on any metal, a strip of
@@ -92,6 +94,12 @@ class Kit:
 
     def width(self, metal: int) -> int:
         return self.tech.RULES[f"M{metal}"]["width"]
+
+    def ends(self, metal: int) -> tuple[tuple[int, int, int], ...]:
+        """Metal ``metal``'s line-end rules (its ``end_of_line``): each (space, below, extension), a
+        line end (an edge shorter than ``below`` between two convex corners) keeping ``space`` from
+        every other edge in front of it, as wide as the end and ``extension`` past either side."""
+        return tuple(tuple(rule) for rule in self.tech.RULES.get(f"M{metal}", {}).get("end_of_line", ()))
 
     def height(self, upper: int, lower: int) -> int | None:
         """How far metal ``upper``'s bottom stands over metal ``lower``'s top (database units, whole
@@ -182,6 +190,7 @@ class _Space:
         self.drawn: list[tuple[str, str, db.Box]] = []  # net, layer, box
         self.supplies: tuple[str, ...] = ()  # the supplies' nets, by the ports' uses
         self.grounds: tuple[str, ...] = ()  # and the grounds' among them
+        self.ends: dict[str, tuple[tuple[int, int, int], ...]] = {}  # each metal's line-end rules (Kit.ends)
         self._all: dict[str, _Index] = {}
         self._others: dict[tuple[str, str], _Index] = {}
         self._own: dict[tuple[str, str], _Index] = {}
@@ -212,6 +221,33 @@ class _Space:
                 return False
         return True
 
+    def fits(self, net: str, layer: str, box: db.Box, space: int) -> bool:
+        """Whether ``box``, a new shape of ``net`` on metal ``layer``, keeps ``space`` from every other
+        net's shapes (``clear``) and its metal's line-end space (``ends``) both ways: every line end
+        around it (another net's, or the net's own on a piece it does not touch) from it, and every
+        line end it makes with the net's own metal from every other shape."""
+        if not self.clear(net, layer, box, space):
+            return False
+        rules = self.ends.get(layer)
+        if not rules:
+            return True
+        reach = max(gap + below + extension for gap, below, extension in rules)
+        window = box.enlarged(reach, reach)
+        others = self._index(net, layer).touching(window)
+        mine = self._index(net, layer, mine=True).touching(window)
+        for n, name, other in self.drawn:
+            if name == layer and other.touches(window):
+                (mine if n == net else others).insert(other)
+        # clipped to the window: a cut piece's new edge lies on its border, its front outward
+        frame, added = db.Region(window), db.Region(box)
+        mine = (mine & frame).merged()
+        others = ((others & frame) + mine.not_interacting(added)).merged()
+        if not (_end_zones(_line_ends(others), rules) & added).is_empty():
+            return False
+        before = set(_line_ends(mine))
+        made = [end for end in _line_ends((mine + added).merged()) if end not in before]
+        return (_end_zones(made, rules) & others).is_empty()
+
     def beyond(self, net: str, layer: str, box: db.Box) -> db.Region:
         """What of ``box`` on ``layer`` lies outside ``net``'s own shapes there: what a new shape adds."""
         own = self._index(net, layer, mine=True).touching(box)
@@ -219,9 +255,9 @@ class _Space:
 
     def clear_beyond(self, net: str, layer: str, box: db.Box, space: int) -> bool:
         """Whether what ``box`` adds to ``net``'s shapes on ``layer`` (``beyond``) keeps ``space`` from
-        every other net's: where it lies on the net's own metal, the net's own space holds."""
+        every other net's (``fits``): where it lies on the net's own metal, the net's own space holds."""
         added = self.beyond(net, layer, box)
-        return all(self.clear(net, layer, piece.bbox(), space) for piece in added.each())
+        return all(self.fits(net, layer, piece.bbox(), space) for piece in added.each())
 
     def notches(self, net: str, layer: str, box: db.Box, space: int) -> list[db.Box]:
         """What fills the gaps narrower than ``space`` that ``box`` leaves with ``net``'s own shapes on
@@ -278,6 +314,44 @@ class _Space:
             if n == net and name == layer:
                 own.insert(other)
         return (db.Region(box) - own).is_empty()
+
+
+def _line_ends(region: db.Region) -> list[tuple[int, int, int, int]]:
+    """The edges of ``region``'s polygons (merged) between two convex corners, each from its hull's
+    point to the next (clockwise, KLayout's: outside on the left), where it is horizontal or
+    vertical: the ends a line-end rule may hold (``Kit.ends``, by their length)."""
+    found = []
+    for polygon in region.each():
+        points = [(p.x, p.y) for p in polygon.each_point_hull()]
+        count = len(points)
+        turns = []
+        for index in range(count):
+            (x0, y0), (x1, y1), (x2, y2) = points[index - 1], points[index], points[(index + 1) % count]
+            turns.append((x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1) < 0)  # convex: a right turn
+        for index in range(count):
+            (x1, y1), (x2, y2) = points[index], points[(index + 1) % count]
+            if (x1 == x2 or y1 == y2) and turns[index] and turns[(index + 1) % count]:
+                found.append((x1, y1, x2, y2))
+    return found
+
+
+def _end_zones(ends: list[tuple[int, int, int, int]], rules: tuple[tuple[int, int, int], ...]) -> db.Region:
+    """What line ``ends`` (``_line_ends``) keep clear by ``rules`` (``Kit.ends``): in front of each
+    end shorter than a rule's ``below``, as far as its space, as wide as the end and its extension
+    past either side."""
+    zones = db.Region()
+    for x1, y1, x2, y2 in ends:
+        length = abs(x2 - x1) + abs(y2 - y1)
+        for gap, below, extension in rules:
+            if length >= below:
+                continue
+            if y1 == y2:  # its outside up where it runs right
+                lo, hi = min(x1, x2) - extension, max(x1, x2) + extension
+                zones.insert(db.Box(lo, y1, hi, y1 + gap) if x2 > x1 else db.Box(lo, y1 - gap, hi, y1))
+            else:  # and left where it runs up
+                lo, hi = min(y1, y2) - extension, max(y1, y2) + extension
+                zones.insert(db.Box(x1 - gap, lo, x1, hi) if y2 > y1 else db.Box(x1, lo, x1 + gap, hi))
+    return zones
 
 
 def _connectivity(layout: db.Layout, top: db.Cell, pdk: str, nets: list[str]) -> _Space:
@@ -476,24 +550,14 @@ class _Search:
                 ):
                     continue
                 pads = self._pads(metal, cut, held)
-                pad = next((p for p in pads if space.clear(net, f"M{metal}", p, kit.space(metal))), None)
+                pad = next((p for p in pads if space.fits(net, f"M{metal}", p, kit.space(metal))), None)
                 if pad is None:
                     return None
                 shapes.append((f"M{metal}", pad))
         wire, box = landed
         shapes.append((f"M{self.metal}", wire))
-        # the gaps a pad or the wire leaves with the net's own metal, narrower than its space, filled
-        for name, added in [shape for shape in shapes if shape[0].startswith("M")]:
-            gap = kit.space(int(name[1:]))
-            for fill in space.notches(net, name, added, gap):
-                if not space.clear(net, name, fill, gap):
-                    return None
-                shapes.append((name, fill))
-        # and no step shorter than the metal's width where they join it
-        for name in {name for name, _box in shapes if name.startswith("M")}:
-            if space.jogs(net, name, [b for n, b in shapes if n == name], kit.width(int(name[1:]))):
-                return None
-        return _Landing(net, self.metal, attach, shapes, box)
+        joined = _joined(kit, space, net, shapes)
+        return None if joined is None else _Landing(net, self.metal, attach, joined, box)
 
     def _pads(self, metal: int, cut: db.Box, held: list[tuple[int, int]]) -> list[db.Box]:
         """The pads on ``metal`` that hold ``cut`` by the enclosures ``held`` ((two sides, the other
@@ -543,7 +607,11 @@ def _shield(kit: Kit, space: _Space, landing: _Landing, outline: db.Box) -> None
     wider = (wire.enlarged(reach, 0) if wire.height() >= wire.width() else wire.enlarged(0, reach)) & outline.enlarged(
         -gap, -gap
     )
-    room = db.Region(wider) - taken.sized(2 * gap)
+    rules = kit.ends(metal)
+    room = db.Region(wider) - taken.sized(max([2 * gap, *(end for end, _below, _extension in rules)]))
+    if rules:  # and every line end around it its line-end space
+        around = max(end + below + extension for end, below, extension in rules)
+        room -= _end_zones(_line_ends((taken & db.Region(wider.enlarged(around, around))).merged()), rules)
     half = kit.width(metal) // 2
     room = room.sized(-half).sized(half) & room  # none of it narrower than the metal
     best = max(room.each(), key=lambda piece: (db.Region(piece) & db.Region(wire)).area(), default=None)
@@ -564,9 +632,9 @@ def _tie(
 ) -> tuple[list[tuple[str, db.Box]], int] | None:
     """A stack of cuts from ``ground``'s own metal under ``strip`` up to it on ``metal``: the foot's
     cut on that metal, a pad on each metal from it to the one under ``metal`` that holds its cuts by
-    their enclosures (as a landing's: the foot's over the ground's own or clear of the others), the
-    top cut inside the strip by its own; its shapes and the metal it leaves from, the nearest
-    first; None where none fits."""
+    their enclosures (as a landing's: the foot's over the ground's own or clear of the others; each
+    joined to the ground's own metal, ``_joined``), the top cut inside the strip by its own; its
+    shapes and the metal it leaves from, the nearest first; None where none fits."""
     finder = _Search(kit, space, ground, metal, db.Trans.R0, db.Box(), False)
     for foot in sorted((k for k in kit.metals if k < metal), reverse=True):
         own = space.own_region(ground, f"M{foot}") & strip
@@ -592,15 +660,37 @@ def _tie(
                         (
                             pad
                             for pad in finder._pads(m, cuts[m - foot], held)
-                            if space.clear(ground, f"M{m}", pad, kit.space(m))
+                            if space.fits(ground, f"M{m}", pad, kit.space(m))
                         ),
                         None,
                     )
                 )
             if all(pad is not None for pad in pads):
                 vias = [(f"V{m}", cut) for m, cut in zip(range(foot, metal), cuts, strict=True)]
-                return vias + [(f"M{m}", pad) for m, pad in zip(range(foot, metal), pads, strict=True)], foot
+                joined = _joined(
+                    kit, space, ground, [(f"M{m}", pad) for m, pad in zip(range(foot, metal), pads, strict=True)]
+                )
+                if joined is not None:
+                    return vias + joined, foot
     return None
+
+
+def _joined(kit: Kit, space: _Space, net: str, shapes: list[tuple[str, db.Box]]) -> list[tuple[str, db.Box]] | None:
+    """``shapes`` (``net``'s new pads and wires) joined to the net's own metal: every gap one leaves
+    with it narrower than the metal's space filled, the fill keeping its space from every other
+    net (``fits``), and no step shorter than the metal's width where they join it; None where either
+    fails."""
+    shapes = list(shapes)
+    for name, added in [shape for shape in shapes if shape[0].startswith("M")]:
+        gap = kit.space(int(name[1:]))
+        for fill in space.notches(net, name, added, gap):
+            if not space.fits(net, name, fill, gap):
+                return None
+            shapes.append((name, fill))
+    for name in {name for name, _box in shapes if name.startswith("M")}:
+        if space.jogs(net, name, [b for n, b in shapes if n == name], kit.width(int(name[1:]))):
+            return None
+    return shapes
 
 
 def _middle_first(finder: _Search, piece: db.Box, step: int) -> list[tuple[int, int]]:
@@ -742,6 +832,7 @@ def land(gds: Path, pdk: str, plan: dict[str, Any]) -> dict[str, Any]:
     space = _connectivity(layout, top, pdk, signals + supplies)
     space.supplies = tuple(supplies)
     space.grounds = tuple(port["net"] for port in ports if port["use"] == "ground")
+    space.ends = {f"M{m}": kit_.ends(m) for m in kit_.metals if kit_.ends(m)}
 
     def anchor_of(net: str, trans: db.Trans) -> tuple[int, int] | None:
         labels = _labels(layout, top, net)
@@ -875,7 +966,7 @@ def _as_drawn(kit_: Kit, layout: db.Layout, top: db.Cell, space: _Space, net: st
                 for value in places:
                     x, y = (value, box.center().y) if along else (box.center().x, value)
                     cut = db.Box(x - size // 2, y - size // 2, x - size // 2 + size, y - size // 2 + size)
-                    if space.clear(net, f"M{metal + 1}", cut.enlarged(end, end), kit_.space(metal + 1)):
+                    if space.fits(net, f"M{metal + 1}", cut.enlarged(end, end), kit_.space(metal + 1)):
                         entry.update(site_um=framed(cut), site_free_above=free(metal, cut))
                         break
             return {**entry, "made": "as laid out"}
