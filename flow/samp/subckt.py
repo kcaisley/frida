@@ -11,7 +11,7 @@ from hdl21.primitives import MosType
 
 from flow.circuit.ports import module_from_ports
 from flow.layout.devices.mosfet.netlist import mos
-from flow.layout.hdl21align import halves, place, row, rows
+from flow.layout.hdl21align import Border, EdgePin, edge_pins, halves, place, row, rows
 
 from .params import Params, SwitchType
 
@@ -33,6 +33,9 @@ def netlist(param: Params) -> h.Module:
     ``vout``, tracking while ``clk`` is high; a bootstrap drives the NMOS gate from its boosted node,
     half-size dummies on ``vout`` absorb the charge their switch's channel releases at turn-off."""
     Samp = module_from_ports("Samp", Nets.signals)
+    # its ports on its outline (flow.layout.pins): the input at the top, the output on the side
+    # that faces the comparator
+    edge_pins(Samp, EdgePin(Samp.vin, Border.TOP), EdgePin(Samp.vout, Border.RIGHT))
     bootstrap = param.switch_type is SwitchType.BOOTSTRAP
     nmos = param.switch_type in (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
     pmos = param.switch_type in (SwitchType.PMOS, SwitchType.TGATE)

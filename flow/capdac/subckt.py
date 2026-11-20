@@ -74,8 +74,8 @@ from flow.layout.devices.mosfet.netlist import (
     shared_fanin,
 )
 from flow.layout.devices.mosfet.table import mosfet_table
+from flow.layout.hdl21align import Border, EdgePin, Spot, edge_pins, place, row, rows
 from flow.layout.hdl21align import constraints as c
-from flow.layout.hdl21align import place, row, rows
 from flow.layout.package import metal_tracks, pdk_dir
 
 from .params import Params, WeightImpl, WellTies, _pieces, _plates, _switched_f, _weights
@@ -760,6 +760,9 @@ def netlist(params: Params) -> h.Module:
             ports["dac_state"], name="dac_state_diff", desc="The stage states at the difference drivers, C0 first"
         )
     Capdac = module_from_ports("Capdac", ports)
+    # the top plate's landing on the outline's top, at its inner end (the LSB's, the seam with the
+    # converter's other side, by the comparator), above the shield (flow.layout.pins)
+    edge_pins(Capdac, EdgePin(Capdac.vdac, Border.TOP, Spot.LAST))
     pdk = active_pdk()
     if pdk is None:
         raise RuntimeError(

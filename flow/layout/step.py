@@ -1,8 +1,9 @@
 """The one layout step every block on the pipeline shares, ALIGN's and nothing else: its module
 compiled once in a PDK, its netlists from hdl21 and vlsir in ALIGN's and LVS's contexts
 (``flow.circuit.netlists``), its generator's own layout intent (``flow.layout.hdl21align``) as
-ALIGN's constraint files, and ALIGN (``flow.layout.build``); the signoff is the CLI's drc, lvs and
-pex steps' (``flow.layout.signoff``, ``extracted``).
+ALIGN's constraint files, and ALIGN (``flow.layout.build``), then the block's pins as the
+converter's top level takes them (``flow.layout.pins``: its edge pins, the rest lifted, the record);
+the signoff is the CLI's drc, lvs and pex steps' (``flow.layout.signoff``, ``extracted``).
 
 - ``lay_out_align``: one instance laid out by ALIGN (the CLI's layout step).
 - ``lay_out_own``: one instance of a block that lays itself out (its ``layout.py``'s ``lay_out``,
@@ -31,8 +32,9 @@ from klayout import db
 
 from flow import tools
 from flow.layout.build import annealed, build_design, other_router, pdk_router, route_opens, route_shorts
-from flow.layout.hdl21align import pnr_input
+from flow.layout.hdl21align import pnr_input, port_plan
 from flow.layout.kpex import Engine
+from flow.layout.pins import land, plan_path, read_plan
 from flow.layout.signoff import Checker
 from flow.layout.stats import layout_stats
 
@@ -357,7 +359,8 @@ def inputs(
     LVS's contexts (``out_dir/netlist/<design>.sp``, ``.cdl``) and ALIGN's design directory
     (``out_dir/align/input/<design>``, a constraint file a module that states its layout). Returns
     the design directory, the library cells it calls, the LVS netlist, and whether its top states
-    its placement; ``seconds`` gets each one's."""
+    its placement; ``seconds`` gets each one's. Beside the netlists its port plan for the pins
+    (``flow.layout.pins.plan_path``, ``flow.layout.hdl21align.port_plan``)."""
     from flow.circuit.netlists import Context, align_design, compile_block, lvs_source, package, write
 
     seconds = {} if seconds is None else seconds
@@ -372,6 +375,8 @@ def inputs(
     seconds["netlist"] = round(time.monotonic() - started, 2)
     started = time.monotonic()
     input_dir, cells = align_design(compiled, out_dir / "align" / "input")
+    # its ports and where its generator lands them, for the pins drawn after ALIGN (``flow.layout.pins``)
+    plan_path(out_dir / "netlist", design).write_text(json.dumps(port_plan(compiled.module), indent=1) + "\n")
     seconds["floorplan"] = round(time.monotonic() - started, 2)
     return input_dir, cells, source, pnr_input(compiled.module) is not None
 
@@ -437,9 +442,11 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     (``out/align_<router>/``); routed again, its placer's seed another, where ALIGN's route joins two
     nets and its placer annealed (twice at most: a placement the generator states whole is
     enumerated, the same whatever the seed). An attempt that has not placed and routed in half an
-    hour fails (``ALIGN_TIMEOUT``). The GDS, its LVS source, ALIGN's netlist, its size, the router,
-    the nets its route joins and each part's seconds (``parts``: the module's compilation, the
-    netlists, the floorplan, ALIGN)."""
+    hour fails (``ALIGN_TIMEOUT``). Then its pins (``flow.layout.pins.land``, by the plan ``inputs``
+    wrote: each edge pin's route and landing, each other signal lifted where a landing fits). The
+    GDS, its LVS source, ALIGN's netlist, its size, the router, the nets its route joins, each
+    part's seconds (``parts``: the module's compilation, the netlists, the floorplan, ALIGN) and its
+    pins (``pins``: their record, each supply's its rail lines, ``with_supplies``)."""
     # ALIGN's placer can search for hours on the larger sizings
     os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     design = design or block
@@ -486,7 +493,10 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
                 gds, router, opens, shorts = other, again, fewer, route_shorts(work, design)
             LOG.info(f"the {router} router's layout kept: {len(opens)} nets in pieces")
     logging.getLogger("align").removeHandler(timed)
-    # the time after ALIGN's last part: its last records, the GDS written and finished (post.py)
+    # each port reached from above, the ones its generator lands on the outline there (``flow.layout.pins``)
+    plan = read_plan(plan_path(out / "netlist", design))
+    pins = land(Path(gds), pdk, plan) if plan else None
+    # the time after ALIGN's last part: its last records, the GDS written and finished (post.py), its pins
     ended = time.time()
     if timed.starts:
         timed.starts.setdefault("finishing", timed.last)
@@ -531,7 +541,42 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         short = [f"{line['net']} {line['y_um']}" for line in lines if not line["edges"]]
         if short:
             LOG.warning(f"layout: supply lines that do not run edge to edge (um): {', '.join(short)}")
+    if pins:
+        laid["pins"] = with_supplies(pins, lines)
+        for port in pins["ports"]:
+            if port.get("made") in ("edge", "lifted"):
+                LOG.info(
+                    f"layout: pin {port['net']} on {port['layer']} {port['side'] or 'in place'} at {port['box_um']} um,"
+                    f" free above: {', '.join(port['free_above']) or 'none'}"
+                )
+            elif port.get("made") == "as laid out":
+                LOG.info(
+                    f"layout: pin {port['net']} as laid out on {port['layer']}, free above: {', '.join(port['free_above']) or 'none'}"
+                )
     return {**laid, "stats": layout_stats(work, design, Path(gds), pdk, laid)}
+
+
+def with_supplies(pins: dict[str, Any], lines: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """The pin record (``flow.layout.pins.land``) with each supply's rail lines (``supply_lines``) in
+    its frame: each line's y and its pieces' x extents (um), whether it runs edge to edge."""
+    x0, y0 = pins["origin_um"]
+    for port in pins["ports"]:
+        if port.get("made") != "rail lines":
+            continue
+        mine = [line for line in lines or [] if line["net"] == port["net"]]
+        port.update(
+            layer="M1",
+            side="left and right" if mine and all(line["edges"] for line in mine) else None,
+            lines_um=[
+                {
+                    "y": round(line["y_um"] - y0, 4),
+                    "pieces": [[round(a - x0, 4), round(b - x0, 4)] for a, b in line["pieces_um"]],
+                    "edges": line["edges"],
+                }
+                for line in mine
+            ],
+        )
+    return pins
 
 
 def lay_out_own(block: str, pdk: str, params, out: Path) -> dict[str, Any]:

@@ -32,6 +32,12 @@ intent (its own ``place``), and placed in its parent's rows as one instance. A `
 GroupBlocks) gathers instances of one module into a sub-cell of the layout alone, for a netlist
 from elsewhere that states no layout of its own.
 
+A generator also says where its ports land on the block's outline (``edge_pins``): a port on a
+side, at a spot along it, or mirrored with another port about the outline's centre line across the
+side. It is no constraint of ALIGN's (ALIGN places as it would without it): it rides on the module as
+an hdl21 Property of its own, and the layout step draws each landing after ALIGN, a route from the
+port's wiring to the side on the kit's landing metal (``flow.layout.pins``).
+
 ``issues`` is the completeness check a generator's tests run on every instance of its space,
 without ALIGN: every instance placed exactly once (through any nesting) or left to ALIGN, every
 placed one the module's, every instance and net a constraint names the module's, every sub-cell's
@@ -47,6 +53,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from itertools import count
 from typing import Any
 
@@ -56,6 +63,7 @@ from hdl21.primitives import C, Mos
 from .constraints import Axis, Constraint, DoNotIdentify, Floorplan, Group, Order, OrderDirection, SymmetricBlocks
 
 _PNR_INPUT = "frida.pnr_input"
+_EDGE_PINS = "frida.edge_pins"
 
 
 @dataclass(frozen=True)
@@ -198,6 +206,71 @@ def pnr_inputs(module: h.Module) -> list[PnrInput]:
 
     walk(module)
     return found
+
+
+class Border(Enum):
+    """The side of a block's outline, as drawn, an edge pin lands on (``EdgePin``)."""
+
+    TOP = auto()
+    RIGHT = auto()
+    BOTTOM = auto()
+    LEFT = auto()
+
+
+class Spot(Enum):
+    """Where along its side an edge pin lands (``EdgePin``): where its port's wiring comes nearest
+    the side (``NEAREST``), or as near the side's first end as the wiring allows (``FIRST``: the
+    left end of a top or bottom side, the bottom end of a left or right one) or its last (``LAST``)."""
+
+    NEAREST = auto()
+    FIRST = auto()
+    LAST = auto()
+
+
+@dataclass(frozen=True)
+class EdgePin:
+    """A port's landing on the block's outline (``edge_pins``): on its ``side``, at its ``spot``;
+    ``mirror``, a port that lands on the same side at the mirror image of this one's place, about
+    the outline's centre line across the side (a differential pair's two inputs)."""
+
+    port: h.Signal
+    side: Border
+    spot: Spot = Spot.NEAREST
+    mirror: h.Signal | None = None
+
+
+def edge_pins(module: h.Module, *pins: EdgePin) -> None:
+    """State where ``module``'s ports land on its outline; the layout step draws each landing after
+    ALIGN (``flow.layout.pins``). It rides on the module as a Property, beside its placement."""
+    ports = {id(port) for port in module.ports.values()}
+    for pin in pins:
+        for port in (pin.port, pin.mirror):
+            if port is not None and id(port) not in ports:
+                raise ValueError(f"{module.name}: an edge pin on a signal not its port: {port.name}")
+    if module.props.get(_EDGE_PINS) is not None:
+        raise ValueError(f"{module.name} already states its edge pins")
+    module.props.set(_EDGE_PINS, tuple(pins))
+
+
+def port_plan(module: h.Module) -> dict[str, Any]:
+    """``module``'s ports as the layout's pins take them (``flow.layout.pins``): each port's nets
+    as the netlist names them (a bus a net a bit, ``dac_state_0``) and its use (``signal``,
+    ``clock``, ``power``, ``ground``), and its edge pins (``edge_pins``: each port's side, spot and
+    mirror, by name)."""
+    ports = []
+    for name, port in module.ports.items():
+        nets = [name.lower()] if port.width == 1 else [f"{name.lower()}_{bit}" for bit in range(port.width)]
+        ports += [{"net": net, "use": port.usage.name.lower()} for net in nets]
+    edges = [
+        {
+            "net": pin.port.name.lower(),
+            "side": pin.side.name.lower(),
+            "spot": pin.spot.name.lower(),
+            "mirror": pin.mirror.name.lower() if pin.mirror is not None else None,
+        }
+        for pin in module.props.get(_EDGE_PINS) or ()
+    ]
+    return {"ports": ports, "edges": edges}
 
 
 def own_name(name: str, letter: str) -> str:

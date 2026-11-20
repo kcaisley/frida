@@ -17,7 +17,7 @@ from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2, logic_p
 from flow.circuit.ports import module_from_ports
 from flow.layout.devices.moscap.netlist import mos_cap
 from flow.layout.devices.mosfet.netlist import mos
-from flow.layout.hdl21align import Half, halves, place, row, rows
+from flow.layout.hdl21align import Border, EdgePin, Half, edge_pins, halves, place, row, rows
 
 from .params import Bias, Latch, OutputStage, Params
 
@@ -46,6 +46,8 @@ def netlist(param: Params) -> h.Module:
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
     Comp = module_from_ports("Comp", Nets.signals)
+    # its inputs on its outline's top, mirror images of each other (flow.layout.pins)
+    edge_pins(Comp, EdgePin(Comp.inp, Border.TOP, mirror=Comp.inn))
     Comp.tail = h.Signal()
 
     # Build preamp
