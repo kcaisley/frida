@@ -587,7 +587,11 @@ def _place(
     channels at the strips' far end, each band's drivers in a row on one line. Where the PDK's
     capacitors lie above the metals the rows route on (``stacked_over_rows``), they stand over both
     bands (``Stackup``), the rows between the bands left free (``flow.layout.step.free_rows``),
-    the side routed up to the shield's metal, where the capacitors' bottom plates have their pins.
+    the side routed up to the shield's metal, where the capacitors' bottom plates have their pins;
+    where they stand beside the rows, no higher than the metal over their shield (where the kit's
+    router can: ``MOM_PLATES_ROUTED_LOW``), so the plates' routes beside the array keep off the
+    top plate's ring on its own metals (and the array's frame keeps them a track from under it,
+    ``MomUnit._channels``).
     Unit capacitors stand in a column array (``grid``, ``_columns``): its rows, top first, each
     row's units side by side and its columns' units one above the other, abutting. The drivers
     stand in ``main_rows`` and ``diff_rows`` (``_driver_rows``: stage indices, each band's row
@@ -673,6 +677,16 @@ def _place(
             c.Stackup(caps, min_layer=shield - 1, max_layer=top),
             c.Stackup(drivers, max_layer=shield - 2),
         ]
+    elif pdk:
+        # beside the rows, the side routed no higher than the metal over the capacitors' shield:
+        # the plates' routes run there and below, out of the array under its frame, never along the
+        # top plate's ring on its own metals (ALIGN's router takes one set of metals for all nets,
+        # the customized ones too); where the kit's router cannot route the side so, at any height
+        # (its tech's ``MOM_PLATES_ROUTED_LOW``)
+        tech = import_module(f"pdk.{pdk}.layout.tech")
+        if getattr(tech, "MOM_PLATES_ROUTED_LOW", True):
+            inner.append(c.Route(max_layer=tech.MOM_LAYERS[-_array_layers(pdk)]))
+        inner += room
     else:
         inner += room
     regions = [region for region in (*diffs, *cap_rows, *mains) if region]
@@ -683,7 +697,7 @@ def _place(
 def _landing_gap_nm(pdk: str) -> int:
     """Where the capacitors stand beside the rows (their shield on M2, their landings on M1 under
     their channels' bars at the array's top and bottom edges), the least distance from the array's
-    edge to the line of a band's row beside it that holds two free M2 tracks between them: a route
+    edge to the line of a band's row beside it that holds three free M2 tracks between them: a route
     from a landing runs up or down it on M1 out of the array, under the shield's edge, and turns onto
     M2 there, its cut's M1 pad M1's space from the rail and its wire M2's space from the shield's bar
     at the array's edge and from the rail's own M2 (a kit whose rails carry no taps draws one). Whole
@@ -700,9 +714,10 @@ def _landing_gap_nm(pdk: str) -> int:
         rail_m2 = max(width // 2, getattr(tech, "M2_VIA_PAD", {}).get("V1", (0, 0))[1])
         clear = max(clear, rail_m2 + tech.M2_SPACE + width // 2)
     track = -(-clear // pitch) * pitch  # the track nearest the rail its route may take
-    # and one more: a route turns onto M2 under its landing, on a wire of M2's minimum length, longer
-    # than a unit is wide, so neighbouring stages' turns take a track each
-    track += pitch
+    # and two more: a route turns onto M2 under its landing, on a wire of M2's minimum length, longer
+    # than a unit is wide, so neighbouring stages' turns take a track each; and the plates' routes
+    # run along the array on M2 there, no higher than the metal over the shield (``_place``)
+    track += 2 * pitch
     return -(-(track + width // 2 + tech.M2_SPACE) // pitch) * pitch
 
 
@@ -761,8 +776,10 @@ def netlist(params: Params) -> h.Module:
         )
     Capdac = module_from_ports("Capdac", ports)
     # the top plate's landing on the outline's top, at its inner end (the LSB's, the seam with the
-    # converter's other side, by the comparator), above the shield (flow.layout.pins)
-    edge_pins(Capdac, EdgePin(Capdac.vdac, Border.TOP, Spot.LAST))
+    # converter's other side, by the comparator), above the shield (flow.layout.pins), its wire
+    # shielded from the plates' routes under it (each would couple to the top plate there, its
+    # stage's weight with it), the ground's strip between them
+    edge_pins(Capdac, EdgePin(Capdac.vdac, Border.TOP, Spot.LAST, shield=True))
     pdk = active_pdk()
     if pdk is None:
         raise RuntimeError(

@@ -16,15 +16,22 @@ the record of where each one is (the layout step's ``pins``).
   the converter's double-width routes take) on which the route and the landing keep their space
   from every other net, with nothing of the block over the landing on any metal above: the lowest
   above everything the block draws there. Every pad and wire keeps its metal's space from other
-  nets' metal, every cut its space from every other cut.
+  nets' metal, every cut its space from every other cut. A shielded edge pin (``EdgePin.shield``:
+  a top plate's, whose wire would couple to the plates' routes it runs over) lands within
+  ``SHIELD_WITHIN_NM`` of its spot on the highest landing metal whose metal under the wire is free
+  of other signals, and where another signal's metal lies under the wire on any metal, a strip of
+  the block's ground on that metal under it, as far past the wire's sides as the wire stands over
+  the highest of them (its fringe's reach), a stack of cuts tying it down to the ground's metal
+  (recorded beside the pin, ``shield``); where none fits, it lands as any edge pin, with a warning.
 - A net's label moves to its landing, the only one it keeps, so the top level reaches it there.
 
 ``land`` draws them into the layout's GDS and gives the record: the outline (its boundary layer's
 box: the frame every box is in, its lower left the origin), the kit's landing metals, and each
 port's net, use, layer, box (um), side (as drawn: the converter mirrors a block's second copy,
 which flips its left and right), the metals free over it, how it was made (``edge``, ``lifted``,
-``as laid out``, ``not in the layout``), the metal its route leaves the port's wiring on, and its
-mirror; one left as drawn also the site of a cut up from it nearest its label with room on the
+``as laid out``, ``not in the layout``), the metal its route leaves the port's wiring on, its
+mirror, and a shielded one's shield (its net, layer, box and the metal its tie leaves the ground's
+wiring on); one left as drawn also the site of a cut up from it nearest its label with room on the
 metal above, and the metals free over that site; a supply's is its rail lines (the layout step adds
 them, ``flow.layout.step.supply_lines``), each a pin the converter's power grid joins.
 """
@@ -36,7 +43,7 @@ import logging
 import math
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -51,6 +58,8 @@ _TO_TOP = {"top": db.Trans.R0, "right": db.Trans.R90, "bottom": db.Trans.R180, "
 LOWEST = 2  # the lowest metal a route leaves a port's wiring on: its routes', above the devices' M1
 _TRIES = 4000  # the points tried for an edge pin on one metal, in their order
 _LIFT_TRIES = 600  # and for a lifted one, nearest its label first
+# how far along its side from its spot a shielded edge pin may land (nm, the layouts' database unit)
+SHIELD_WITHIN_NM = 2000
 
 
 @dataclass
@@ -62,6 +71,8 @@ class Kit:
     grid: int
     metals: list[int]
     landing: tuple[int, ...]
+    # its conductors' heights and thicknesses (um; its ``kpex/stack.json``), where it gives them
+    stack: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def label_layer(self, metal: int) -> tuple[int, int]:
         """Where a metal's labels go: its pin text, else its pin layer, else the metal."""
@@ -81,6 +92,14 @@ class Kit:
 
     def width(self, metal: int) -> int:
         return self.tech.RULES[f"M{metal}"]["width"]
+
+    def height(self, upper: int, lower: int) -> int | None:
+        """How far metal ``upper``'s bottom stands over metal ``lower``'s top (database units, whole
+        grid steps); None where the kit gives no stack."""
+        a, b = self.stack.get(f"M{upper}"), self.stack.get(f"M{lower}")
+        if not a or not b:
+            return None
+        return self.up(round((a["z"] - b["z"] - b["thickness"]) * 1000))
 
     def space(self, metal: int) -> int:
         return self.tech.RULES[f"M{metal}"]["space"]
@@ -120,7 +139,10 @@ def kit(pdk: str) -> Kit:
     """``pdk``'s numbers (its ``pdk.<pdk>.layout.tech``)."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     metals = sorted(int(key[1:]) for key in tech.LAYERS if re.fullmatch(r"M\d+", key) and tech.LAYERS[key])
-    return Kit(tech, getattr(tech, "MFG_GRID", 5), metals, tuple(getattr(tech, "PIN_METALS", ())))
+    where = getattr(tech, "__file__", None)
+    stack = Path(where).parents[1] / "kpex" / "stack.json" if where else None
+    conductors = json.loads(stack.read_text())["conductors"] if stack and stack.is_file() else {}
+    return Kit(tech, getattr(tech, "MFG_GRID", 5), metals, tuple(getattr(tech, "PIN_METALS", ())), conductors)
 
 
 class _Index:
@@ -158,6 +180,8 @@ class _Space:
     def __init__(self, regions: dict[str, db.Region], own: dict[str, dict[str, db.Region]]) -> None:
         self.regions, self.own = regions, own
         self.drawn: list[tuple[str, str, db.Box]] = []  # net, layer, box
+        self.supplies: tuple[str, ...] = ()  # the supplies' nets, by the ports' uses
+        self.grounds: tuple[str, ...] = ()  # and the grounds' among them
         self._all: dict[str, _Index] = {}
         self._others: dict[tuple[str, str], _Index] = {}
         self._own: dict[tuple[str, str], _Index] = {}
@@ -240,6 +264,13 @@ class _Space:
             name == layer and not (db.Region(other) & db.Region(box)).is_empty() for _n, name, other in self.drawn
         )
 
+    def under(self, nets: tuple[str, ...], layer: str, box: db.Box, space: int) -> bool:
+        """Whether any net but ``nets`` has a shape on ``layer`` within ``space`` of ``box``."""
+        near = db.Region(box.enlarged(space, space)) & self.regions.get(layer, db.Region())
+        for net in nets:
+            near -= self.own_region(net, layer)
+        return not near.is_empty()
+
     def held(self, net: str, layer: str, box: db.Box) -> bool:
         """Whether ``net``'s own shapes on ``layer`` cover ``box``."""
         own = self._index(net, layer, mine=True).touching(box)
@@ -303,6 +334,12 @@ class _Landing:
     box: db.Box  # the landing, the actual frame
     side: str | None = None
     mirror: str | None = None
+    # its shield (``EdgePin.shield``): the ground's strip under its wire and the cuts tying it down,
+    # the actual frame; the metal the tie leaves the ground's wiring on
+    shield: list[tuple[str, db.Box]] = field(default_factory=list)
+    shield_from: int | None = None
+    shield_net: str | None = None
+    shield_box: db.Box | None = None  # the strip's bounding box
 
 
 @dataclass
@@ -317,6 +354,10 @@ class _Search:
     trans: db.Trans
     outline: db.Box  # the frame's
     edge: bool
+    # the nets its wire may run over on the metal just below the landing metal (its own, the
+    # supplies'), where it keeps that metal free of every other's for its shield
+    # (``EdgePin.shield``); None: anything
+    below: tuple[str, ...] | None = None
 
     def points(self, at_x: int | None = None, anchor: tuple[int, int] | None = None) -> list[tuple[int, int, int]]:
         """The points of the net's wiring (metal, x, y in the frame) a landing may leave from: on each
@@ -410,6 +451,10 @@ class _Search:
             wire, box = wire.transformed(back), box.transformed(back)
             if any(space.over(f"M{k}", box) for k in above):
                 continue
+            if self.below is not None and space.under(
+                self.below, f"M{self.metal - 1}", wire, kit.space(self.metal - 1)
+            ):
+                continue
             if space.clear_beyond(net, f"M{self.metal}", wire, clearance):
                 landed = (wire, box)
                 break
@@ -476,6 +521,100 @@ class _Search:
         return found
 
 
+def _shield(kit: Kit, space: _Space, landing: _Landing, outline: db.Box) -> None:
+    """``landing``'s shield (``EdgePin.shield``), where another signal's metal lies under its wire on
+    any metal: a strip of the block's ground on the metal under the wire, as far past the wire's
+    sides as the wire stands over the highest of those metals (its fringe's reach there; a metal's
+    width in a kit with no stack), where it keeps twice the metal's space from every other shape
+    (the landing's own net's too: a long strip is a wide metal, whose space is wider than the least)
+    and the outline; tied down by a stack of cuts to the ground's own metal under it, the nearest
+    first; none where no strip or tie fits (a warning)."""
+    wire = max((box for name, box in landing.shapes if name == f"M{landing.metal}"), key=lambda box: box.area())
+    metal, own = landing.metal - 1, (landing.net, *space.supplies)
+    under = [k for k in kit.metals if k < metal and space.under(own, f"M{k}", wire, 0)]
+    if not under:
+        return
+    taken = space.regions.get(f"M{metal}", db.Region()).dup()
+    for _net, name, box in space.drawn:
+        if name == f"M{metal}":
+            taken.insert(box)
+    gap = kit.space(metal)
+    reach = kit.height(landing.metal, max(under)) or kit.width(metal)
+    wider = (wire.enlarged(reach, 0) if wire.height() >= wire.width() else wire.enlarged(0, reach)) & outline.enlarged(
+        -gap, -gap
+    )
+    room = db.Region(wider) - taken.sized(2 * gap)
+    half = kit.width(metal) // 2
+    room = room.sized(-half).sized(half) & room  # none of it narrower than the metal
+    best = max(room.each(), key=lambda piece: (db.Region(piece) & db.Region(wire)).area(), default=None)
+    strip = db.Region(best) if best is not None else db.Region()
+    for ground in space.grounds if not (strip & db.Region(wire)).is_empty() else ():
+        tie = _tie(kit, space, ground, strip, metal)
+        if tie is not None:
+            pieces = [(f"M{metal}", trap.bbox()) for trap in best.decompose_trapezoids()]
+            landing.shield, landing.shield_from, landing.shield_net = [*pieces, *tie[0]], tie[1], ground
+            landing.shield_box = strip.bbox()
+            space.drawn += [(ground, name, box) for name, box in landing.shield]
+            return
+    LOG.warning(f"pins: {landing.net}'s landing runs over other signals' metal: no shield fits under it")
+
+
+def _tie(
+    kit: Kit, space: _Space, ground: str, strip: db.Region, metal: int
+) -> tuple[list[tuple[str, db.Box]], int] | None:
+    """A stack of cuts from ``ground``'s own metal under ``strip`` up to it on ``metal``: the foot's
+    cut on that metal, a pad on each metal from it to the one under ``metal`` that holds its cuts by
+    their enclosures (as a landing's: the foot's over the ground's own or clear of the others), the
+    top cut inside the strip by its own; its shapes and the metal it leaves from, the nearest
+    first; None where none fits."""
+    finder = _Search(kit, space, ground, metal, db.Trans.R0, db.Box(), False)
+    for foot in sorted((k for k in kit.metals if k < metal), reverse=True):
+        own = space.own_region(ground, f"M{foot}") & strip
+        pieces = (t.bbox() for p in own.each() for t in p.decompose_trapezoids())
+        for x, y in (point for piece in pieces for point in _middle_first(finder, piece, kit.cut(foot)[0] // 2)):
+            cuts = []
+            for below in range(foot, metal):
+                size, gap, _end, _side = kit.cut(below)
+                cut = db.Box(x - size // 2, y - size // 2, x - size // 2 + size, y - size // 2 + size)
+                if not space.clear(ground, f"V{below}", cut, gap):
+                    break
+                cuts.append(cut)
+            if len(cuts) < metal - foot or not space.held(ground, f"M{foot}", cuts[0]):
+                continue
+            top_end = kit.cut(metal - 1)[2:]
+            if not any(_inside(cuts[-1].enlarged(a, b), strip) for a, b in (top_end, top_end[::-1])):
+                continue
+            pads = []
+            for m in range(foot, metal):
+                held = [kit.cut(c)[2:] for c in (m - 1, m) if foot <= c < metal]
+                pads.append(
+                    next(
+                        (
+                            pad
+                            for pad in finder._pads(m, cuts[m - foot], held)
+                            if space.clear(ground, f"M{m}", pad, kit.space(m))
+                        ),
+                        None,
+                    )
+                )
+            if all(pad is not None for pad in pads):
+                vias = [(f"V{m}", cut) for m, cut in zip(range(foot, metal), cuts, strict=True)]
+                return vias + [(f"M{m}", pad) for m, pad in zip(range(foot, metal), pads, strict=True)], foot
+    return None
+
+
+def _middle_first(finder: _Search, piece: db.Box, step: int) -> list[tuple[int, int]]:
+    """Points on the grid along ``piece``'s middle line, ``step`` apart, the nearest its middle first."""
+    middle = piece.center()
+    points = finder._along(piece, 0, max(step, finder.kit.grid), None, (middle.x, middle.y))
+    snapped = {(finder._snap(x), finder._snap(y)) for x, y in points}
+    return sorted(snapped, key=lambda point: abs(point[0] - middle.x) + abs(point[1] - middle.y))
+
+
+def _inside(box: db.Box, outer: db.Region) -> bool:
+    return (db.Region(box) - outer).is_empty()
+
+
 def _order(
     points: list[tuple[int, int, int]],
     spot: str,
@@ -515,12 +654,17 @@ def _thinned(points: list[tuple[int, int, int]], edge_y: int, step: int, keep: i
     return [point for point in points if point in chosen]
 
 
-def _search(search: _Search, spot: str, anchor, along, at_x: int | None = None) -> _Landing | None:
+def _search(
+    search: _Search, spot: str, anchor, along, at_x: int | None = None, within: int | None = None
+) -> _Landing | None:
     """The first point of ``search`` that lands, in their order (a lifted pin's nearest its label
-    alone, ``_LIFT_TRIES``)."""
+    alone, ``_LIFT_TRIES``); ``within``: only those that far along the side from the first."""
     points = _order(search.points(at_x, anchor), spot, search.outline.top if search.edge else None, anchor, along)
     if search.edge:
         points = _thinned(points, search.outline.top, search.kit.half_wide(search.metal))
+    if within is not None and points:
+        first = along(points[0][1], points[0][2])
+        points = [point for point in points if abs(along(point[1], point[2]) - first) <= within]
     for attach, x, y in points[: _TRIES if search.edge else _LIFT_TRIES]:
         found = search.attempt(attach, x, y)
         if found is not None:
@@ -529,8 +673,10 @@ def _search(search: _Search, spot: str, anchor, along, at_x: int | None = None) 
 
 
 def _edge(kit: Kit, space: _Space, intent: dict[str, Any], outline: db.Box, anchor_of) -> list[_Landing]:
-    """An edge pin's landing (and its mirror's) on the lowest landing metal both fit on."""
+    """An edge pin's landing (and its mirror's) on the lowest landing metal both fit on; a shielded
+    one (``shield``) as the module's docstring says."""
     net, side, spot, mirror = intent["net"], intent["side"], intent.get("spot", "nearest"), intent.get("mirror")
+    below = (net, *space.supplies) if intent.get("shield") else None
     trans = _TO_TOP[side]
     back = trans.inverted()
     frame = outline.transformed(trans)
@@ -539,6 +685,17 @@ def _edge(kit: Kit, space: _Space, intent: dict[str, Any], outline: db.Box, anch
         point = back * db.Point(x, y)
         return point.x if side in ("top", "bottom") else point.y
 
+    if mirror is None and below is not None:
+        # at its spot (within SHIELD_WITHIN_NM of it), the highest landing metal first whose metal
+        # under the wire is free for the shield; where none is, as any edge pin, unshielded
+        for metal in reversed(kit.landing):
+            one = _Search(kit, space, net, metal, trans, frame, True, below)
+            found = _search(one, spot, anchor_of(net, trans), along, within=SHIELD_WITHIN_NM)
+            if found is not None:
+                found.side = side
+                _shield(kit, space, found, outline)
+                return [found]
+        LOG.warning(f"pins: no landing of {net} with room for its shield under it: drawn unshielded")
     for metal in kit.landing:
         one = _Search(kit, space, net, metal, trans, frame, True)
         if mirror is None:
@@ -581,7 +738,10 @@ def land(gds: Path, pdk: str, plan: dict[str, Any]) -> dict[str, Any]:
     outline = top.bbox() if outline.empty() else outline
     ports = plan.get("ports", [])
     signals = [port["net"] for port in ports if port["use"] not in SUPPLY_USES]
-    space = _connectivity(layout, top, pdk, signals)
+    supplies = [port["net"] for port in ports if port["use"] in SUPPLY_USES]
+    space = _connectivity(layout, top, pdk, signals + supplies)
+    space.supplies = tuple(supplies)
+    space.grounds = tuple(port["net"] for port in ports if port["use"] == "ground")
 
     def anchor_of(net: str, trans: db.Trans) -> tuple[int, int] | None:
         labels = _labels(layout, top, net)
@@ -619,7 +779,7 @@ def land(gds: Path, pdk: str, plan: dict[str, Any]) -> dict[str, Any]:
                 space.drawn += [(net, name, box) for name, box in found.shapes]
                 break
     for landing in landings.values():
-        for name, box in landing.shapes:
+        for name, box in landing.shapes + landing.shield:
             top.shapes(layout.layer(*kit_.tech.LAYERS[name])).insert(box)
         for index, _point in _labels(layout, top, landing.net):
             shapes = top.shapes(index)
@@ -658,6 +818,13 @@ def land(gds: Path, pdk: str, plan: dict[str, Any]) -> dict[str, Any]:
             )
             if landing.mirror:
                 entry["mirror"] = landing.mirror
+            if landing.shield:
+                entry["shield"] = {
+                    "net": landing.shield_net,
+                    "layer": landing.shield[0][0],
+                    "box_um": framed(landing.shield_box),
+                    "tied_from": f"M{landing.shield_from}",
+                }
         else:
             entry.update(_as_drawn(kit_, layout, top, space, net, framed))
         entries.append(entry)

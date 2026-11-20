@@ -231,12 +231,15 @@ class Spot(Enum):
 class EdgePin:
     """A port's landing on the block's outline (``edge_pins``): on its ``side``, at its ``spot``;
     ``mirror``, a port that lands on the same side at the mirror image of this one's place, about
-    the outline's centre line across the side (a differential pair's two inputs)."""
+    the outline's centre line across the side (a differential pair's two inputs); ``shield``, its wire
+    shielded from the signals' metal under it by a strip of the block's ground (a top plate's, over
+    the routes of the plates it couples to: ``flow.layout.pins``)."""
 
     port: h.Signal
     side: Border
     spot: Spot = Spot.NEAREST
     mirror: h.Signal | None = None
+    shield: bool = False
 
 
 def edge_pins(module: h.Module, *pins: EdgePin) -> None:
@@ -267,6 +270,7 @@ def port_plan(module: h.Module) -> dict[str, Any]:
             "side": pin.side.name.lower(),
             "spot": pin.spot.name.lower(),
             "mirror": pin.mirror.name.lower() if pin.mirror is not None else None,
+            **({"shield": True} if pin.shield else {}),
         }
         for pin in module.props.get(_EDGE_PINS) or ()
     ]

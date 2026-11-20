@@ -6,6 +6,7 @@ in place, its label moved, and the record."""
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -77,9 +78,9 @@ def _labels(gds: Path) -> dict[str, list[tuple[str, int, int]]]:
     return found
 
 
-def _plan(edges=(), signals=("vin",), supplies=()) -> dict[str, Any]:
+def _plan(edges=(), signals=("vin",), supplies=(), grounds=()) -> dict[str, Any]:
     ports = [{"net": n, "use": "signal"} for n in signals] + [{"net": n, "use": "power"} for n in supplies]
-    return {"ports": ports, "edges": list(edges)}
+    return {"ports": ports + [{"net": n, "use": "ground"} for n in grounds], "edges": list(edges)}
 
 
 def _port(record: dict[str, Any], net: str) -> dict[str, Any]:
@@ -145,6 +146,44 @@ def test_a_right_side_pin_and_one_at_its_sides_end(tmp_path: Path, kit) -> None:
     vout, vdac = _port(record, "vout"), _port(record, "vdac")
     assert vout["side"] == "right" and vout["box_um"][2] == 4.0 and vout["layer"] == "M4"
     assert vdac["route_from"] == "M4" and vdac["box_um"][3] == 3.0 and vdac["box_um"][2] > 3.4
+
+
+def test_a_top_plates_landing_is_shielded_from_the_plates_routes_under_it(tmp_path: Path, kit, monkeypatch) -> None:
+    """A top plate's bar on M4 at its side's last end, a plate's route on M3 under that end, the
+    ground's rail on M2 across the top: shielded (``EdgePin.shield``), the landing at the end on M5,
+    the highest landing metal, with a strip of the ground on M4 under its wire tied down to the rail
+    by a stack of cuts, recorded beside the pin; unshielded, on M4 over the route. In a kit with a
+    stack, the strip reaches past the wire's sides as far as the wire stands over the route."""
+    wires = {
+        "vdac": [("M4", (300, 1600, 3700, 1700))],
+        "plate": [("M3", (3450, 1800, 3550, 2500))],
+        "vss": [("M2", (0, 2800, 4000, 3000))],
+    }
+    edge = {"net": "vdac", "side": "top", "spot": "last"}
+    plan = _plan([edge], ("vdac", "plate"), grounds=("vss",))
+    plain = _port(pins.land(_layout(tmp_path / "plain.gds", wires), "toykit", plan), "vdac")
+    assert plain["layer"] == "M4" and plain["box_um"][0] < 3.55 < plain["box_um"][2] and "shield" not in plain
+    gds = _layout(tmp_path / "shielded.gds", wires)
+    port = _port(pins.land(gds, "toykit", {**plan, "edges": [{**edge, "shield": True}]}), "vdac")
+    assert port["layer"] == "M5" and port["box_um"][2] > 3.7 - 0.5
+    shield = port["shield"]
+    assert shield["net"] == "vss" and shield["layer"] == "M4" and shield["tied_from"] == "M2"
+    x0, y0, x1, y1 = shield["box_um"]
+    assert x0 < 3.55 < x1 and y0 < 1.8 + 0.2 and y1 > 2.8  # over the route, down to the rail
+    layout = db.Layout()
+    layout.read(str(gds))
+    cuts = {name: db.Region(layout.top_cell().begin_shapes_rec(layout.layer(*LAYERS[name]))) for name in ("V2", "V3")}
+    assert all(region.count() >= 1 for region in cuts.values())
+    # a kit with a stack: the strip as far past the wire's sides as M5's bottom stands over M3's top
+    stack = {"M3": {"z": 1.0, "thickness": 0.2}, "M5": {"z": 1.8, "thickness": 0.3}}
+    plain_kit = pins.kit
+    monkeypatch.setattr(pins, "kit", lambda pdk: replace(plain_kit(pdk), stack=stack))
+    wide = _port(
+        pins.land(_layout(tmp_path / "wide.gds", wires), "toykit", {**plan, "edges": [{**edge, "shield": True}]}),
+        "vdac",
+    )
+    wire = wide["box_um"][2] - wide["box_um"][0]
+    assert wide["shield"]["box_um"][2] - wide["shield"]["box_um"][0] > wire + 0.6  # past one side at least
 
 
 def test_a_signal_is_lifted_in_place_or_recorded_as_drawn(tmp_path: Path, kit) -> None:

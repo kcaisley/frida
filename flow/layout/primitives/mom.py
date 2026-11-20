@@ -30,6 +30,7 @@ from align.primitive.default.canvas import DefaultCanvas
 
 from ._pdk import DATA, ROWS as _ROWS  # the PDK's layout directory (its tech, rows.json) and the engine
 import capcell
+import tech
 
 
 def _nm(value):
@@ -247,7 +248,7 @@ class MomUnit(_Fabric):
         if array and self.columns_mode:
             self._columns(g, layers, space, columns, height, outer, left, right, above, below, pin_band)
         elif array:
-            self._channels(g, layers, space, columns, height, outer, left, right)
+            self._channels(g, layers, space, columns, height, outer, left, right, above, below)
         elif ringed:
             for x0, y0, x1, y1 in (
                 (0, 0, w, height),
@@ -401,6 +402,11 @@ class MomUnit(_Fabric):
         self.rect(f"M{metal}", terminal, *box)
         self.rect(f"M{metal}", terminal, *box, "pin")
 
+    def _routing_top(self):
+        """The highest metal the rows route on (``layers.json``'s ``top_signal_routing_layer``)."""
+        info = json.loads((DATA / "layers.json").read_text())["design_info"]
+        return int(info["top_signal_routing_layer"].removeprefix("M"))
+
     def _tracks(self, metal):
         """ALIGN's routing tracks on a horizontal ``metal`` in this unit (pitch, offset): its outline
         sits on M2's tracks (``gen_data``), so the metal's must be theirs."""
@@ -409,7 +415,7 @@ class MomUnit(_Fabric):
             raise ValueError(f"M{metal} is no horizontal metal on M2's tracks: an array unit's pins need one")
         return layer["Pitch"], layer["Offset"]
 
-    def _channels(self, g, layers, space, columns, height, outer, left, right):
+    def _channels(self, g, layers, space, columns, height, outer, left, right, above="edge", below="edge"):
         """An abutting unit's shield and its bottom plates' channels on the metal below its plates
         (``capcell.mom_channel``), within the ring's outline. Across the bottom (the main or inner
         finger's root) and, a difference unit, the top (the difference finger's root) a channel:
@@ -419,7 +425,12 @@ class MomUnit(_Fabric):
         stage's stop half a spacing short of the wall (``apart``); at the array's edge the frame
         closes through the channel (``edge``). The rest is ground: the frame under the ring's bars,
         a bar across the unit inside each channel, and between those a grid of lines under the
-        unit's columns, its walls and its inner finger, the plates' own pitch."""
+        unit's columns, its walls and its inner finger, the plates' own pitch. At the array's top
+        and bottom edges (``above``, ``below`` ``edge``), where the array stands beside the rows
+        (its shield on a metal they route on, ``_routing_top``) and the plates' routes there keep to
+        the metals up to the one over the shield (the kit's ``MOM_PLATES_ROUTED_LOW``), the frame a
+        track wider, past the ring's bars: those routes keep a track from under the top plate, the
+        frame between them."""
         c = capcell.mom_channel(layers, space)
         w, layer = g["width"], f"M{c['metal']}"
         pitch, offset = self._tracks(c["metal"])
@@ -443,8 +454,14 @@ class MomUnit(_Fabric):
                 WidthY=c["via_cut"],
             )
         )
-        self.rect(layer, "SHIELD", 0, 0, outer, w)  # the frame under the ring's bars
-        self.rect(layer, "SHIELD", 0, height - w, outer, height)
+        # the frame under the ring's bars; at the array's top and bottom edges, where the array stands
+        # beside the rows (its shield on their routing metals) and its plates' routes keep low, a
+        # track wider, past the bars: those routes keep a track from under the top plate, behind the
+        # shield
+        low = getattr(tech, "MOM_PLATES_ROUTED_LOW", True)
+        guard = pitch if low and c["metal"] <= self._routing_top() else 0
+        self.rect(layer, "SHIELD", 0, -guard if below == "edge" else 0, outer, w)
+        self.rect(layer, "SHIELD", 0, height - w, outer, height + (guard if above == "edge" else 0))
         low, high = 0, height  # the grid's ends: the frame, or a channel's inner bar
         for terminal, column, y0, y1, centre in columns:
             if column != 1:
