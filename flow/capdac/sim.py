@@ -61,11 +61,13 @@ def testbench(tb: TbParams) -> h.Module:
     h.pdk.set_default(importlib.import_module(f"pdk.{tb.pdk}").pdk_logic)
     dut = netlist(tb.params)
     resolve(dut, tb.pdk)
-    # side p on the block's own nets, renamed; side n on its own states and top plate
+    # side p on the block's own nets, renamed; side n on its own states, sensed plates and top plate
     # (a side's difference drivers' states, ``dac_state_diff``, on its states: no net of their own)
     ports = {name: port for name, port in dut.ports.items() if name != "dac_state_diff"}
-    bench, connections = testbench_from_ports("CapdacTb", ports, renames={"dac_state": "dac_state_p", "vdac": "vdac_p"})
+    renames = {"dac_state": "dac_state_p", "dac_plate": "dac_plate_p", "vdac": "vdac_p"}
+    bench, connections = testbench_from_ports("CapdacTb", ports, renames=renames)
     bench.dac_state_n = h.Signal(width=dut.dac_state.width)
+    bench.dac_plate_n = h.Signal(width=dut.dac_plate.width)
     bench.vdac_n = h.Signal()
     vss, vdd, edge = bench.vss, tb.vdd, tb.transition_time_s
     bench.vcm = h.Signal()
@@ -89,6 +91,7 @@ def testbench(tb: TbParams) -> h.Module:
         **{
             **connections,
             "dac_state": bench.dac_state_n,
+            "dac_plate": bench.dac_plate_n,
             "vdac": bench.vdac_n,
             **({"dac_state_diff": bench.dac_state_n} if far else {}),
         }
@@ -100,8 +103,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw output, in nutbin, on disk.
 
     The settling run saves both top plates (``vdac_p``, ``vdac_n``), the P side's states
-    (``dac_state_p_<stage>``) and main bottom plates (within its side, ``dut_p.main_<stage>``),
-    strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the run's
+    (``dac_state_p_<stage>``), main bottom plates (within its side, ``dut_p.main_<stage>``) and
+    sensed plates (``dac_plate_p_<stage>``), strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the run's
     tolerances. A Monte Carlo run (``tb.mc_runs``): every plate's probe at each run's operating
     point, from ``tb.mc_seed``.
     """
@@ -134,6 +137,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             "xtop.vdac_n",
             *(f"xtop.dac_state_p_{stage}" for stage in range(tb.stages)),
             *(f"xtop.dut_p.main_{stage}" for stage in range(tb.stages)),
+            *(f"xtop.dac_plate_p_{stage}" for stage in range(tb.stages)),
         ]
         interval = tb.waveform_sample_interval_s
         analysis = hs.Tran(

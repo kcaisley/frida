@@ -151,7 +151,9 @@ def netlist(param: Params) -> h.Module:
     the P top plate, ``xdac_n`` by its N states on the N top plate, both between ``vdd_dac`` and
     ``vss_dac``. Its polarity is fixed, the difference plates switching opposite the main ones, so
     ``dac_diffcaps`` has no effect here and the digital block's inversion controls drive nothing.
-    The canonical bottom plates are the sides' own (``_generated_aliases``), not the ADC's nets.
+    Each side's sensed main plates (capdac's ``dac_plate``) are the ADC's ``dac_plate_p`` and
+    ``dac_plate_n``, which nothing reads yet. The canonical bottom plates are the sides' own
+    (``_generated_aliases``), not the ADC's nets.
     """
     if param.fabricated is not None:
         return _black_box()
@@ -200,9 +202,14 @@ def netlist(param: Params) -> h.Module:
         ("n", Adc.vin_n, Adc.vdac_n, Adc.dac_state_n, Adc.clk_samp_n, Adc.clk_samp_n_b),
     ):
         # a side of difference strips takes its states at its difference drivers too: for now the
-        # same states (the digital block's difference states drive nothing, below)
+        # same states (the digital block's difference states drive nothing, below); its sensed main
+        # plates (``dac_plate``, a self-timed control's) on nets of their own, which nothing reads yet
         far = {"dac_state_diff": state} if "dac_state_diff" in dac.ports else {}
-        Adc.add(dac(dac_state=state, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac, **far), name=f"xdac_{side}")
+        sensed = Adc.add(h.Signal(width=dac.ports["dac_plate"].width), name=f"dac_plate_{side}")
+        Adc.add(
+            dac(dac_state=state, dac_plate=sensed, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac, **far),
+            name=f"xdac_{side}",
+        )
         Adc.add(sampler(vin=vin, vout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
 
     # Instantiate comparator

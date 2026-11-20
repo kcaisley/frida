@@ -84,13 +84,17 @@ def test_the_outline_nearest_two_to_one_within_the_area_held() -> None:
 
 
 def test_a_tie_cell_abuts_each_driver_and_both_sides_of_a_wide_one() -> None:
+    """A driver's tie on its left, what stands beside it (its plate's sense inverter) between them
+    and a wide driver's right tie."""
     side = h.Module(name="side")
     side.vdd, side.vss = h.Port(), h.Port()
     cell = h.ExternalModule(name="TIE", port_list=[h.Inout(name="VDD"), h.Inout(name="VSS")], paramtype=h.HasNoParams)
     inv = h.ExternalModule(name="INV", port_list=[h.Inout(name="VDD")], paramtype=h.HasNoParams)
     narrow, broad = side.add(inv()(VDD=side.vdd), name="narrow"), side.add(inv()(VDD=side.vdd), name="broad")
-    entries, abut = subckt._tied_row(side, cell, (narrow, broad), {"broad"}, "main0")
-    assert [e.name for e in entries] == ["Xtie_main0_0", "narrow", "Xtie_main0_1", "broad", "Xtie_main0_1r"]
+    sense = side.add(inv()(VDD=side.vdd), name="sense")
+    entries, abut = subckt._tied_row(side, cell, [(narrow,), (broad, sense)], {"broad"}, "main0")
+    names = [e.name for e in entries]
+    assert names == ["Xtie_main0_0", "narrow", "Xtie_main0_1", "broad", "sense", "Xtie_main0_1r"]
     assert len(abut) == 2 and all(a.abut for a in abut)
 
 
@@ -123,7 +127,8 @@ def test_a_driver_settles_its_stage_within_its_budget_past_its_chain(monkeypatch
 
 def test_a_plates_load_is_its_drawn_capacitances(monkeypatch) -> None:
     """``_plate_loads``: a plate's capacitance to the top plate in series with the rest of it, with
-    its capacitance to the shield and the substrate, and twice its coupling to the other plate."""
+    its capacitance to the shield and the substrate, and twice its coupling to the other plate; a
+    main plate's with its sense inverter's input."""
     pairs = {
         ("MAIN", "TOP"): 10e-15,
         ("DIFF", "TOP"): 1e-15,
@@ -136,8 +141,11 @@ def test_a_plates_load_is_its_drawn_capacitances(monkeypatch) -> None:
     monkeypatch.setattr(subckt, "momcap_table", lambda pdk: table)
     route = 0.75e-15  # the kit's wiring to each plate (DRIVER_ROUTE_F), added to every plate's load
     monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_ROUTE_F=route))
+    sense = 0.4e-15  # the main plate's sense inverter's input
+    monkeypatch.setattr(subckt, "least_inverter", lambda pdk: None)
+    monkeypatch.setattr(subckt, "input_f", lambda pdk, request: sense)
     (main, diff), (other, _) = subckt._plate_loads("synthetic", 3, [[(1.0, 0.0)], [(1.0, 0.0)]], 1e-15, True)
     top = 2 * 14e-15
-    assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15 + route)
+    assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15 + route + sense)
     assert diff == pytest.approx(1e-15 * (top - 1e-15) / top + 0.5e-15 + 0.5e-15 + route)
     assert other == pytest.approx(main)

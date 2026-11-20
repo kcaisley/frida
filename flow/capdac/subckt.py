@@ -33,7 +33,10 @@ plate's load as the table draws it, ``_plate_loads``). A minimum-strength flip-f
 the difference driver one inverter (the complement), the main driver's chain loading it with what
 is left of four minimum inverters (``shared_fanin``); the difference drivers take the states on
 an input of their own (``dac_state_diff``), the same flip-flops' outputs brought from outside the
-side, so that the side's two bands of drivers share no wire.
+side, so that the side's two bands of drivers share no wire. Each stage's main plate is sensed by
+the least inverter the kit draws (``least_inverter``), the sense inverters in a row of their own at
+the main band's outer edge: each one's output the side's ``dac_plate`` port (the plate's complement
+at full swing, landed on the side's bottom edge), its input part of the plate's load.
 
 The netlist holds no PDK's dimensions: every request is an ideal device, so it simulates as it is,
 and ``flow.layout.devices.device.resolve`` makes each the PDK's own from its precharacterized
@@ -68,8 +71,11 @@ from flow.layout.devices.mosfet.geometry import flavor
 from flow.layout.devices.mosfet.netlist import (
     DriverParams,
     DriverRequest,
+    drawn_ohm,
     driver,
     driver_widths_nm,
+    input_f,
+    least_inverter,
     row_height_nm,
     shared_fanin,
 )
@@ -83,13 +89,16 @@ from .params import Params, WeightImpl, WellTies, _pieces, _plates, _switched_f,
 
 @h.bundle
 class Nets:
-    """The side's stage states in, a bit per stage, C0 first; its top plate; the DAC's supply,
-    which its drivers switch the bottom plates between (the ADC's DAC reference). A side of
-    difference strips (DIFFERENCE_CAPS) has a second input of the same states, its difference
-    drivers' (``dac_state_diff``), at the strips' far end, driven from outside the side, so that no
-    wire of it runs between its two bands of drivers."""
+    """The side's stage states in, a bit per stage, C0 first; each stage's main bottom plate sensed
+    out (``dac_plate``, the owner's, 2026-11-20: a self-timed converter's sign that the stage has
+    switched); its top plate; the DAC's supply, which its drivers switch the bottom
+    plates between (the ADC's DAC reference). A side of difference strips (DIFFERENCE_CAPS) has a
+    second input of the same states, its difference drivers' (``dac_state_diff``), at the strips'
+    far end, driven from outside the side, so that no wire of it runs between its two bands of
+    drivers."""
 
     dac_state = h.Input(desc="The stage states, C0 first")
+    dac_plate = h.Output(desc="Each stage's main bottom plate's complement at full swing, C0 first")
     vdac = h.Inout(desc="The top plate")
     vdd = h.Power(direction=h.PortDir.INOUT, desc="The DAC's supply, its reference")
     vss = h.Ground(direction=h.PortDir.INOUT, desc="The DAC's ground, the capacitors' shield")
@@ -143,8 +152,9 @@ def _plate_loads(
     """Each stage's plates' loads as the PDK's momcap table draws them (its strips', or its units'):
     the main (or a unit's inner) plate's and the difference plate's capacitance to the top plate in
     series with the rest of the top plate, with their capacitances to the shield and the substrate,
-    and twice their capacitance to each other (they swing apart). A difference plate is a strip's
-    stub at the least where its piece is whole, the plates' share of the table's, not the design's."""
+    and twice their capacitance to each other (they swing apart); the main plate's with its sense
+    inverter's input. A difference plate is a strip's stub at the least where its piece is whole,
+    the plates' share of the table's, not the design's."""
     table = momcap_table(pdk)
     drawn = [
         [
@@ -167,10 +177,15 @@ def _plate_loads(
     # ``DRIVER_ROUTE_F``, from its extraction; 0 where it gives none), which a small stage's
     # driver, sized for its plate alone, otherwise settles slowly through
     route_f = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_ROUTE_F", 0.0)
+    # and on each main (or inner) plate its sense inverter's input (``dac_plate``)
+    sense_f = input_f(pdk, least_inverter(pdk))
     if not difference:
-        return [(_plate_load(stage, "INNER", None, top_f) + route_f, None) for stage in drawn]
+        return [(_plate_load(stage, "INNER", None, top_f) + route_f + sense_f, None) for stage in drawn]
     return [
-        (_plate_load(stage, "MAIN", "DIFF", top_f) + route_f, _plate_load(stage, "DIFF", "MAIN", top_f) + route_f)
+        (
+            _plate_load(stage, "MAIN", "DIFF", top_f) + route_f + sense_f,
+            _plate_load(stage, "DIFF", "MAIN", top_f) + route_f,
+        )
         for stage in drawn
     ]
 
@@ -217,11 +232,12 @@ def _driven(module: h.Module, name: str, state: h.Signal, params: DriverParams) 
 
 @dataclass
 class _Stage:
-    """A stage as it is placed: its drivers and its pieces."""
+    """A stage as it is placed: its drivers, its pieces and its main plate's sense inverter."""
 
     main: h.Instance
     diff: h.Instance | None
     pieces: list[h.Instance]
+    sense: h.Instance | None = None
 
 
 def _strided(count: int, rows: int) -> list[list[int]]:
@@ -353,13 +369,14 @@ def _extent(
     row_nm: int,
     stacked: bool,
     gap_nm: int,
+    sense_nm: int = 0,
 ) -> tuple[int, int]:
     """The side's outline (nm, wide, tall) of the capacitors (``cap_nm``) and the driver bands'
-    rows (``pair``), each ``row_nm`` tall: under the capacitors where they stack (``stacked``), else
-    beyond their ends."""
+    rows (``pair``) and the sense inverters' row (``sense_nm`` wide; 0: none), each ``row_nm``
+    tall: under the capacitors where they stack (``stacked``), else beyond their ends."""
     m, d = pair
-    count = len(m) + len(d)
-    width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm))
+    count = len(m) + len(d) + bool(sense_nm)
+    width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm), sense_nm)
     tall = max(cap_nm[1], count * row_nm) if stacked or not diff else cap_nm[1] + count * row_nm
     return width, tall
 
@@ -389,13 +406,14 @@ def _cost(outline: tuple[int, int], area: int, aspect: tuple[float, float]) -> f
     return round(_miss(outline, aspect) + max(0.0, math.log(math.prod(outline) / area)), 2)
 
 
-def _side_nm(cap_nm: tuple[int, int], bands: tuple[list[int], list[int], int, bool, int]) -> tuple[int, int]:
+def _side_nm(cap_nm: tuple[int, int], bands: tuple[list[int], list[int], int, bool, int, int]) -> tuple[int, int]:
     """The side's outline (nm, wide, tall): the capacitors ``cap_nm`` (wide, tall) and the driver
     bands ``_driver_rows`` stands them in, ``bands`` its main and difference drivers' widths, its
-    rows' height, whether the capacitors stack over them and the difference drivers' gap."""
-    main, diff, row_nm, stacked, gap_nm = bands
+    rows' height, whether the capacitors stack over them, the difference drivers' gap and the sense
+    inverters' row's width."""
+    main, diff, row_nm, stacked, gap_nm, sense_nm = bands
     pair = _driver_rows(main, diff, cap_nm, row_nm, stacked, gap_nm)
-    return _extent(pair, main, diff, cap_nm, row_nm, stacked, gap_nm)
+    return _extent(pair, main, diff, cap_nm, row_nm, stacked, gap_nm, sense_nm)
 
 
 def _drawn(found: tuple[MomcapGeometry, FloorError | None], layers: int) -> bool:
@@ -409,7 +427,7 @@ def _strip_length(
     plates: list[list[tuple[float, float]]],
     unit_f: float,
     coarse: int,
-    bands: tuple[list[int], list[int], int, bool, int],
+    bands: tuple[list[int], list[int], int, bool, int, int],
 ) -> float:
     """The difference strips' length, as the load a strip holds in coarse weights (``coarse`` units
     of ``unit_f``), whose side comes nearest two to one (``_two_to_one``): a coarse weight (the
@@ -436,7 +454,7 @@ def _unit_array(
     pieces: list[tuple[int, ...]],
     unit_f: float,
     whole_f: float,
-    bands: tuple[list[int], list[int], int, bool, int],
+    bands: tuple[list[int], list[int], int, bool, int, int],
     folds: int = 4,
 ) -> tuple[int, int]:
     """The unit capacitors' arrangement whose side comes nearest two to one (``_two_to_one``): each
@@ -548,22 +566,23 @@ def _beside(columns: list[list[tuple[int, int]]], stage: int, row: int, c: int) 
 
 
 def _tied_row(
-    side: h.Module, cell: h.ExternalModule, drivers: tuple[h.Instance, ...], wide: set[str], name: str
+    side: h.Module, cell: h.ExternalModule, groups: list[tuple[h.Instance, ...]], wide: set[str], name: str
 ) -> tuple[tuple[h.Instance, ...], list[c.Constraint]]:
-    """A band row's drivers with the kit's well-tie cell ``cell`` abutting each on its left, and on
-    its right too where the driver is wider than the ties' reach (its name in ``wide``): wherever
-    ALIGN stands the row's drivers, none farther from a tie than the reach. The row's entries left
-    to right and the abutments."""
+    """A band row's ``groups`` of cells (a driver, or sense inverters abutting within the ties'
+    reach), with the kit's well-tie cell ``cell`` abutting each group on its left, and on its right
+    too where its first is wider than the reach (its name in ``wide``): wherever ALIGN stands the
+    row's groups, none farther from a tie than the reach. The row's entries left to right and the
+    abutments."""
     entries: list[h.Instance] = []
     abut: list[c.Constraint] = []
-    for k, drv in enumerate(drivers):
+    for k, group in enumerate(groups):
         ties = [side.add(cell()(VDD=side.vdd, VSS=side.vss), name=f"Xtie_{name}_{k}")]
-        group = [ties[0], drv]
-        if drv.name in wide:
+        members = [ties[0], *group]
+        if group[0].name in wide:
             ties.append(side.add(cell()(VDD=side.vdd, VSS=side.vss), name=f"Xtie_{name}_{k}r"))
-            group.append(ties[1])
-        entries += group
-        abut.append(c.Order(tuple(group), c.OrderDirection.LEFT_TO_RIGHT, abut=True))
+            members.append(ties[1])
+        entries += members
+        abut.append(c.Order(tuple(members), c.OrderDirection.LEFT_TO_RIGHT, abut=True))
     return tuple(entries), abut
 
 
@@ -583,6 +602,7 @@ def _place(
     room_nm: int = 0,
     apart_nm: tuple[int, int] = (0, 0),
     ties: tuple[h.ExternalModule, set[str]] | None = None,
+    senses: list[list[int]] | None = None,
 ) -> None:
     """The side's layout (``side``): its rows top first, its difference drivers, its capacitors, its
     main drivers, every stage's pieces together, its MSB on the left, outside.
@@ -592,7 +612,9 @@ def _place(
     module of the capacitors alone would wire a stage's pieces through the drivers it cannot see.
     The capacitors abut, neighbours sharing their ring walls (one top plate). Each band of drivers
     is tight, its rows abutting, its outer row on the side's edge: the main drivers' at the bottom,
-    under the capacitors' main channels, the difference drivers' at the top, by their difference
+    under the capacitors' main channels, its outer row the stages' sense inverters (``senses``,
+    stage indices in groups: a tied row's tie abuts each group), the difference drivers' at the
+    top, by their difference
     channels at the strips' far end, each band's drivers in a row on one line. Where the PDK's
     capacitors lie above the metals the rows route on (``stacked_over_rows``), they stand over both
     bands (``Stackup``), the rows between the bands left free (``flow.layout.step.free_rows``),
@@ -615,20 +637,24 @@ def _place(
     pdk = active_pdk()
     slice_ = stacked_over_rows(pdk, _array_layers(pdk)) if pdk else None
     caps = _ordered(stages, lambda stage: stage.pieces)
-    drivers = _ordered(stages, lambda stage: [stage.main, stage.diff])
-    # each band's rows from the side's edge in: the main band's bottom up, the difference band's top down
-    mains = [_ordered([stages[i] for i in r], lambda stage: [stage.main]) for r in main_rows]
-    diffs = [_ordered([stages[i] for i in r], lambda stage: [stage.diff]) for r in diff_rows]
+    drivers = _ordered(stages, lambda stage: [stage.main, stage.sense, stage.diff])
+    # each band's rows from the side's edge in, in groups (``_tied_row``): the main band's bottom up,
+    # its sense inverters' row first, the difference band's top down
+    sensing = [[tuple(s for i in group if (s := stages[i].sense) is not None) for group in senses or []]]
+    main_groups = [*(r for r in sensing if r), *([(stages[i].main,) for i in r] for r in main_rows)]
+    diff_groups = [[(stages[i].diff,) for i in r if stages[i].diff is not None] for r in diff_rows]
+    mains = [tuple(x for group in r for x in group) for r in main_groups]
+    diffs = [tuple(x for group in r for x in group) for r in diff_groups]
     plain_diffs = [r for r in diffs if r]  # the difference drivers alone, spread apart
     tie_abut: list[c.Constraint] = []
     if ties is not None:
         cell, wide = ties
-        for band, band_rows in (("main", mains), ("diff", diffs)):
-            for k, r in enumerate(band_rows):
+        for band, groups, band_rows in (("main", main_groups, mains), ("diff", diff_groups, diffs)):
+            for k, r in enumerate(groups):
                 entries, abut = _tied_row(side, cell, r, wide, f"{band}{k}")
+                drivers += tuple(x for x in entries if all(x is not y for y in band_rows[k]))
                 band_rows[k] = entries
                 tie_abut += abut
-                drivers += tuple(x for x in entries if all(x is not y for y in r))
     mains = [r for r in reversed(mains) if r]  # top first
     diffs = [r for r in diffs if r]
     if grid:  # the column array's rows, top first, and its columns
@@ -794,13 +820,22 @@ def _array_layers(pdk: str, most: int = 3) -> int:
 
 
 def _keys(
-    params: Params, pdk: str, weights: Sequence[float], loads: list[tuple[float, float | None]], difference: bool
+    params: Params,
+    pdk: str,
+    weights: Sequence[float],
+    loads: list[tuple[float, float | None]],
+    difference: bool,
+    mains: Sequence[float] | None = None,
 ) -> list[tuple[tuple[float, bool, float], tuple[float, bool, float] | None]]:
     """Each stage's drivers (on-resistance, inversion, fan-in), for its plates' ``loads``: the main
     plates' of its input, the difference plates' of its complement, both on the state's flip-flop:
-    the difference driver first, the main chain on what is left of the flip-flop's FO4."""
+    the difference driver first, the main chain on what is left of the flip-flop's FO4. Each sized
+    for its stage's weight, their residues cancelling as their steps do; where the difference
+    driver is drawn faster than the main (the kit's least inverter, stronger than a small plate
+    asks), the main driver settles its plate's own step (``mains``: each stage's main plates, in
+    units of weight) to half an LSB too."""
     keys = []
-    for weight, (main_f, diff_f) in zip(weights, loads, strict=True):
+    for stage, (weight, (main_f, diff_f)) in enumerate(zip(weights, loads, strict=True)):
         share = weight / sum(weights)
         diff_key = None
         if difference and diff_f is not None:
@@ -808,26 +843,36 @@ def _keys(
             diff_key = (_drive_r_ohm(params, share, diff_f, pdk, True, fanin), True, fanin)
         beside = [DriverRequest(diff_key[0], True, fanin=diff_key[2])] if diff_key else []
         fanin = shared_fanin(pdk, beside)
-        keys.append(((_drive_r_ohm(params, share, main_f, pdk, False, fanin), False, fanin), diff_key))
+        main_r = _drive_r_ohm(params, share, main_f, pdk, False, fanin)
+        if beside and diff_f is not None and mains is not None and drawn_ohm(pdk, beside[0]) * diff_f < main_r * main_f:
+            # not in the reference texts: the two plates' residues cancel at the top plate only
+            # while they settle together; the difference plate's settled first, the main plate's
+            # whole step is left (a small stage's two plates each tens of LSB: capdac frida1's
+            # last stages in GF180, its main plates' sense inverters more load than its difference
+            # plates', 0.64 ns post-layout)
+            main_r = min(main_r, _drive_r_ohm(params, mains[stage] / sum(weights), main_f, pdk, False, fanin))
+        keys.append(((main_r, False, fanin), diff_key))
     return keys
 
 
 # a fresh module every call: resolving the requests in a PDK swaps them in place
 @h.generator(enable_cache=False)
 def netlist(params: Params) -> h.Module:
-    """The side's stages: each stage's pieces between its bottom plates and the top plate, and the
-    drivers of its main and (DIFFERENCE_CAPS) difference plates. A plate drawn as a difference stub
-    alone has a driver sized for a unit of load."""
+    """The side's stages: each stage's pieces between its bottom plates and the top plate, the
+    drivers of its main and (DIFFERENCE_CAPS) difference plates, and its main plate's sense
+    inverter. A plate drawn as a difference stub alone has a driver sized for a unit of load."""
     weights = _weights(params)
     unit_f = _switched_f(params, _reference_v()) / sum(weights)
     whole_f = params.coarse_weight * unit_f
     pieces = [_pieces(params, weight) for weight in weights]
     plates = [[_plates(params, piece) for piece in stage] for stage in pieces]
+    mains = [sum(main for main, _diff in stage) for stage in plates]  # each stage's main plates (units)
     top_f = unit_f * sum(main + diff for stage in plates for main, diff in stage)
     difference = params.weight_impl is WeightImpl.DIFFERENCE_CAPS
 
     ports = dict(Nets.signals)
     ports["dac_state"] = replace(ports["dac_state"], width=len(weights))
+    ports["dac_plate"] = replace(ports["dac_plate"], width=len(weights))
     if difference:  # the difference drivers' own input of the states
         ports["dac_state_diff"] = replace(
             ports["dac_state"], name="dac_state_diff", desc="The stage states at the difference drivers, C0 first"
@@ -837,13 +882,22 @@ def netlist(params: Params) -> h.Module:
     # converter's other side, by the comparator), above the shield (flow.layout.pins), its wire
     # shielded from the plates' routes under it (each would couple to the top plate there, its
     # stage's weight with it), the ground's strip between them
-    edge_pins(Capdac, EdgePin(Capdac.vdac, Border.TOP, Spot.LAST, shield=True))
+    # each stage's sensed plate on the outline's bottom, the main band's edge, where its sense
+    # inverter's output comes nearest it
+    edge_pins(
+        Capdac, EdgePin(Capdac.vdac, Border.TOP, Spot.LAST, shield=True), EdgePin(Capdac.dac_plate, Border.BOTTOM)
+    )
     pdk = active_pdk()
     if pdk is None:
         raise RuntimeError(
             "the CDAC's layout plan takes its units' and drivers' sizes from the active PDK: none is set"
         )
     table, layers = momcap_table(pdk), _array_layers(pdk)
+    # each main plate sensed by the least inverter the kit draws, the sense inverters in a row of
+    # their own at the main band's outer edge, by their pins
+    sense = least_inverter(pdk)
+    sense_nm = driver_widths_nm(pdk, [sense])[0]
+    sense_row_nm = len(weights) * sense_nm
     # each stage's drivers sized for its plates' loads: first the design's (each plate in series
     # with the rest of the top plate), then those the drawn arrangement gives (``_plate_loads``: its
     # stubs and parasitics), until the arrangement, which the drivers' widths choose, stands still
@@ -852,7 +906,7 @@ def netlist(params: Params) -> h.Module:
         (main_f * (top_f - main_f) / top_f, diff_f * (top_f - diff_f) / top_f) for main_f, diff_f in designed
     ]
     for _attempt in range(3):
-        keys = _keys(params, pdk, weights, loads, difference)
+        keys = _keys(params, pdk, weights, loads, difference, mains)
         drives = sorted({key for pair in keys for key in pair if key is not None})
 
         # the drivers' widths as drawn and the rows they stand in, of the outline the capacitors and the
@@ -876,7 +930,7 @@ def netlist(params: Params) -> h.Module:
         # to wide: difference strips of a length (``_strip_length``, ``_strips``; the array the same,
         # its plates' sums), unit pieces each in so many units in a column array of so many rows
         # (``_unit_array``, ``_columns``); each piece's column, row and neighbours
-        bands = (main_widths, diff_widths, row_nm, slice_ is not None, gap_nm)
+        bands = (main_widths, diff_widths, row_nm, slice_ is not None, gap_nm, sense_row_nm)
         if difference:
             scale = _strip_length(pdk, layers, plates, unit_f, params.coarse_weight, bands)
             frame_f = params.coarse_weight * scale * unit_f
@@ -890,7 +944,7 @@ def netlist(params: Params) -> h.Module:
             strips = [[(p / fold, 0.0) for p in stage for _ in range(fold)] for stage in pieces]
             columns = _columns([tuple(m for m, _ in stage) for stage in strips], count)
         drawn = _plate_loads(pdk, layers, strips, unit_f, difference)
-        if _keys(params, pdk, weights, drawn, difference) == keys:
+        if _keys(params, pdk, weights, drawn, difference, mains) == keys:
             break
         loads = drawn
     at = {piece: (col, row) for col, column in enumerate(columns) for row, piece in enumerate(column)}
@@ -906,14 +960,19 @@ def netlist(params: Params) -> h.Module:
         and tie
         and _side_nm((wide * outline[0], tall * outline[1]), bands)[0] > 2 * reach_nm
     )
+    # the sense inverters in groups, a group's abutting: in a tied band as many behind each tie as
+    # its reach holds
+    per_tie = max(1, reach_nm // sense_nm) if tied else len(weights)
+    senses = [list(range(k, min(k + per_tie, len(weights)))) for k in range(0, len(weights), per_tie)]
     if tied:
         main_widths = [w + tie[1] * (1 + (w > reach_nm)) for w in main_widths]
         diff_widths = [w + tie[1] * (1 + (w > reach_nm)) for w in diff_widths]
+        sense_row_nm += tie[1] * len(senses)
     main_rows, diff_rows = _driver_rows(
         main_widths, diff_widths, (wide * outline[0], tall * outline[1]), row_nm, slice_ is not None, gap_nm
     )
-    band_nm = (len(main_rows) + 1) * row_nm
-    rows_nm = max(_rows_width(main_widths, main_rows), _rows_width(diff_widths, diff_rows, gap_nm))
+    band_nm = (len(main_rows) + 2) * row_nm  # its sense inverters' row too
+    rows_nm = max(_rows_width(main_widths, main_rows), _rows_width(diff_widths, diff_rows, gap_nm), sense_row_nm)
     room_nm = 0
     if slice_ is not None and wide * outline[0] >= rows_nm:
         # where the capacitors set the side's width (no driver row reaches past them), its last
@@ -931,7 +990,11 @@ def netlist(params: Params) -> h.Module:
         if diff_key is not None:
             assert far is not None  # a difference key only where the array has difference capacitors
             diff, diff_drive = _driven(Capdac, f"diff_{stage}", far[stage], _drive(*diff_key, difference))
-        placed = _Stage(main_drive, diff_drive, [])
+        sensed = driver(DriverParams(r_ohm=sense.r_ohm, invert=True))
+        sense_inv = Capdac.add(
+            sensed(A=main, Y=Capdac.dac_plate[stage], VDD=Capdac.vdd, VSS=Capdac.vss), name=f"sense_{stage}"
+        )
+        placed = _Stage(main_drive, diff_drive, [], sense_inv)
         for index, (main_u, diff_u) in enumerate(strips[stage]):
             name = f"Xc_{stage}_{index}"  # an instance of a subcircuit (the PDK's view) is X...
             # its neighbours in the row of capacitors (``_place``): its stage's pieces together, the
@@ -989,5 +1052,5 @@ def netlist(params: Params) -> h.Module:
             if d is not None and key is not None and widths[key] > reach_nm
         }
         ties = (library_module(import_module(f"pdk.{pdk}.hdl21.cells"), tie[0]), wide_drivers)
-    _place(Capdac, stages, grid, main_rows, diff_rows, gap_nm, room_nm, apart_nm, ties)
+    _place(Capdac, stages, grid, main_rows, diff_rows, gap_nm, room_nm, apart_nm, ties, senses)
     return Capdac
