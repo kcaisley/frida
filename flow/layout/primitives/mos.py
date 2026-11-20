@@ -318,6 +318,45 @@ class MOSGenerator(RowCanvas):
         self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
 
 
+class MosWell(RowCanvas):
+    """PMOS whose bulk is a net of their own in an N-well of their own (``wellcell.mos_well``: an
+    island two rows tall or more, its own tap on the bulk, kept from the rows' wells by the kit's
+    space to another net's well), a generic primitive: its subcircuit holds the devices (the
+    netlist's own, so LVS sees them) under a ``Generator`` annotation (``flow.circuit.netlists``
+    groups them by bulk), whose parameters name the supplies (``vdd``, ``vss``); ``gen_param.py``
+    reads the devices from it (``devices``: ``name:l:w:nf:d:g:s:far`` each, nm, w per finger;
+    ``bulk``). Pins: the devices' nets."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Pdk().load(DATA / "layers.json"))
+
+    def generate(self, ports, netlist_parameters, netlistdir=None):
+        import wellcell
+
+        p = netlist_parameters
+        names = {str(port).upper(): str(port) for port in ports}
+        net = lambda n: names.get(str(n).upper(), str(n))
+        devices, ties = [], set()
+        for spec in str(p["devices"]).split(";"):
+            name, l, w, nf, d, g, s, far = spec.split(":")
+            devices.append(rowcell.Dev(name, int(l), int(w), int(nf), net(d), net(g), net(s)))
+            ties |= {net(n) for n, bit in ((d, 1), (g, 2), (s, 4)) if int(far) & bit}
+        supply = lambda key: names.get(str(p.get(key, key)).upper())  # a rail's net, where a port
+        cell = wellcell.mos_well(
+            "WELL",
+            devices,
+            [rowcell.Run(k, v.nf) for k, v in enumerate(devices)],
+            net(p["bulk"]),
+            grid=X_GRID,
+            vss=supply("vss"),
+            vdd=supply("vdd"),
+            ties=frozenset(ties) if ties else None,
+        )
+        _reach_two_tracks(cell)
+        self.draw(cell.rects)
+        self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
+
+
 class CmosInverter(RowCanvas):
     """A complementary inverter in one row cell (``rowcell.inverter``), a generic primitive: its
     subcircuit holds its NMOS and PMOS (the netlist's own devices, so LVS sees them) under a

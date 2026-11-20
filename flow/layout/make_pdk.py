@@ -10,7 +10,8 @@ ALIGN frida's generators, ``package.py``; ``test_make_pdk.py`` checks the files 
 * models.sp: models_base.sp plus the PDK's MOS models;
 * rows.json: where mos.py finds the PDK's layout directory and the row engine, and which of
   ALIGN's spare layers (Rvt, Hvt, Pb) carry the PDK's own row-cell markers (its PO_MARK,
-  GATE_MARK, VT_MARKS, RAIL_MARKS, PO_DUMMY_LAYER and GATE_CONTACT_MARK);
+  GATE_MARK, VT_MARKS, RAIL_MARKS, PO_DUMMY_LAYER and GATE_CONTACT_MARK) and a well tap's own
+  layers (WELL_TAP's diffusion and markers, ``rows/wellcell.py``);
 * user_template.sp: ALIGN's own user templates and those of frida's first-class devices
   (``primitives/models.py``: the MOM units, each a primitive of MomUnit's, as ALIGN's CAP_2T is of
   its cap generator); their models come from the package's ``pdk_models``.
@@ -92,6 +93,10 @@ def build(pdk: str, out: Path | None = None) -> Path:
     marks += ["CPO"] if getattr(t, "RAIL_POLY_CUT", None) else []  # the inverters' cut poly over the rails
     gate_contact = getattr(t, "GATE_CONTACT_MARK", None)  # the gate contacts' marker, unless a marker above
     marks += [gate_contact["layer"]] if gate_contact and gate_contact["layer"] not in marks else []
+    # a well tap's own diffusion layer (wellcell's WELL_TAP, a kit whose taps are a layer apart) and markers
+    well_tap = getattr(t, "WELL_TAP", None) or {}
+    for layer in (well_tap.get("od"), *(m for m, _ in well_tap.get("marks", ()))):
+        marks += [layer] if layer and layer not in marks and layer not in names.values() else []
     extra = dict(zip(marks, ("Rvt", "Hvt", "Pb"), strict=False))
     names.update({align: key for key, align in extra.items()})
     layers = []

@@ -20,7 +20,7 @@ _SPEC.loader.exec_module(_ALIGN)
 
 # the PDK's own generators a netlist names (``Generator(name=...)``): ALIGN's generic primitives, each
 # drawn by its class's ``generate(ports, netlist_parameters)`` from its subcircuit's parameters
-_generic = ("MomUnit", "CmosInverter", "CmosChain")
+_generic = ("MomUnit", "CmosInverter", "CmosChain", "MosWell")
 
 
 def _inverter_values(subckt):
@@ -38,6 +38,25 @@ def _inverter_values(subckt):
     return values
 
 
+def _well_values(subckt):
+    """PMOS in a well of their own (mos.MosWell): each device as ``name:l:w:nf:d:g:s:far`` (nm, w per
+    finger as make_design.py writes it, ``far`` its terminals on the other type's rail), ``;``
+    between, in the netlist's order; their bulk (one net, the well's)."""
+    import mosline
+
+    devices, bulks = [], set()
+    for e in subckt.elements:
+        q = {k.lower(): str(v) for k, v in e.parameters.items()}
+        pins = {k.upper(): str(v) for k, v in e.pins.items()}
+        nf = int(float(q.get("nf", 1))) * int(float(q.get("m", 1)))
+        far = int(float(q.get("far", 0)))
+        fields = [e.name, mosline.nm(q["l"]), mosline.nm(q["w"]), nf, pins["D"], pins["G"], pins["S"], far]
+        devices.append(":".join(str(f) for f in fields))
+        bulks.add(pins["B"])
+    assert len(bulks) == 1, f"{subckt.name}: one bulk a well, got {bulks}"
+    return {"devices": ";".join(devices), "bulk": bulks.pop()}
+
+
 def gen_param(subckt, primitives, pdk_dir):
     named = [c.name for c in subckt.constraints if type(c).__name__ == "Generator"]  # Generator(name=...)
     name = subckt.name
@@ -51,6 +70,11 @@ def gen_param(subckt, primitives, pdk_dir):
                     values.update({k.lower(): v for k, v in (c.parameters or {}).items()})
         elif kind == "CmosChain":  # its inverters from the annotation's own parameters
             values = {}
+            for c in subckt.constraints:
+                if type(c).__name__ == "Generator":
+                    values.update({k.lower(): v for k, v in (c.parameters or {}).items()})
+        elif kind == "MosWell":  # its devices, and the annotation's supplies
+            values = _well_values(subckt)
             for c in subckt.constraints:
                 if type(c).__name__ == "Generator":
                     values.update({k.lower(): v for k, v in (c.parameters or {}).items()})

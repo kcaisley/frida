@@ -12,7 +12,8 @@ and puts vlsir's package in a context by passes on its data, none on netlist tex
   its generator's parameters on the call, ``flow/layout/primitives/models.py``); each row cell's
   subcircuit under its generator's annotation; each MOS as ALIGN reads it (width per finger, all
   fingers in ``nf``, ``far`` where a terminal is on the other type's supply), split into the parts
-  its placement names (``hdl21align.halves``).
+  its placement names (``hdl21align.halves``); the PMOS whose bulk is none of the supplies gathered
+  by bulk into a primitive of their own (``_wells``: their own N-well), placed where they were.
 * LVS: each MOM unit as the devices the PDK's deck recognizes in it (``mom_devices``), each MOS
   as the deck reads it (``mos``), both the kit's rules (``pdk/<pdk>/netlist/lvs.py``, ``kit_lvs``);
   no annotation.
@@ -368,6 +369,80 @@ def _split(pkg: vckt.Package, splits: dict[str, dict[str, int]]) -> None:
         m.instances.extend(out)
 
 
+# the generator of the PMOS whose bulk is a net of their own (flow/layout/primitives/mos.py)
+WELL_GENERATOR = "MosWell"
+
+
+def _wells(pkg: vckt.Package, supplies: dict[str, tuple]) -> None:
+    """Each module's PMOS whose bulk is none of its power nets (a bootstrap's boosted node, say),
+    by bulk net: a module of their own, ``<module>_well_<bulk>``, under the annotation of the
+    generator that draws them in an N-well of their own on the bulk with its own tap, apart from
+    the rows' wells (``WELL_GENERATOR``; its parameters the module's supplies), called where the
+    first of them was as ``well_<bulk>``; the module's placement names the call for them
+    (``_constraints``). A row cell's well is its rail's: one on another net would join the two."""
+    from flow.util.mos_models import polarity
+
+    index = _Index(pkg)
+    modules = []
+    for m in pkg.modules:
+        power, ground = supplies.get(_short(m.name), ({"vdd"}, {"vss"}))
+        groups: dict[str, list[int]] = {}  # bulk net to its devices' places in the module
+        for at, instance in enumerate(m.instances):
+            ext = index.external(instance.module)
+            if ext is None or ext.spicetype != vckt.SpiceType.MOS or polarity(ext.name.name) != "p":
+                continue
+            nets = {
+                c.portname.lower(): c.target.sig for c in instance.connections if c.target.WhichOneof("stype") == "sig"
+            }
+            if nets.get("b") and nets["b"] not in power:
+                groups.setdefault(nets["b"], []).append(at)
+        calls: dict[int, vckt.Instance | None] = {}
+        for bulk, members in groups.items():
+            wrapper = vckt.Module(name=f"{_short(m.name)}_well_{bulk}")
+            nets = sorted({c.target.sig for at in members for c in m.instances[at].connections})
+            for net in nets:
+                wrapper.signals.add(name=net, width=1)
+                wrapper.ports.add(signal=net, direction=vckt.Port.Direction.NONE)
+            for at in members:
+                wrapper.instances.add().CopyFrom(m.instances[at])
+            supply = {"vdd": min(power), "vss": min(ground)}
+            wrapper.literals.append(f"* @: Generator(name='{WELL_GENERATOR}', parameters={supply!r})")
+            modules.append(wrapper)
+            call = vckt.Instance(name=f"well_{bulk}")
+            call.module.CopyFrom(vutils.Reference(local=wrapper.name))
+            _connect(call, {net: vckt.ConnectionTarget(sig=net) for net in nets})
+            calls[members[0]] = call
+            calls.update(dict.fromkeys(members[1:]))
+        copy = vckt.Module()
+        copy.CopyFrom(m)
+        if calls:
+            del copy.instances[:]
+            for at, instance in enumerate(m.instances):
+                if at not in calls:
+                    copy.instances.add().CopyFrom(instance)
+                elif calls[at] is not None:
+                    copy.instances.add().CopyFrom(calls[at])
+        modules.append(copy)
+    del pkg.modules[:]
+    pkg.modules.extend(modules)
+
+
+def _well_calls(pkg: vckt.Package, m: vckt.Module) -> dict[str, str]:
+    """The netlist names (``Mpre``) of the devices ``_wells`` gathered in ``m``, each to its well's call
+    (``Xwell_boot_top``)."""
+    index = _Index(pkg)
+    found = {}
+    for instance in m.instances:
+        if instance.module.WhichOneof("to") != "local":
+            continue
+        wrapper = index.module(instance.module.local)
+        if wrapper is None or not any(f"name='{WELL_GENERATOR}'" in line for line in wrapper.literals):
+            continue
+        for member in wrapper.instances:
+            found[index.letter(member).upper() + member.name] = index.letter(instance).upper() + instance.name
+    return found
+
+
 def _used_ports(pkg: vckt.Package) -> None:
     """The top's ports some instance connects: a block's unused option leaves a port dangling,
     which ALIGN would place at the origin as a terminal with no pin."""
@@ -518,6 +593,7 @@ def package(block: Block, context: Context, splits: dict[str, dict[str, int]] | 
         _row_cells(pkg, cells)
         _mos_for_align(pkg, mosline.w_per_finger(root / "pdk" / block.pdk), models, supplies)
         _split(pkg, splits or {})
+        _wells(pkg, supplies)
         _used_ports(pkg)
     return pkg
 
@@ -596,13 +672,21 @@ def _constraints(pkg: vckt.Package, m: vckt.Module, module: h.Module | None, pla
         return [*supplies, {"constraint": "AspectRatio", "ratio_low": 1 / 1.5, "ratio_high": 1.5}, NO_LOGIC_TEMPLATES]
     index = _Index(pkg)
     present = {index.letter(i).upper() + i.name for i in m.instances}
+    # the devices in a well of their own (``_wells``): their well's call where they were, once
+    wells = _well_calls(pkg, m)
+    renamed = lambda names: list(dict.fromkeys(wells.get(n, n) for n in names))
     groups = [dict(c) for c in stated if c["constraint"] == "GroupBlocks"]
     for group in groups:
-        inner = group.get("constraints") or []
+        group["instances"] = renamed(group["instances"])
+        group["constraints"] = [
+            {**c, "regions": [renamed(r) for r in c["regions"]]} if c["constraint"] == "Floorplan" else c
+            for c in group.get("constraints") or []
+        ]
+        inner = group["constraints"]
         if not any(c["constraint"] == "ConfigureCompiler" for c in inner):
             group["constraints"] = [COMPILER, *inner]
     known = present | {g["instance_name"] for g in groups}
-    rows = [[n for n in r if n in known] for r in plan["rows"]]
+    rows = [[n for n in renamed(r) if n in known] for r in plan["rows"]]
     const = [COMPILER, *supplies, *groups]
     if sum(len(r) for r in rows) > 1:  # one instance: nothing to place (ALIGN refuses it)
         const.append(

@@ -32,6 +32,9 @@
   wide wire, a rail shaved back from ALIGN's M1 (``clear_rails``).
 * Landings: a MOM array's plates' stubs below their channels' bars that no route reached removed
   (``idle_landings``), one a plate left where its route came in.
+* Islands (PMOS on a bulk of their own in a well of their own, ``rows/wellcell.py``): in a PDK whose
+  rails carry no taps, the library's tie cell at both sides of each island cell's VDD lines' rows,
+  in the room it keeps there, as at a row end (``well_ties``).
 * Keep-outs: the router's, which ALIGN writes as metal, removed (``drop_keepouts``).
 * Labels: ALIGN writes the pin labels on the PDK's pin-text layers itself (make_pdk.py's
   LabelLayerNo, honoured by its writers since ALIGN 24656418); pin shapes,
@@ -158,6 +161,38 @@ def insert_stdcells(layout: kdb.Layout, lib_path: str) -> int:
                     cell.insert(kdb.CellInstArray(real(fill).cell_index(), kdb.Trans(x, 0)))
                     x += w
         n += 1
+    return n
+
+
+# an island cell's name: ALIGN's for the subcircuit ``flow.circuit.netlists._wells`` makes of the
+# PMOS on a bulk of their own (``<module>_well_<bulk>``, upper case, its own suffix)
+WELL = re.compile(r"_WELL_", re.IGNORECASE)
+
+
+def well_ties(layout: kdb.Layout, lib_path: str) -> int:
+    """For a PDK whose rails carry no taps (``wellcell.TIE``): the library's tie cell at the tie
+    sites of every island cell (``wellcell.tie_sites``: both sides of the row under each of its VDD
+    lines), where its island cuts the rows' wells as a row end does. Returns the ties inserted."""
+    import wellcell
+
+    if not wellcell.TIE:
+        return 0
+    lib = kdb.Layout()
+    lib.read(lib_path)
+    n = 0
+    for cell in list(layout.each_cell()):
+        if not WELL.search(cell.name) or cell.name.endswith("_lib"):
+            continue
+        outline = kdb.Region(cell.shapes(layout.layer(*BND))).bbox()
+        if outline.empty():
+            continue
+        tie = netcells._lib_cell(layout, kdb, lib, wellcell.TIE[0])
+        for x, y, mirror in wellcell.tie_sites(outline.width(), outline.height() // rowcell.H):
+            at = (outline.left + x, outline.bottom + y)
+            cell.insert(
+                kdb.CellInstArray(tie.cell_index(), kdb.Trans(kdb.Trans.M90, *at) if mirror else kdb.Trans(*at))
+            )
+            n += 1
     return n
 
 
@@ -1288,6 +1323,7 @@ def post(
     routes = kdb.Region(top.shapes(layout.layer(*LAYERS["M1"])))  # ALIGN's own M1, before flattening
     wires = kdb.Region(top.shapes(layout.layer(*LAYERS["M2"])))  # and its M2
     n_std = insert_stdcells(layout, lib)
+    n_well_ties = well_ties(layout, lib)
     shields = mom_shields(layout, top, mom_units or {})  # before flattening: by the units' cells
     landings, idle = idle_landings(layout, top, mom_units or {})
     # rows holding standard cells, from the abstracts' placement
@@ -1404,6 +1440,7 @@ def post(
         "fill": fill.record(),
         "supply lines": lines,
         "row-end ties": n_ties,
+        **({"island ties": n_well_ties} if n_well_ties else {}),
         **({"shield ties": n_shield} if shields else {}),
         **({"landings": {"drawn": landings, "kept": landings - idle_stubs}} if landings else {}),
         **({"keep-outs dropped": n_keepouts} if n_keepouts else {}),

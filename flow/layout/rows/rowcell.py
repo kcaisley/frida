@@ -245,6 +245,20 @@ def _access_stubs(strips, sh, tracks, sdx, m3s, rail_net, width) -> dict[str, li
     return stubs
 
 
+def _pads_clear(m: int, ys: tuple[int, ...], net: str, strips, sh: int, tracks: dict[str, int], rail_net) -> bool:
+    """Whether VIA2 landing pads at column ``m`` on the tracks ``ys`` keep the M2 space from the
+    VIA1 pads of the other nets' strips on their tracks (none to keep without M2_VIA_PAD)."""
+    if not M2_VIA_PAD:
+        return True
+    (hx1, hy1), (hx2, hy2) = M2_VIA_PAD["V1"], M2_VIA_PAD["V2"]
+    ones = [(x + sh, tracks[n]) for x, n, _, _ in strips if n in tracks and n not in (net, rail_net)]
+    return all(
+        _gap((m - hx2, y - hy2, m + hx2, y + hy2), (x - hx1, t - hy1, x + hx1, t + hy1)) >= M2_SPACE
+        for y in ys
+        for x, t in ones
+    )
+
+
 def _up(v: int, g: int) -> int:
     return -(-v // g) * g
 
@@ -448,6 +462,7 @@ def mos_array(
     m2_rails: bool = False,
     extra: int = 0,
     ties: frozenset[str] | None = None,
+    taps: dict[str, int] | None = None,
 ) -> Cell:
     """Transistors of one type in one row, their fingers in the order ``runs`` gives: one device,
     a pair side by side (ALIGN's DP, CMC, CCP ... with two runs, mirrored about the middle), or an
@@ -465,6 +480,8 @@ def mos_array(
     narrow for its jumpers' M3 columns is drawn ``grid`` wider (``extra``) until they fit. ``ties``:
     the nets tied to the other type's rail (an NMOS drain or gate on vdd, say), that rail's net by
     default; a gate net gets an M1 strap into that rail, an S/D net an M3 jumper to its line.
+    ``taps``: S/D nets each joined to an M1 bar of the rails' width on a line of its own (y, the
+    cell's frame: a well tap past the cell, ``wellcell``) by an M3 jumper landed as on that rail.
     """
     assert runs and all(r.nf >= 1 for r in runs), f"{name}: no fingers"
     for v in devs:
@@ -755,7 +772,7 @@ def mos_array(
         )
         if best is None:  # too narrow: one column wider, centred
             assert extra < 8 * grid, f"{name}: no M3 tracks for the cross-coupling"
-            return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties)
+            return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties, taps)
         _, xd, xg = best
         for net, d_, g_, tc in ((nb, xd, xg, free[0]), (na, width - xd, width - xg, free[1])):
             sdx[net] = [min(sdx[net][0], d_), max(sdx[net][1], d_)]
@@ -791,6 +808,10 @@ def mos_array(
                 if all(abs(m - u) >= XPITCH for u in used) and clear(m)
             ]
             assert cand, f"{name}: no M3 track for the {g} jumper"
+            # where M2 lands its cuts on pads (M2_VIA_PAD), a column whose VIA2 pads keep the M2 space
+            # from the other nets' VIA1 pads on their bars (a diode's jumper beside its source's strip
+            # on the next track), where one does
+            cand = [m for m in cand if _pads_clear(m, (tracks[g], gtrack[g]), g, strips, sh, tracks, rail_net)] or cand
             m = min(cand, key=lambda m: (max(0, glo - m, m - ghi), abs(m - target)))
             used.append(m)
             sdx[g] = [min(sdx[g][0], m), max(sdx[g][1], m)]
@@ -809,7 +830,9 @@ def mos_array(
     # the far-rail landing as the row ends' supply stacks: their cut count, pair pitch and M2 pad
     cuts, pair = getattr(_tech, "EDGE_CUTS", 1), getattr(_tech, "V1_PAIR", 0)
     land_x, land_y = getattr(_tech, "EDGE_PAD", (M2_MIN_LEN // 2, M2_HW))
-    for far in sorted(fars & set(tracks)):
+    # and each well tap's net (``taps``) to its tap's line, landed alike
+    lands = {far: far_y for far in fars & set(tracks)} | {net: y for net, y in (taps or {}).items() if net in tracks}
+    for far in sorted(lands):
         taken = [x for _, x, _, _ in m3s]
         flo, fhi = sdx[far]
 
@@ -829,13 +852,13 @@ def mos_array(
         assert cand, f"{name}: no M3 track for the {far} jumper"
         m = min(cand, key=lambda m: (max(0, flo - m, m - fhi), abs(m - (flo + fhi) / 2)))
         sdx[far] = [min(flo, m), max(fhi, m)]
-        m3s.append((far, m, tracks[far], far_y))
-        far_pads.append((m, far))
+        m3s.append((far, m, tracks[far], lands[far]))
+        far_pads.append((m, far, lands[far]))
 
     stubs = _access_stubs(strips, sh, tracks, sdx, m3s, rail_net, width) if ACCESS_STUBS else {}
     if stubs is None:  # no legal VIA2 column for an access stub: one column wider, centred
         assert extra < 8 * grid, f"{name}: no M3 column for an S/D net's access stub"
-        return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties)
+        return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties, taps)
     for net, t in tracks.items():
         a, b = sdx[net][0] - BAR_END, sdx[net][1] + BAR_END
         # a single strip's minimum-length bar keeps half an M2 space to the cell edge (it still covers its VIA1)
@@ -903,11 +926,11 @@ def mos_array(
         if y1 - y0 < M2_MIN_LEN:  # M3 area
             y0, y1 = _on_grid((y0 + y1) // 2) - M2_MIN_LEN // 2, _on_grid((y0 + y1) // 2) + M2_MIN_LEN // 2
         c.add("M3", x - M3_HW, y0, x + M3_HW, y1, net)
-    for x, far in far_pads:  # the far-rail jumper's landing: the row ends' M2 pad and VIA1 cuts on the rail
-        c.add("M2", x - land_x, far_y - land_y, x + land_x, far_y + land_y, far)
+    for x, far, y in far_pads:  # the far-rail jumper's landing: the row ends' M2 pad and VIA1 cuts on the rail
+        c.add("M2", x - land_x, y - land_y, x + land_x, y + land_y, far)
         for k in range(cuts):
             cx = x + (2 * k - (cuts - 1)) * pair // 2
-            c.add("V1", cx - V1_H, far_y - V1_H, cx + V1_H, far_y + V1_H, far)
+            c.add("V1", cx - V1_H, y - V1_H, cx + V1_H, y + V1_H, far)
     for net, y, xa, xb in crossings:
         c.add("M2", xa - BAR_END, y - M2_HW, xb + BAR_END, y + M2_HW, net)
     return c

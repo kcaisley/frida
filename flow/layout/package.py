@@ -22,6 +22,7 @@ EXPORTS = (
     "CmosInverter",
     "MOSGenerator",
     "MomUnit",
+    "MosWell",
     "ResGenerator",
     "ResUnit",
     "RingGenerator",
