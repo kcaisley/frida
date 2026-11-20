@@ -11,7 +11,7 @@ from hdl21.primitives import MosType
 
 from flow.circuit.ports import module_from_ports
 from flow.layout.devices.mosfet.netlist import mos
-from flow.layout.hdl21align import Border, EdgePin, edge_pins, halves, place, row, rows
+from flow.layout.hdl21align import Border, EdgePin, column, edge_pins, halves, place, row, rows
 
 from .params import PRECHARGE_W, Params, SwitchType
 
@@ -208,23 +208,32 @@ def netlist(param: Params) -> h.Module:
 
     # where ALIGN puts each device (flow.layout.hdl21align), rows top first, for the structures
     # FRIDA lays out (the others ALIGN places on its own): the bootstrap's boost above its switch,
-    # a transmission gate's PMOS above its NMOS (each beside its dummy), an NMOS switch in two halves
+    # its PMOS on the boosted node in their own N-well (flow.circuit.netlists gathers them, its
+    # island two rows tall or more: flow/layout/rows/wellcell.py) beside a column of its other
+    # helpers' two rows, the switch at its row's right end (its output's edge pin); a transmission
+    # gate's PMOS above its NMOS (each beside its dummy), an NMOS switch in two halves
     plain, tgate = not param.dummy, param.switch_type is SwitchType.TGATE
     if bootstrap and plain:
         placed = rows(
-            row(Samp.Mpre, Samp.Mgate, Samp.Mctl_p, Samp.Mctl_on, Samp.Mctl_dummy),
-            row(Samp.Mcap),
             row(
-                Samp.Mgate_top,
-                Samp.Mgate_drop,
-                Samp.Mgate_pass,
-                Samp.Mgate_cas,
-                Samp.Mgate_off,
-                Samp.Mgate_off_dummy,
-                Samp.Mbot,
-                Samp.Mctl_cap,
+                Samp.Mpre,
+                Samp.Mgate,
+                column(
+                    row(Samp.Mctl_p, Samp.Mctl_on, Samp.Mctl_dummy),
+                    row(
+                        Samp.Mgate_top,
+                        Samp.Mgate_drop,
+                        Samp.Mgate_pass,
+                        Samp.Mgate_cas,
+                        Samp.Mgate_off,
+                        Samp.Mgate_off_dummy,
+                        Samp.Mbot,
+                        Samp.Mctl_cap,
+                    ),
+                ),
             ),
-            row(Samp.MN, Samp.Mbot_in),
+            row(Samp.Mcap),
+            row(Samp.Mbot_in, Samp.MN),
         )
     elif tgate:
         placed = rows(row(Samp.MP, getattr(Samp, "MP_dummy", None)), row(Samp.MN, getattr(Samp, "MN_dummy", None)))

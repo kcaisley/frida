@@ -116,15 +116,18 @@ def test_every_instance_states_a_complete_placement_or_none(pdk: str) -> None:
 def test_the_named_structures_rows() -> None:
     h.pdk.set_default(pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic)
     named = pipeline.singles(runs)
-    rows = {name: module_plan(pnr_input(_module(named[name]())))["rows"] for name in named}
-    assert rows == {
+    plans = {name: module_plan(pnr_input(_module(named[name]()))) for name in named}
+    assert {name: plan["rows"] for name, plan in plans.items()} == {
         "frida1": [["Mp"], ["Mn"]],
         "tgate_dummy": [["Mp", "Mp_dummy"], ["Mn", "Mn_dummy"]],
         "nmos": [["Mn_a"], ["Mn_b"]],
-        "bootstrap": [
-            ["Mpre", "Mgate", "Mctl_p", "Mctl_on", "Mctl_dummy"],
-            ["Mcap"],
-            ["Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mctl_cap"],
-            ["Mn", "Mbot_in"],
-        ],
+        # the PMOS on the boosted node (their own well, two rows tall or more) beside a column of
+        # the other helpers' two rows; the switch at its row's right end, by its output's edge pin
+        "bootstrap": [["Mpre", "Mgate", "Xcolumn0"], ["Mcap"], ["Mbot_in", "Mn"]],
     }
+    (column,) = [c for c in plans["bootstrap"]["constraints"] if c["constraint"] == "GroupBlocks"]
+    (floorplan,) = [c for c in column["constraints"] if c["constraint"] == "Floorplan"]
+    assert floorplan["regions"] == [
+        ["Mctl_p", "Mctl_on", "Mctl_dummy"],
+        ["Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mctl_cap"],
+    ]
