@@ -831,8 +831,8 @@ def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells
     """The DUT's flat copy names a cell's net by its path (``drive_n0``: no ``:``, which Spectre's
     names refuse) and keeps its ports and their usage; the capacitors join a bus's bit, a cell's net
     (KLayout's ``drive.n0``) and ground (its ground port: a net's to ``0`` and to it one capacitor),
-    less its own drawn between the same nets, taken off once; a net it lacks is left out and
-    counted."""
+    less its own drawn between the same nets, taken off once; drawn ones the extraction reads less
+    than lowered to it, each by one factor; a net it lacks is left out and counted."""
     import io
 
     import hdl21 as h
@@ -848,14 +848,17 @@ def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells
     top.bits, top.out, top.vss = h.Port(width=2), h.Port(), h.Port(usage=h.Usage.GROUND)
     top.drive = cell(a=top.bits[1], y=top.out)
     top.cdrawn = C(c=2e-15)(p=top.out, n=top.vss)
+    top.chalf, top.cother = C(c=1e-15)(p=top.bits[0], n=top.out), C(c=3e-15)(p=top.bits[0], n=top.out)
     flat = runner._flattened(top)
-    assert set(flat.signals) == {"drive_n0"} and set(flat.instances) == {"drive_r0", "drive_r1", "cdrawn"}
+    assert set(flat.signals) == {"drive_n0"}
+    assert set(flat.instances) == {"drive_r0", "drive_r1", "cdrawn", "chalf", "cother"}
     assert flat.ports["vss"].usage == h.Usage.GROUND and flat.ports["bits"].width == 2
     found = Annotation(
         capacitors=(
             ("0", "out", 3e-15),
             ("bits_1", "drive.n0", 1e-16),
             ("out", "vss", 1e-15),
+            ("bits_0", "out", 2e-15),
             ("nowhere", "out", 2e-16),
         ),
         total_f=0,
@@ -865,9 +868,12 @@ def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells
     added = runner._add_capacitors(flat, found)
     assert added == {
         "added_f": pytest.approx(2.1e-15),
-        "drawn_f": pytest.approx(2e-15),
+        "drawn_f": pytest.approx(4e-15),
+        "lowered_f": pytest.approx(2e-15),
         "unsimulated": {"nowhere": pytest.approx(2e-16)},
     }
+    # the 4 fF drawn between bits_0 and out lowered to the extraction's 2 fF, each by half
+    assert [float(flat.instances[name].of.params.c) for name in ("chalf", "cother")] == pytest.approx([5e-16, 1.5e-15])
     out = io.StringIO()
     h.netlist(flat, out, fmt="spectre")
     lines = [line for line in out.getvalue().splitlines() if "//" not in line]

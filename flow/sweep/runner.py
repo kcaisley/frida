@@ -328,7 +328,10 @@ def _add_capacitors(module, annotation: Annotation) -> dict[str, Any]:
     name: a bus's bit as ``<bus>_<bit>``, as netlists write it; a net inside a cell by its path
     joined by ``_``, KLayout's ``.``; ground, ``0``, the module's ground port), less the module's
     own capacitors between them (hdl21's ideal ones: a drawn capacitor's view, which the
-    extraction measured as metal too); what it added and what it took off."""
+    extraction measured as metal too): where the extraction reads less between two nets than
+    their drawn capacitors, those lowered to it, each by one factor, so that every pair the
+    extraction holds simulates as extracted. What it added, what of the drawn it took off, and
+    what of the drawn it lowered away."""
     import hdl21 as h
     from hdl21.primitives import C, IdealCapacitor
 
@@ -347,6 +350,7 @@ def _add_capacitors(module, annotation: Annotation) -> dict[str, Any]:
         ends = tuple(sorted((named(a), named(b))))
         summed[ends] = summed.get(ends, 0.0) + c
     drawn: dict[tuple[str, ...], float] = {}
+    drawn_by: dict[tuple[str, ...], list[tuple[Any, float]]] = {}
     for instance in module.instances.values():
         if getattr(instance.of, "prim", None) is not IdealCapacitor:
             continue
@@ -356,7 +360,8 @@ def _add_capacitors(module, annotation: Annotation) -> dict[str, Any]:
             continue
         ends = tuple(sorted(_net(instance.conns[terminal]) for terminal in ("p", "n")))
         drawn[ends] = drawn.get(ends, 0.0) + value
-    added = taken = 0.0
+        drawn_by.setdefault(ends, []).append((instance, value))
+    added = taken = lowered = 0.0
     unsimulated: dict[str, float] = {}  # nets LVS compared that the simulated module lacks
     for index, (ends, c) in enumerate(sorted(summed.items())):
         if ends[0] == ends[1]:
@@ -369,8 +374,14 @@ def _add_capacitors(module, annotation: Annotation) -> dict[str, Any]:
         if c > own:
             module.add(C(c=c - own)(p=nets[ends[0]], n=nets[ends[1]]), name=f"cpex_{index}")
             added += c - own
+        elif own < drawn.get(ends, 0.0):
+            for instance, value in drawn_by[ends]:
+                # not in the reference texts: each drawn capacitor times the extraction's over their
+                # sum, so that they sum to the extraction's
+                instance.of = C(c=value * own / drawn[ends])
+            lowered += drawn[ends] - own
         taken += own
-    return {"added_f": added, "drawn_f": taken, "unsimulated": unsimulated}
+    return {"added_f": added, "drawn_f": taken, "lowered_f": lowered, "unsimulated": unsimulated}
 
 
 def _net(connection) -> str:
