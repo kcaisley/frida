@@ -75,12 +75,15 @@ def netlist(param: Params) -> h.Module:
     #   - Mctl_cap, a capacitor between gate_ctl and Q, against Mctl_p's kick while the
     #     complementary clock lags (below).
     #   - Mpre is PRECHARGE_W helpers wide: it holds P at vdd while A charges from it.
-    # Holds for: a design ``flow.samp.params.valid`` admits; clocks whose edges meet or whose
-    #   complement lags by up to an edge; an input that moves no faster than a full-scale sine at
-    #   the ADC's Nyquist frequency while holding. Every node held at a rail while holding is held
-    #   through a channel: a clock edge moves it by the charge it couples over the node's
-    #   capacitance, a moving input by C dV/dt times the channel's resistance. A pair that holds a
-    #   whole supply while holding (Mcap between P and Q; Mpre, Mgate and Mgate_top against A;
+    # Holds for: a design ``flow.samp.params.valid`` admits; clocks whose edges meet, or whose
+    #   complement lags by up to an edge at the nominal supply (at the highest, edges that meet:
+    #   Mctl_cap's note); an input that moves no faster than a full-scale sine at the ADC's
+    #   Nyquist frequency while holding. Every node held at a rail while holding is held through a
+    #   channel: a clock edge moves it by the charge it couples over the node's capacitance, a
+    #   moving input by C dV/dt times the channel's resistance (A, held at 0 V through the
+    #   pull-down's channels R_pd, stands R_pd C_ov |dV_in/dt| below it while the input falls,
+    #   C_ov MN's and Mbot_in's overlaps of vin: any finite R_pd leaves it below). A pair that holds
+    #   a whole supply while holding (Mcap between P and Q; Mpre, Mgate and Mgate_top against A;
     #   Mctl_p, Mctl_on and Mctl_cap against gate_ctl and Q) passes the supply by as much: inside
     #   the stress limit at the nominal supply, past it by that coupling at the highest, where the
     #   limit is the supply itself.
@@ -164,9 +167,12 @@ def netlist(param: Params) -> h.Module:
         # Ours against the source: [Razavi-ADC] Fig. 3.41(b), p. 48 drives M3's gate from the clock.
         # Holds for: a complement up to a clock edge late at the nominal supply, the lift then under
         #   the stress limit's margin over the supply, (SUPPLY_CORNER_MAX - 1) V_DD; at the highest
-        #   supply there is no margin, and its runs take clock edges that meet. While tracking
-        #   gate_ctl is within about a threshold of Q: Mctl_cap's channel is off then, and its two
-        #   junctions on Q count in Q's capacitance (flow.samp.params._bottom_f).
+        #   supply the limit is the supply itself and any lift passes it, so there the converter's
+        #   clocks must meet, clk_b falling no later than clk rises (flow.adc's digital block makes
+        #   the complement; no run here takes it late at the highest supply). While tracking
+        #   gate_ctl is within about a threshold of Q: Mctl_cap's channel is off then, its two
+        #   junctions on Q count in Q's capacitance (flow.samp.params._bottom_f) and its gate's
+        #   capacitance to the substrate is left out of it.
         Samp.Mctl_cap = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.boot_w, l=4)(
             d=Samp.boot_bot, g=Samp.gate_ctl, s=Samp.boot_bot, b=Samp.vss
         )

@@ -50,6 +50,25 @@ def test_a_track_step_adds_a_second_source_stepping_in_mid_track() -> None:
     assert not hasattr(sim.testbench(TbParams()), "vvstep")
 
 
+def test_a_track_step_comes_where_the_run_puts_it_inside_the_high_time() -> None:
+    """The level runs' step, 15 ns into a 20 ns high time of a 25 ns clock: its 50 ps edge centred
+    15 ns after the high time starts (itself an edge after the run starts), so starting at
+    50 ps / 2 + 15 ns = 15.025 ns and over at 15.075 ns, 4.975 ns before the high time (50 ps to
+    20.05 ns) ends. A step half an edge from either end of the high time is inside it; one at or past
+    either end is refused."""
+    tb = TbParams(
+        input_step_v=0.01, track_step_v=0.01, track_step_s=15e-9, clock_period_s=25e-9, clock_high_time_s=20e-9
+    )
+    track = sim.testbench(tb).vvstep.of.params
+    assert float(track.delay) == pytest.approx(15.025e-9) and float(track.period) == pytest.approx(50e-9)
+    assert float(track.delay) + float(track.rise) / 2 == pytest.approx(50e-12 + 15e-9)
+    for inside in (25e-12, 20e-9 - 25e-12):
+        assert TbParams(track_step_s=inside, clock_period_s=25e-9, clock_high_time_s=20e-9).track_step_s == inside
+    for outside in (0.0, 20e-9, 21e-9):
+        with pytest.raises(ValueError, match="inside the clock's high time"):
+            TbParams(track_step_s=outside, clock_period_s=25e-9, clock_high_time_s=20e-9)
+
+
 def test_an_input_transition_time_slows_the_hold_step_about_mid_hold() -> None:
     """A full-scale step over 63.66 ns in the 87.5 ns hold of a 100 ns period: it starts half its
     length less half a clock edge before the plain step would (56.25 ns - 31.83 ns + 25 ps), so its

@@ -4,16 +4,18 @@ and the benches every switch is characterized on.
 Every switch is characterized the same way, so that switches compare: into ``LOAD_F`` (about the
 CDAC it samples onto) at a ``LEVEL_PERIOD_S`` clock (``LEVEL_TRACK_S`` tracking, ``TRANSITION_S``
 edges; a run's own defaults are the plain ``PERIOD_S`` and ``TRACK_S``), its input stepping by
-``SMALL_STEP`` of the supply onto its level in the middle of each track phase (the settled
-switch's time constant) and off it in the middle of each hold phase, ``PERIODS`` periods, Spectre's output every ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply, and the supply
-less half the step, ``VIN_TOP``, the top of the ADC's swing) and over the supply (``SUPPLY_SWEEP``,
-fractions of its own) at the nominal input (``NOMINAL_VIN`` of the nominal supply); at the process
-corners and the hot temperature (``HOT_C``); at the ADC's timing (``ADC_TRACK_S``,
-``ADC_PERIOD_S``, ``ADC_PERIODS`` periods, its output every ``ADC_STROBE_S``): its acquisition of a
-full-scale step (``ADC_FULL_SCALE``, at the nominal and the highest supply), its droop over the hold, a sine of the ADC's swing (``ADC_CM``,
-``SINE_AMPLITUDE``, ``SINE_SAMPLES`` samples, tones ``SINE_CYCLES``) and its held output stepped as
-the ADC's first decision steps it, at the lowest level a side reaches (``VIN_BOTTOM``) and at the
-common mode; its complementary clock an edge late.
+``SMALL_STEP`` of the supply onto its level a ``TRACK_S`` before each track phase ends (the settled
+switch's time constant) and off it in the middle of each hold phase, ``PERIODS`` periods, Spectre's
+output every ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply, and the
+supply less half the step, ``VIN_TOP``, the top of the ADC's swing) and over the supply
+(``SUPPLY_SWEEP``, fractions of its own) at the nominal input (``NOMINAL_VIN`` of the nominal
+supply); at the process corners and the hot temperature (``HOT_C``); at the ADC's timing
+(``ADC_TRACK_S``, ``ADC_PERIOD_S``, ``ADC_PERIODS`` periods, its output every ``ADC_STROBE_S``): its
+acquisition of a full-scale step (``ADC_FULL_SCALE``, at the nominal and the highest supply), its
+droop over the hold, a sine of the ADC's swing (``ADC_CM``, ``SINE_AMPLITUDE``, ``SINE_SAMPLES``
+samples, tones ``SINE_CYCLES``) and its held output stepped as the ADC's first decision steps it, at
+the lowest level a side reaches (``VIN_BOTTOM``) and at the common mode; its complementary clock an
+edge late.
 
 The behavioral model (``flow.samp.model``) derives the switch's triode conductances from its sizing
 with the rough device constants here (``W_MIN_UM`` to ``PMOS_K_A_PER_V2``); a bootstrapped switch's
@@ -102,20 +104,30 @@ LOAD_F = 1e-12
 #   T - TRACK_S - 2 TRANSITION_S), the edge ``TRANSITION_S`` (rise and fall alike, the input's step
 #   too unless a run gives its own), ``PERIODS`` periods, the output every ``STROBE_S``.
 # Ours against the source: none (a bench's timing).
-# Holds for: a time constant of three output intervals (15 ps) or more read to within 3 % (the
-#   window's two crossings are interpolated between samples, flow.samp.analysis.analyze_track;
-#   a log-linear fit over the same window agrees within that), one up to TRACK_S / 2 read at
-#   all; a run gives its own timing where it differs (the level runs' below, the ADC's).
+# Holds for: an exponential error's time constant read to within 2.2 % from two output intervals
+#   (10 ps) on and 1.1 % from three (15 ps) on (own derivation: the window's start and its e-fold
+#   are interpolated linearly between samples, flow.samp.analysis.analyze_track, and an
+#   exponential is convex between them; the worst over where the two fall between samples), one
+#   up to TRACK_S / 2 read at all; an error that is not one exponential over the window reads its
+#   two-point e-fold, which a log-linear fit over the same window may differ from by a few per
+#   cent at the shortest time constants; a run gives its own timing where it differs (the level
+#   runs' below, the ADC's).
 PERIOD_S = 10e-9
 TRACK_S = 5e-9
-# not in the reference texts: the level runs' clock, tracking twice the bench's time before the
-# same hold: T_track = 2 TRACK_S, T = PERIOD_S + TRACK_S, so that the input's step in the middle of
-# the track phase leaves the bench's own TRACK_S to read the time constant over (a tau up to half
-# of it reaches its second e-fold) after as long for the gate drive to settle
-# Terms: T_track the clock's high time, T its period, of the level, supply, corner and skew runs.
-# Holds for: a gate drive settled within TRACK_S of the clock's rise (flow.samp.analysis._settled_s).
-LEVEL_TRACK_S = 2 * TRACK_S
-LEVEL_PERIOD_S = PERIOD_S + TRACK_S
+# not in the reference texts: the level runs' clock, tracking four times the bench's time before
+# the same hold: T_track = 4 TRACK_S, T = T_track + PERIOD_S - TRACK_S, the input's step in the
+# track phase TRACK_S before it ends (flow.samp.runs.testbenches: TbParams.track_step_s), so that
+# the step leaves the bench's own TRACK_S to read the time constant over (a tau up to half of it
+# reaches its second e-fold) after three times as long for the gate drive to settle
+# Terms: T_track the clock's high time, T its period, of the level, supply, corner and skew runs;
+#   the hold, T - T_track, the plain bench's.
+# Ours against the source: none (a bench's timing). A bootstrap's gate drive settles as its bottom
+#   plate reaches the input through the long bottom-plate switch (``_bottom_length``), sized with
+#   the 65-nm units in every kit: slower in a kit with larger unit capacitances.
+# Holds for: a gate drive settled within 3 TRACK_S of the clock's rise
+#   (flow.samp.analysis._settled_s); a level where it is not has no time constant (NaN).
+LEVEL_TRACK_S = 4 * TRACK_S
+LEVEL_PERIOD_S = LEVEL_TRACK_S + PERIOD_S - TRACK_S
 TRANSITION_S = 50e-12
 PERIODS = 6
 STROBE_S = 5e-12
@@ -231,12 +243,12 @@ SINE_CYCLES = (1, 15)
 # conductances from the switch's sizing where none is given (flow.samp.model.Model.conductances)
 # Terms: W_MIN_UM and L_MIN_UM the width and the length one size unit stands for; k' = mu C_ox of
 #   each device type ([Razavi-ADC] Eq. (3.23), p. 27).
-# Ours against the source: the square law's k' alone. A 65-nm switch's triode conductance a volt
-#   is about a tenth below k' W / L, its threshold rises 0.1 to 0.15 V with its source and its
-#   source and drain resistances add about a quarter to R_on; none of the three is here.
-# Holds for: the size unit exactly; the conductances as a rough estimate only: the on-resistance
-#   they give is about half a simulated 65-nm switch's (30 to 65 % low). A characterized switch
-#   does not use them.
+# Ours against the source: the square law's k' alone: no mobility degradation, no rise of the
+#   threshold with the source above the bulk, no source and drain resistance, each of which a
+#   65-nm switch has (the readme's calibrations).
+# Holds for: the size unit exactly; the conductances as a rough estimate only, the on-resistance
+#   they give low against a simulated 65-nm switch's (the readme's calibrations). A
+#   characterized switch does not use them.
 W_MIN_UM = 0.12
 L_MIN_UM = 0.06
 NMOS_K_A_PER_V2 = 300e-6
@@ -252,8 +264,9 @@ PMOS_K_A_PER_V2 = 100e-6
 #   Mcap's channel to the substrate (BOTTOM_F).
 # Ours against the source: one number each for capacitances that move with their bias: a
 #   junction's and the channel-to-substrate's are means over a reverse bias from 0 V to the
-#   supply, up to two fifths more at 0 V and a third less at the supply.
-# Holds for: a 65-nm kit, whose simulated gates and overlaps they are within 5 % of. Every kit's
+#   supply, larger at 0 V and smaller at the supply.
+# Holds for: a 65-nm kit, whose simulated gates, overlaps and junctions they stand for (the
+#   readme's calibrations: how far each is off its simulated value). Every kit's
 #   bootstrap is sized with these (``valid``): the boost ratio, C_b over its load, is a ratio of
 #   like capacitances and carries over; the bottom-plate rule (``_bottom_length``) is in farads
 #   and is calibrated on these alone, so in a kit with larger unit capacitances Mbot_in comes out
@@ -291,9 +304,10 @@ BOOST_UNCOUNTED = 1 / 3
 #   charges as Q rises (``_bottom_f``), C_L the load on vout; BOTTOM_LIFT the long Mbot_in's
 #   current a square over the minimum-length MN's at one bias.
 # Ours against the source: the square law gives both the same current a square. A minimum-length
-#   MN's carriers' velocity saturates and its threshold is above a long device's: in a 65-nm kit it
-#   carries 2.2 to 3.0 times less a square than the 32-unit design's Mbot_in (13 units long) over
-#   the supply, the corners and the temperature, and BOTTOM_LIFT is the upper end. [Razavi-ADC]
+#   MN's carriers' velocity saturates and its threshold is above a long device's, so it carries
+#   less a square: BOTTOM_LIFT is the largest ratio of the two currents a square over the supply,
+#   the corners and the temperature in a 65-nm kit, the 32-unit design's two devices at one bias
+#   (the readme's calibrations). [Razavi-ADC]
 #   Eq. (3.79), (3.80), p. 52 ask the opposite of this device, a small R_on2 + R_on3, so that V_GS
 #   follows the input up to the bootstrapping path's zero: a long M2 trades that bandwidth for the
 #   gate's rise.
@@ -325,7 +339,7 @@ def _gate_f(
     # Ours against the source: the source writes L for the channel's length; ours takes the
     #   drawn length in units and the side diffusion off it.
     # Holds for: MN, Mbot_in and Mgate while tracking (their channels on); Mcap, its channel
-    #   inverted; a 65-nm kit's gates from one unit long to sixteen within 5 %.
+    #   inverted; a 65-nm kit's gates from one unit long to sixteen (the readme's calibrations).
     return width * ((length - short) * gate_f + 2 * overlap_f)
 
 
@@ -424,19 +438,20 @@ def _bottom_f(
     # Terms: Mcap's channel to the substrate (cap_w by cap_l) and its source's and drain's
     #   junctions (each cap_w wide); the junctions of Mbot's, Mbot_in's and Mctl_on's drains and
     #   of Mctl_cap's drain and source on boot_bot (each boot_w wide; Mctl_cap's gate, on
-    #   gate_ctl, rises with Q and is no load); C_ctl the node gate_ctl, which Mctl_on joins to
-    #   boot_bot while tracking, and the clocks' overlaps of the two: the junctions of Mctl_p's
-    #   drain, Mctl_on's source and Mctl_dummy's two (three helper widths), the overlaps of
-    #   Mctl_p's gate (clk) and of Mctl_on's (two) and Mbot's gates (clk_b), and Mctl_dummy's
-    #   gate, half a helper wide, its channel on; C_A what the boosted nodes, which rise with Q
-    #   through C_b, have to nodes that stay put: ``_fixed_f`` and MN's and Mbot_in's overlaps of
-    #   vin.
+    #   gate_ctl, rises with Q, its channel off: its capacitance to the substrate, a few per cent
+    #   of its oxide's and under one per cent of C_Q, is left out); C_ctl the node gate_ctl, which
+    #   Mctl_on joins to boot_bot while tracking, and the clocks' overlaps of the two: the
+    #   junctions of Mctl_p's drain, Mctl_on's source and Mctl_dummy's two (three helper widths),
+    #   the overlaps of Mctl_p's gate (clk) and of Mctl_on's (two) and Mbot's gates (clk_b), and
+    #   Mctl_dummy's gate, half a helper wide, its channel on; C_A what the boosted nodes, which
+    #   rise with Q through C_b, have to nodes that stay put: ``_fixed_f`` and MN's and Mbot_in's
+    #   overlaps of vin.
     # Ours against the source: [Razavi-ADC] Example 3.22, p. 51 names the capacitor's parasitic as
     #   what the input must drive, without a value.
     # Holds for: a MOS boost capacitor whose channel is its bottom plate; a rising step, MN's
     #   channel moving with the output (in a falling step MN's whole gate stays on vin and C_Q is
-    #   a tenth larger); the mean over Q's rise from 0 V to the supply (a fifth more at 0 V, a
-    #   tenth less at the supply).
+    #   larger); the mean over Q's rise from 0 V to the supply (larger at 0 V, smaller at the
+    #   supply: the readme's calibrations).
     units = {"gate_f": gate_f, "short": short, "overlap_f": overlap_f}
     helper = params.boot_w
     substrate = params.cap_w * params.cap_l * bottom_f + (2 * params.cap_w + 5 * helper) * junction_f
@@ -562,9 +577,9 @@ class TbParams(pipeline.TbParams):
     at supply ``vdd``, process ``corner`` and ``temperature_c`` into ``cload``; its input at
     ``input_voltage`` or, with an ``input_step_v``, stepping by it once a period in the middle of
     each hold phase (over ``input_transition_time_s`` where given, else a clock edge's time) and,
-    with a ``track_step_v``, by that once a period in the middle of each track phase (with both
-    equal, every track phase ends on ``input_voltage``, reached from below and from above in
-    turn), or (``stimulus`` SINE) a sine about ``input_voltage`` of ``sine_amplitude_v``
+    with a ``track_step_v``, by that once a period inside each track phase, ``track_step_s`` after
+    the clock's high time starts (its middle where not given; with both steps equal, every track
+    phase ends on ``input_voltage``, reached from below and from above in turn), or (``stimulus`` SINE) a sine about ``input_voltage`` of ``sine_amplitude_v``
     at ``sine_frequency_hz``; its clock tracking while high (``clock_high_time_s`` of each
     ``clock_period_s``), the complement ``clock_skew_s`` later; with a ``dac_step_v``, half the load
     driven so that the held output steps by it a quarter into each hold and back before the next
@@ -584,6 +599,7 @@ class TbParams(pipeline.TbParams):
     input_step_v: float = 0.1
     input_transition_time_s: float | None = None
     track_step_v: float = 0.0
+    track_step_s: float | None = None
     sine_amplitude_v: float = 0.0
     sine_frequency_hz: float = 0.0
     clock_period_s: float = PERIOD_S
@@ -637,6 +653,17 @@ class TbParams(pipeline.TbParams):
         low = float(self.clock_period_s) - float(self.clock_high_time_s) - 3 * float(self.clock_transition_time_s)
         if self.input_transition_time_s is not None and not 0.0 < float(self.input_transition_time_s) <= low:
             raise ValueError("sampler input transition must be positive and fit the clock's low time")
+        # not in the reference texts: the track step, a clock edge long and centred t_step after the
+        # clock's high time starts (flow.samp.sim.testbench), lies inside it,
+        # t_edge / 2 <= t_step <= t_high - t_edge / 2
+        # Terms: t_step track_step_s, t_high clock_high_time_s, t_edge clock_transition_time_s.
+        # Ours against the source: none (a bench's timing).
+        # Holds for: a run that gives the step's instant (the high time's middle otherwise).
+        edge = float(self.clock_transition_time_s)
+        if self.track_step_s is not None and not (
+            edge / 2 <= float(self.track_step_s) <= float(self.clock_high_time_s) - edge / 2
+        ):
+            raise ValueError("sampler track step must lie inside the clock's high time")
         if self.stimulus is Stimulus.SINE and (self.sine_amplitude_v <= 0 or self.sine_frequency_hz <= 0):
             raise ValueError("a sine's amplitude and frequency must be positive")
         if self.gmin_s is not None and not 0.0 < float(self.gmin_s) < 1e-9:

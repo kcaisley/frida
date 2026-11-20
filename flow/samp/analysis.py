@@ -2,7 +2,7 @@
 Spectre's own time axis) of a testbench, and the record's metrics.
 
 A run tracks while ``clk`` is high; its input steps once per period in the middle of each hold
-phase and, in the level runs, onto its level in the middle of each track phase. Every figure is a
+phase and, in the level runs, onto its level inside each track phase. Every figure is a
 median over the periods after the first (whose track phase starts from an arbitrary held value);
 where a figure differs between the input's rising and falling steps, the median of each direction
 and then the worse of the two. A track phase settles from its last step (the input's inside the
@@ -166,10 +166,13 @@ def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
             # e-fold from its largest, tau <= 2 (t_1/e - t_peak), else NaN
             # Terms: t_peak the error's largest since the phase's last step, t_1/e where it has
             #   fallen by e (before the gate drive may have settled); tau the window's.
-            # Holds for: a gate drive whose settling lowers R_on, if anything, so that the settled
-            #   switch's e-fold is no longer than the first. A window that falls much slower reads a
-            #   gate drive still settling after the switch's own error has gone, coupled onto vout
-            #   through MN's gate overlap: the bootstrapping path's time, not R_on C_H.
+            # Holds for: a gate drive that moves R_on by far less than a factor of two while it
+            #   settles: after a rising step a bootstrap's drive is still rising and R_on falls;
+            #   after a falling one the drive stands briefly above its end value and R_on rises
+            #   slightly as it settles, inside the factor two. A window that falls more than twice
+            #   slower reads a gate drive still settling after the switch's own error has gone,
+            #   coupled onto vout through MN's gate overlap: the bootstrapping path's time, not
+            #   R_on C_H.
             peak = int(np.argmax(error))
             error, error_s = error[peak:], error_s[peak:]
             first = calc.cross(error, error_s, float(error[0]) / math.e, edge="falling")
@@ -998,7 +1001,7 @@ def metrics(
         # Terms: ``energy.energy_per_cycle_j[0]``, the nominal level run's.
         # Ours against the source: the clocks' charge added, the input source's left out
         #   (``analyze_energy``).
-        # Holds for: the level runs' 15 ns clock (10 ns tracking, two input steps a period), the
+        # Holds for: the level runs' 25 ns clock (20 ns tracking, two input steps a period), the
         #   bench's load and the nominal input.
         found["energy_per_cycle_j"] = float(energy.energy_per_cycle_j[0])
     return found

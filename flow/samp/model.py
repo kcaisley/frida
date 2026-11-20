@@ -123,9 +123,9 @@ class Model:
         # no characterization is given (``resistance``)
         # Terms: V_TH of MN (``n_threshold_v``) and |V_TH| of MP (``p_threshold_v``).
         # Ours against the source: constant over the input, where a switch's threshold rises with
-        #   its source above the bulk (body effect): a 65-nm NMOS switch's is 0.1 to 0.15 V above
-        #   this over the input range.
-        # Holds for: a rough estimate only (``resistance``: about half the simulated R_on).
+        #   its source above the bulk (body effect), above this over the input range (the readme's
+        #   calibrations).
+        # Holds for: a rough estimate only (``resistance``).
         n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
         p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
         jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
@@ -208,8 +208,8 @@ class Model:
         # Ours against the source: none; each side's own load rescales its share in ``sample``.
         # Holds for: a switch whose bandwidth passes its own thermal noise (R_on drops out): the
         #   equipartition value, exact for a resistance. A noise run of a kit whose device model
-        #   gives a channel in deep triode less than 4kT g_ds reads lower (about a tenth in a
-        #   65-nm kit); this is the upper, physical value.
+        #   gives a channel in deep triode less than 4kT g_ds reads lower (the readme's
+        #   calibrations); this is the upper, physical value.
         return Model.Behavioral(
             noise_v=float(np.sqrt(2 * constants.k * temperature_k / load_f)),
             noise_load_f=load_f,
@@ -248,8 +248,8 @@ class Model:
         # Terms: W / L MN's (MP's), mos_w W_MIN_UM over mos_l L_MIN_UM; k' = mu C_ox the rough
         #   NMOS_K_A_PER_V2 and PMOS_K_A_PER_V2.
         # Ours against the source: no mobility degradation and no source or drain resistance: a
-        #   rough value (a 65-nm switch's simulated triode conductance a volt is about a tenth
-        #   lower), used only where no characterization is given.
+        #   rough value, above a simulated 65-nm switch's triode conductance a volt (the readme's
+        #   calibrations), used only where no characterization is given.
         # Holds for: deep triode (the output near the input).
         aspect = params.mos_w * W_MIN_UM / (params.mos_l * L_MIN_UM)
         nmos = (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
@@ -297,11 +297,12 @@ class Model:
         #   0 V); the conductances ``conductances`` gives.
         # Ours against the source: a bootstrapped gate holds its V_GS whatever the input
         #   ([Razavi-ADC] Sec. 3.8.1, p. 43), taken as the source's ideal V_b = ``gate_v``, so its
-        #   overdrive has no V_in: ours holds V_b' of Eq. (3.70), p. 50, 0.9 to 0.96 of the
-        #   supply, which this leaves out (an overdrive a tenth high); a device below its
-        #   threshold conducts nothing; the total conductance floored at 1 pS.
+        #   overdrive has no V_in: ours holds V_b' of Eq. (3.70), p. 50, BOOST_MIN of the supply
+        #   or more, which this leaves out (its overdrive up to (1 - BOOST_MIN) V_DD high); a
+        #   device below its threshold conducts nothing; the total conductance floored at 1 pS.
         # Holds for: no measured curve given. A rough estimate: with the rough constants and
-        #   constant thresholds it is about half a simulated 65-nm switch's R_on (30 to 65 % low).
+        #   constant thresholds it reads low against a simulated 65-nm switch's R_on (the
+        #   readme's calibrations).
         source = 0.0 if params.switch_type is SwitchType.BOOTSTRAP else vin_v
         conductance = n_s * np.maximum(gate_v - source - behavioral.n_threshold_v, 0.0)
         conductance += p_s * np.maximum(vin_v - behavioral.p_threshold_v, 0.0)
@@ -382,8 +383,9 @@ class Model:
             #   the start is the previous held value, not where the converter left the top plate.
             # Holds for: a step small against the switch's overdrive, or a window of many time
             #   constants (the residue is then nothing either way). A full-scale step starts with
-            #   the switch saturated and turning on: where T / tau is under about 10 its residue is
-            #   up to five times this law's (take it from the acquisition run there).
+            #   the switch saturated and turning on, which leaves more than this law where T / tau
+            #   is small (the readme's calibrations; take the residue from the acquisition run
+            #   there).
             # not in the reference texts: without a window (``track_s`` None) nothing is left of
             # the previous sample, exp(-T / tau) = 0, and an open switch (infinite R) leaves all of
             # it, 1; the first sample's previous value is its own input, held_-1 = v_0

@@ -1,19 +1,19 @@
 """The sampler's testbench (``testbench``) and the one Spectre run of it (``simulate``).
 
 The testbench drives complementary clocks (tracking while ``clk`` is high, the complement
-``clock_skew_s`` later), an input and a load capacitor. With an input step the input toggles by
-that step once per period, in the middle of each hold phase, so every track phase settles from a
-known step and every hold phase shows the charge the switch dumps on opening (the pedestal), the
-droop, and the input's feedthrough to the held output; with a track step as well the input steps
-onto its level in the middle of each track phase, the switch closed and its gate settled (its
-time constant and the switch's on-resistance). With a sine the held samples carry the switch's distortion. With a DAC step half the load
-is driven so that the held output steps as the DAC's first step steps it. ``simulate`` runs it in
-classic Spectre: its pedestals, residues and droops are small differences of large signals and its
-sine's harmonics distortion, which Spectre X's error control sets wrong (``spectre.Accuracy``); its
-transient at the conservative error preset, Spectre's raw output left on disk: the signals in
-``SAVES`` (and a bootstrap's boosted nodes, ``BOOST_SAVES``) every
-``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; where the run asks
-(``TbParams.oppoint``), every transistor's operating values.
+``clock_skew_s`` later), an input and a load capacitor. With an input step the input toggles by that
+step once per period, in the middle of each hold phase, so every track phase settles from a known
+step and every hold phase shows the charge the switch dumps on opening (the pedestal), the droop,
+and the input's feedthrough to the held output; with a track step as well the input steps onto its
+level inside each track phase (``TbParams.track_step_s`` into it), the switch closed and its gate
+settled (its time constant and the switch's on-resistance). With a sine the held samples carry the
+switch's distortion. With a DAC step half the load is driven so that the held output steps as the
+DAC's first step steps it. ``simulate`` runs it in classic Spectre: its pedestals, residues and
+droops are small differences of large signals and its sine's harmonics distortion, which Spectre X's
+error control sets wrong (``spectre.Accuracy``); its transient at the conservative error preset,
+Spectre's raw output left on disk: the signals in ``SAVES`` (and a bootstrap's boosted nodes,
+``BOOST_SAVES``) every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; where
+the run asks (``TbParams.oppoint``), every transistor's operating values.
 """
 
 import importlib
@@ -114,16 +114,19 @@ def testbench(tb: TbParams) -> h.Module:
             delay=float(tb.clock_delay_s) + high + (period - high) / 2 - (slew - edge) / 2,
         )(p=bench.vin, n=base)
         if float(tb.track_step_v) != 0.0:
-            # not in the reference texts: a second source in series, low until the middle of the
-            # first track phase (its edge centred t_delay + t_edge + t_high / 2 into the run), then
+            # not in the reference texts: a second source in series, low until t_step into the first
+            # track phase's high time (its edge centred t_delay + t_edge + t_step into the run), then
             # high for a period and low for the next, between -V_track / 2 and +V_track / 2: the
             # input is the two sources' sum, V -+ V_step / 2 -+ V_track / 2, so with both steps
-            # equal it reaches V in the middle of every track phase, from V - V_step and from
-            # V + V_step in turn, and leaves it in the middle of every hold phase
+            # equal it reaches V t_step into every track phase, from V - V_step and from V + V_step
+            # in turn, and leaves it in the middle of every hold phase
             # Terms: as above; V_track tb.track_step_v; the clock is high from t_delay + t_edge
-            #   for t_high.
-            # Holds for: a switch whose gate drive has settled by the middle of the track phase
-            #   (flow.samp.analysis.analyze_track reads its time constant after this step).
+            #   for t_high; t_step tb.track_step_s, t_high / 2 where the run gives none.
+            # Ours against the source: none (a bench's timing).
+            # Holds for: a switch whose gate drive has settled by the step (flow.samp.analysis
+            #   .analyze_track reads its time constant after it); a step inside the high time
+            #   (TbParams refuses one outside).
+            within = high / 2 if tb.track_step_s is None else float(tb.track_step_s)
             bench.vvstep = Vpulse(
                 v1=-float(tb.track_step_v) / 2,
                 v2=float(tb.track_step_v) / 2,
@@ -131,7 +134,7 @@ def testbench(tb: TbParams) -> h.Module:
                 width=period - edge,
                 rise=edge,
                 fall=edge,
-                delay=float(tb.clock_delay_s) + (edge + high) / 2,
+                delay=float(tb.clock_delay_s) + edge / 2 + within,
             )(p=base, n=bench.vss)
     if float(tb.dac_step_v) == 0.0:
         bench.cload = C(c=tb.cload)(p=bench.vout, n=bench.vss)

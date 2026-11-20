@@ -197,10 +197,10 @@ def test_the_record_reads_every_run_and_names_its_waves(monkeypatch: pytest.Monk
     assert result.metrics["model_error_v"] < 1e-4
     # no device values saved by the synthetic runs: no stress figures
     assert math.isnan(result.metrics["terminal_max_v"])
-    # 1 uA from 1.2 V over the level runs' 15 ns period, and each clock's 10 fF charged from 1.2 V
-    # once: 1.2 x (15 fC + 24 fC) = 46.8 fJ (in femtojoules: approx's default absolute tolerance
+    # 1 uA from 1.2 V over the level runs' 25 ns period, and each clock's 10 fF charged from 1.2 V
+    # once: 1.2 x (25 fC + 24 fC) = 58.8 fJ (in femtojoules: approx's default absolute tolerance
     # is above a value in joules)
-    assert result.metrics["energy_per_cycle_j"] / 1e-15 == pytest.approx(46.8, rel=1e-3)
+    assert result.metrics["energy_per_cycle_j"] / 1e-15 == pytest.approx(58.8, rel=1e-3)
     assert [plot.name for plot in result.details] == [
         "ron_vin",
         "track_error_vin",
@@ -539,6 +539,18 @@ def test_an_output_settled_before_its_gate_drive_gives_no_time_constant() -> Non
     assert analyze_track([_with_gate(run, 150e-12)]).tau_s[0] == pytest.approx(50e-12, abs=2e-12)
 
 
+def test_a_short_time_constant_reads_within_the_samples_interpolation() -> None:
+    """An ideal switch sampled every 5 ps: the window's start and its e-fold fall between samples
+    and are interpolated linearly, which an exponential, convex between them, puts late. Over where
+    the two fall, the worst is (own derivation, params.PERIOD_S) 2.2 % from two intervals (10 ps)
+    on and 1.1 % from three (15 ps) on; whole multiples of the interval read exactly, the window's
+    shape repeating from sample to sample."""
+    tb = TbParams(input_step_v=0.1, periods=4)
+    for tau, within in ((10e-12, 1e-6), (12e-12, 0.022), (15e-12, 1e-6), (17e-12, 0.011), (23e-12, 0.011)):
+        found = analyze_track([ideal_run(tb, tau_s=tau, pedestal_v=0.0)]).tau_s[0]
+        assert found == pytest.approx(tau, rel=within)
+
+
 def test_a_gate_drive_that_never_settles_gives_no_time_constant() -> None:
     """A gate still rising as the clock starts to fall (a ramp over the whole phase from 0.5 V to
     1.1 V: 2 % of its end value is reached only in the last 4 % of it): no time constant, no on-resistance, though the
@@ -569,11 +581,13 @@ def test_the_full_scale_step_is_the_converters_own_worst_case(monkeypatch: pytes
     highest = benches["acquire_110"]
     assert (highest.vdd, highest.input_voltage, highest.input_step_v) == pytest.approx((1.32, 0.77, 1.034))
     assert highest.input_transition_time_s == step.input_transition_time_s and highest.oppoint
-    # the level, supply and corner runs step a 120th of the supply in mid-track and in mid-hold,
-    # tracking 10 ns (5 ns for the gate drive to settle, 5 ns to read the time constant over) of 15 ns
+    # the level, supply and corner runs step a 120th of the supply in the track phase and in
+    # mid-hold, tracking 20 ns (15 ns for the gate drive to settle, then the step, 5 ns to read the
+    # time constant over) of 25 ns, the plain bench's 5 ns hold
     for name in ("vin_1", "vin_6", "supply_90", "supply_110", "slow", "fast", "hot", "skew"):
         assert benches[name].track_step_v == benches[name].input_step_v == pytest.approx(0.01)
-        assert (benches[name].clock_high_time_s, benches[name].clock_period_s) == pytest.approx((10e-9, 15e-9))
+        assert (benches[name].clock_high_time_s, benches[name].clock_period_s) == pytest.approx((20e-9, 25e-9))
+        assert benches[name].track_step_s == pytest.approx(15e-9)
         assert benches[name].input_transition_time_s == pytest.approx(0.6773e-9, rel=1e-4)
     assert all(bench.oppoint for bench in benches.values())
     # the highest level, 1.195 V, steps half as far: its input reaches the 1.2 V supply and no further
@@ -583,6 +597,8 @@ def test_the_full_scale_step_is_the_converters_own_worst_case(monkeypatch: pytes
     assert all(tb.input_voltage - tb.track_step_v > 0 for tb in benches.values())
     for name in ("droop", "droop_hot", "sine_1", "sine_15", "dac_low", "dac_cm"):
         assert benches[name].track_step_v == benches[name].input_step_v == 0.0
+    for name in ("acquire", "acquire_110", "droop", "sine_1", "dac_cm"):
+        assert benches[name].track_step_s is None
 
 
 def test_the_acquisition_band_is_half_an_lsb_of_the_step() -> None:

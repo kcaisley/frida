@@ -2,24 +2,24 @@
 their parameters widened, ``widen``, every point of each) and its named instances (``@single``); the
 testbench runs that characterize one instance (``runs``) and the record they make (``results``).
 
-The characterization's switches (FRIDA-1's transmission gate, with and without dummies, the NMOS
-and the PMOS switch 8 to 128 units wide, the bootstrapped NMOS switch from 32 units) and each at
-twice its length, and the bootstrapped switch as an on-resistance ladder (the ADC study's
-samplers), in every PDK. Each instance is run on the benches every switch is characterized on
-(``params``): over the input level (1/12 to 11/12 of the supply, and the supply less half the
-step), tracking 10 ns of a 15 ns clock, its input stepping by a 120th of the supply onto the level
-in mid-track and off it in mid-hold: the settled switch's on-resistance into the load, the track
+The characterization's switches (FRIDA-1's transmission gate, with and without dummies, the NMOS and
+the PMOS switch 8 to 128 units wide, the bootstrapped NMOS switch from 32 units) and each at twice
+its length, and the bootstrapped switch as an on-resistance ladder (the ADC study's samplers), in
+every PDK. Each instance is run on the benches every switch is characterized on (``params``): over
+the input level (1/12 to 11/12 of the supply, and the supply less half the step), tracking 20 ns of
+a 25 ns clock, its input stepping by a 120th of the supply onto the level 5 ns before the track
+phase ends and off it in mid-hold: the settled switch's on-resistance into the load, the track
 error, the pedestal and the input's feedthrough while holding, a bootstrap's boosted V_GS; at the
-nominal input those and the bandwidth and energy a cycle; over the supply (90 and 110 % of its own besides nominal) and at the
-slow, fast and hot corners, the input at its nominal level, the on-resistance and pedestal; with
-the complementary clock an edge late, the pedestal; at the ADC's timing a full-scale step, the
-acquisition times, and the same step at the highest supply; the hold, at 25 C and hot, its droop;
-two sines of the ADC's swing, their held samples' distortion and the behavioral model's distance
-from them; the held output stepped as the ADC's first decision steps it, at the lowest level a side
-reaches and at the common mode, hot, its droop. Every run saves its devices' values: their largest
-voltages over every run, the DAC steps' apart. While the switch holds the input never moves faster
-than the converter's own, a full-scale sine at its Nyquist frequency. Twenty-six Spectre runs an
-instance.
+nominal input those and the bandwidth and energy a cycle; over the supply (90 and 110 % of its own
+besides nominal) and at the slow, fast and hot corners, the input at its nominal level, the
+on-resistance and pedestal; with the complementary clock an edge late, the pedestal; at the ADC's
+timing a full-scale step, the acquisition times, and the same step at the highest supply; the hold,
+at 25 C and hot, its droop; two sines of the ADC's swing, their held samples' distortion and the
+behavioral model's distance from them; the held output stepped as the ADC's first decision steps it,
+at the lowest level a side reaches and at the common mode, hot, its droop. Every run saves its
+devices' values: their largest voltages over every run, the DAC steps' apart. While the switch holds
+the input never moves faster than the converter's own, a full-scale sine at its Nyquist frequency.
+Twenty-six Spectre runs an instance.
 """
 
 from __future__ import annotations
@@ -63,6 +63,7 @@ from .params import (
     SINE_SAMPLES,
     SMALL_STEP,
     SUPPLY_SWEEP,
+    TRACK_S,
     VIN_BOTTOM,
     VIN_SWEEP,
     VIN_TOP,
@@ -156,7 +157,8 @@ def bootstrap() -> Params:
 
 def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk``, by name (each run's folder): the
-    input stepping a 120th of the supply onto each input level in mid-track and off it in mid-hold,
+    input stepping a 120th of the supply onto each input level late in the track phase (15 ns into
+    its 20 ns) and off it in mid-hold,
     there no faster than the converter's input moves (``vin_<twelfths>``, and ``vin_top`` the supply
     less half the step, its own steps half as large), at the nominal input at
     each other supply (``supply_<percent>``; the nominal one is ``vin_6``), at the slow and fast
@@ -178,10 +180,11 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     #   step's transition (tb.input_transition_time_s).
     # Ours against the source: none.
     # Holds for: the level, supply, corner and skew runs (vin_top's half step changes at half the
-    #   rate); the full-scale step's own transition is below. The step in mid-track keeps a clock
-    #   edge's change: the switch is closed and its gate rides the input, so it puts no device past
-    #   a supply, and a step response is what the closed switch's time constant is read from (the
-    #   lag a ramp leaves is too small against the gate drive's own settling to read it by).
+    #   rate); the full-scale step's own transition is below. The step in the track phase (TRACK_S
+    #   before it ends, params.LEVEL_TRACK_S) keeps a clock edge's change: the switch is closed and
+    #   its gate rides the input, so it puts no device past a supply, and a step response is what
+    #   the closed switch's time constant is read from (the lag a ramp leaves is too small against
+    #   the gate drive's own settling to read it by).
     slew = SMALL_STEP * ADC_PERIOD_S / (math.pi * ADC_FULL_SCALE)
     nominal = TbParams(
         pdk=pdk,
@@ -191,6 +194,14 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         input_step_v=round(SMALL_STEP * supply, 4),
         input_transition_time_s=slew,
         track_step_v=round(SMALL_STEP * supply, 4),
+        # not in the reference texts: the track step TRACK_S before the track phase ends, t_step =
+        # LEVEL_TRACK_S - TRACK_S into the clock's high time (15 ns of 20 ns)
+        # Terms: t_step tb.track_step_s; LEVEL_TRACK_S the level runs' high time; TRACK_S the window
+        #   the time constant is read over after the step, the plain bench's.
+        # Ours against the source: none (a bench's timing).
+        # Holds for: a gate drive settled within LEVEL_TRACK_S - TRACK_S of the clock's rise
+        #   (params.LEVEL_TRACK_S); the ADC-timing runs below take no track step (None).
+        track_step_s=LEVEL_TRACK_S - TRACK_S,
         clock_period_s=LEVEL_PERIOD_S,
         clock_high_time_s=LEVEL_TRACK_S,
         oppoint=True,
@@ -223,7 +234,9 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     # Terms: Delta t clk_b's delay over clk's, tb.clock_skew_s, set to tb.clock_transition_time_s:
     #   MN switches an edge before MP (and before its own dummy, which is on clk_b).
     # Ours against the source: the source names the time without a value; one edge is ours.
-    # Holds for: a skew of the order of the edges themselves (non-overlap of one edge).
+    # Holds for: a skew of the order of the edges themselves (non-overlap of one edge), at the
+    #   nominal supply: the highest supply's runs take edges that meet, which a bootstrap needs
+    #   there (flow.samp.subckt.netlist, Mctl_cap).
     benches["skew"] = replace(nominal, clock_skew_s=nominal.clock_transition_time_s)
     # not in the reference texts: the converter's own worst case for the switch's stress and
     # acquisition, from flow.adc's parameters (flow.samp.params: ADC_CM, ADC_FULL_SCALE, ADC_PERIOD_S,
@@ -242,6 +255,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         input_step_v=round(2 * ADC_FULL_SCALE * supply, 4),
         input_transition_time_s=2 * ADC_PERIOD_S / math.pi,
         track_step_v=0.0,
+        track_step_s=None,
         clock_period_s=ADC_PERIOD_S,
         clock_high_time_s=ADC_TRACK_S,
         periods=4,
@@ -258,6 +272,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         input_step_v=0.0,
         input_transition_time_s=None,
         track_step_v=0.0,
+        track_step_s=None,
         clock_period_s=ADC_PERIOD_S,
         clock_high_time_s=ADC_TRACK_S,
         periods=ADC_PERIODS,
