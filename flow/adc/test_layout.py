@@ -122,7 +122,7 @@ def _block_gds(path: Path, free: bool = False) -> Path:
     two rows, or six rows, the middle four free), a pin label on an M2 bar, a supply's label on
     an M3 rail and the other's on its first-metal rail line along the bottom (past both sides), an
     inner M2 wire and a via, a well past the boundary, and (``free``) the second and fourth metals
-    over the free rows, a third-metal run across them."""
+    over the free rows, a third-metal run across them, a fifth-metal plate labelled there alone."""
     tech = pytest.importorskip("pdk.ihp130.layout.tech")
     layout = db.Layout()
     layout.dbu = 0.001
@@ -143,6 +143,8 @@ def _block_gds(path: Path, free: bool = False) -> Path:
         shapes("M2").insert(db.Box(600, 9000, 800, 12000))  # a run over the free rows
         shapes("M4").insert(db.Box(0, 7560, 1920, 18900))  # a capacitor's metal
         shapes("M3").insert(db.Box(1700, 0, 1800, height))  # a wall: a supply run across them
+        shapes("M5").insert(db.Box(200, 12000, 1500, 14000))  # a top plate, labelled there alone
+        shapes("M5").insert(db.Text("vdac", db.Trans(800, 13000)))
     gds = path / "BLOCK_0.gds"
     layout.write(str(gds))
     return gds
@@ -180,12 +182,13 @@ def test_a_block_with_free_rows_is_two_bands_and_obstructions(tmp_path: Path) ->
     assert info["free"] and info["free_um"] == pytest.approx((3.78, 18.9))
     assert [(suffix, macro, y, pins) for suffix, macro, y, pins in info["parts"]] == [
         ("_lo", "adc_cap_lo", 0.0, ["clk"]),
-        ("_hi", "adc_cap_hi", pytest.approx(18.9), []),
+        ("_hi", "adc_cap_hi", pytest.approx(18.9), ["vdac"]),  # the plate the nearer band's pin
     ]
     assert "SIZE 1.9200 BY 3.7800 ;" in lo and "FOREIGN BLOCK_0 0.0000 0.0000 ;" in lo
     assert "SIZE 1.9200 BY 3.7800 ;" in hi and "FOREIGN adc_cap_empty" in hi
     layers = {layer for layer, *_box in info["obstructions"]}
-    assert layers == {"Metal2", "Metal3", "Metal4"}  # not the first metal: the bands' rails, the cells' own
+    assert layers == {"Metal2", "Metal3", "Metal4"}  # the plate a pin there, no obstruction
+    assert "RECT 0.2000 -6.9000 1.5000 -4.9000 ;" in hi[hi.index("PIN vdac") :]  # whole, below the band
     assert info["walls"] == [pytest.approx((1.7, 1.8))]
     assert info["under_um"] == pytest.approx((0.0, 3.78, 1.92, 18.9)) and info["logic_under"]
     assert ("Metal2", 0.6, 9.0, 0.8, 12.0) in [(lay, *(round(v, 4) for v in box)) for lay, *box in info["obstructions"]]

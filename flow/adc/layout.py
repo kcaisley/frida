@@ -448,12 +448,13 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         at: db.Point,
         beyond: tuple[bool, bool, bool] = (True, True, True),
         hidden: frozenset[str] = frozenset(),
+        adopted: frozenset[str] = frozenset(),
     ) -> tuple[str, list[str]]:
         """The abstract of the block within ``box``: its pins and obstructions there (a ``hidden``
         pin's metal an obstruction), and its shapes past ``box``'s sides where ``beyond`` says (left
         and right, below, above: its rails' and wells' overhang, which its neighbours must keep
-        clear of), its frame's origin ``at`` (the
-        outline's lower left corner), its layout ``foreign`` at ``origin``."""
+        clear of), its frame's origin ``at`` (the outline's lower left corner), its layout
+        ``foreign`` at ``origin``; an ``adopted`` pin (one in the free rows, in no band) whole."""
         reach = round(10.0 / dbu)
         side, below, above = beyond
         clip = db.Region(
@@ -476,7 +477,9 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         for pin, by_layer in sorted(pins.items()):
             if pin in hidden:
                 continue
-            inside = {metal: shapes & db.Region(box) for metal, shapes in by_layer.items()}
+            inside = {
+                metal: shapes if pin in adopted else shapes & db.Region(box) for metal, shapes in by_layer.items()
+            }
             inside = {metal: shapes for metal, shapes in inside.items() if not shapes.is_empty()}
             if not inside:
                 continue
@@ -523,8 +526,18 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         if pin not in use
         and all(any(not (shapes & db.Region(band)).is_empty() for shapes in by_layer.values()) for band in (lo, hi))
     )
-    lo_text, lo_pins = part(f"{macro}_lo", lo, top.name, origin, beyond=(True, True, False), hidden=both)
-    hi_text, hi_pins = part(f"{macro}_hi", hi, f"{macro}_empty", hi.p1, beyond=(True, False, True))
+    # a signal in the free rows alone (ihp130's top plate, its label there) a pin of the band nearer it
+    stray = {
+        pin: sum(shapes.bbox().center().y for shapes in by_layer.values()) / len(by_layer)
+        for pin, by_layer in pins.items()
+        if pin not in use
+        and all((shapes & db.Region(band)).is_empty() for shapes in by_layer.values() for band in (lo, hi))
+    }
+    to_lo = frozenset(pin for pin, y in stray.items() if y - y0 <= y1 - y)
+    lo_text, lo_pins = part(f"{macro}_lo", lo, top.name, origin, beyond=(True, True, False), hidden=both, adopted=to_lo)
+    hi_text, hi_pins = part(
+        f"{macro}_hi", hi, f"{macro}_empty", hi.p1, beyond=(True, False, True), adopted=frozenset(stray) - to_lo
+    )
     info["parts"] = [
         ("_lo", f"{macro}_lo", 0.0, [pin for pin in lo_pins if pin not in use]),
         ("_hi", f"{macro}_hi", um(y1 - origin.y), [pin for pin in hi_pins if pin not in use]),
@@ -547,6 +560,8 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         shapes = layer_shapes[layer] & middle
         if layer == "M1":
             shapes -= rails
+        for pin in stray:  # a pin there (above), no obstruction
+            shapes -= pins[pin].get(layer, db.Region())
         for polygon in shapes.decompose_trapezoids_to_region(db.Polygon.TD_htrapezoids).each():
             box = polygon.bbox()
             obstructions.append(
@@ -1019,6 +1034,9 @@ check_placement -verbose
 # 7. The routes
 
 set_routing_layers -signal $routing
+# the analog nets (the inputs, the DAC's top plates) twice as wide and twice as far from the rest
+create_ndr -name analog -width *2 -spacing *2
+foreach net $analog { assign_ndr -ndr analog -net $net }
 global_route -allow_congestion
 detailed_route -output_drc route_drc.rpt
 puts "drc violations: [detailed_route_num_drvs]"
@@ -1127,6 +1145,7 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
         "one_site": tech.STD_FILL,
         "fillers": [name for name in _fillers(pdk, stdcell_lef) if name not in getattr(tech, "STD_DECAPS", ())],
         "routing": f"{lef['M2']}-{lef[f'M{max(top_metal, 3)}']}",
+        "analog": ("vin_p", "vin_n", "vdac_p", "vdac_n"),
     }
     script = "".join(f"set {name} {_tcl(value)}\n" for name, value in variables.items()) + _FLOW
     (run_dir / "adc.tcl").write_text(script)
