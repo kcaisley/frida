@@ -1,4 +1,4 @@
-"""Give frida-scc-2p0's board the routing frida-scc-1p1 has for the parts both boards have.
+"""Give frida_scc_rev2's board the routing frida-scc-1p1 has for the parts both boards have.
 
 Run with KiCad's Python after the two placement scripts, on a board without tracks:
 

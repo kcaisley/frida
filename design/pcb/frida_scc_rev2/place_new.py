@@ -1,4 +1,4 @@
-"""Place the parts frida-scc-2p0 adds to frida-scc-1p1, inside its outline.
+"""Place the parts frida_scc_rev2 adds to frida-scc-1p1, inside its outline.
 
 Run with KiCad's Python after ``place_from_1p1.py`` (which leaves these parts beside the outline):
 
@@ -34,11 +34,14 @@ from place_from_1p1 import net_map
 
 HERE = Path(__file__).parent
 OLD = HERE.parent / "frida-scc-1p1.kicad_pcb"
-NEW = HERE / "eda" / "frida-scc-2p0.kicad_pcb"
+NEW = HERE / "eda" / "frida_scc_rev2.kicad_pcb"
 GAP = 0.15  # between courtyards
 EDGE = 1.0  # from a courtyard to the outline
 REACH = 14.0  # how far a NEAR part may end up from its pin
 KEEP_OFF = 0.55  # from a pad's centre to the edge of a frida-scc-1p1 track or via of another net
+# the board's name in the top silkscreen, centred at (x, y): the free corner by mounting hole H4
+LABEL = ("FRIDA SCC\nRev 2.0", 112.0, 138.0)
+LABEL_HEIGHT = 2.0  # mm, the letters' height; strokes 0.3 mm
 
 # part -> (x, y, rotation) of its courtyard's centre
 FIXED = {
@@ -358,8 +361,33 @@ def main() -> None:
         print("courtyards overlapping:", " ".join(clashes))
     if far:
         print("more than 5 mm from their pin:", ", ".join(far))
+    add_label(board)
     pcbnew.SaveBoard(str(NEW), board)
 
 
+def add_label(board: Any) -> bool:
+    """Write LABEL in the top silkscreen, unless the board has it already."""
+
+    text, x, y = LABEL
+    for drawing in board.GetDrawings():
+        if drawing.GetClass() == "PCB_TEXT" and drawing.GetText() == text:
+            return False
+    label = pcbnew.PCB_TEXT(board)
+    label.SetText(text)
+    label.SetLayer(pcbnew.F_SilkS)
+    label.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y)))
+    label.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(LABEL_HEIGHT), pcbnew.FromMM(LABEL_HEIGHT)))
+    label.SetTextThickness(pcbnew.FromMM(0.3))
+    label.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
+    label.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
+    board.Add(label)
+    return True
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["label"]:  # the label alone, on a board placed before it was added
+        placed = pcbnew.LoadBoard(str(NEW))
+        print("label added" if add_label(placed) else "label already there")
+        pcbnew.SaveBoard(str(NEW), placed)
+    else:
+        main()

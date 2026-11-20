@@ -1,12 +1,12 @@
-"""Arrange frida-scc-2p0's KiCad schematic: frida-scc-1p1's sheet as page 1, the new parts on pages after it.
+"""Arrange frida_scc_rev2's KiCad schematic: frida-scc-1p1's sheet as page 1, the new parts on pages after it.
 
 The ``pcb`` tool keeps the schematic in ``eda/`` as it is drawn and only repairs what no longer
 matches the Zener design, so the drawing is made once and kept:
 
     python3 arrange_schematic.py link                 # page 1: frida-scc-1p1's sheet, its symbols linked to the parts here
-    pcb apply schematic --no-open frida-scc-2p0.zen   # values updated, parts that are gone removed, new parts added
+    pcb apply schematic --no-open frida_scc_rev2.zen   # values updated, parts that are gone removed, new parts added
     python3 arrange_schematic.py                      # leftover stubs removed; new parts moved to the pages after, in blocks
-    pcb apply schematic --no-open frida-scc-2p0.zen   # connections between the pages restored
+    pcb apply schematic --no-open frida_scc_rev2.zen   # connections between the pages restored
 
 ``link`` copies ``../frida-scc-1p1.kicad_sch`` and gives each symbol named in
 ``place_from_1p1.SAME`` the path of the part that replaces it (from the board file), which is all
@@ -30,9 +30,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 OLD = HERE.parent / "frida-scc-1p1.kicad_sch"
-ROOT = HERE / "eda" / "frida-scc-2p0.kicad_sch"
-BOARD = HERE / "eda" / "frida-scc-2p0.kicad_pcb"
-PROJECT = "frida-scc-2p0"
+ROOT = HERE / "eda" / "frida_scc_rev2.kicad_sch"
+BOARD = HERE / "eda" / "frida_scc_rev2.kicad_pcb"
+PROJECT = "frida_scc_rev2"
 MARK = "f21da2b0"  # the first eight digits of the UUID of everything this script draws
 
 # the pages after page 1, in order: (page title, [(block title, the instance-path prefixes it holds)]);

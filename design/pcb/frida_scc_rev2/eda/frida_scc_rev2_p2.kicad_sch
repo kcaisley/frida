@@ -1499,7 +1499,7 @@
 			(uuid "51f5953a-b7d3-58db-b1a5-c18c4e1391cb")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R81")
 					(unit 1)
@@ -1592,7 +1592,7 @@
 			(uuid "57620f9a-d927-528a-bca4-f99edae5270a")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR936cb2acd2325617b79741c2b19fa752")
 					(unit 1)
@@ -1773,7 +1773,7 @@
 			(uuid "179c89ef-d3b7-5d72-aff4-29316642b70a")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR0a2dc9b5e08a553784e7fa5d5ba1881b")
 					(unit 1)
@@ -1870,7 +1870,7 @@
 			(uuid "1bf8c5da-6ad2-56ed-955d-723ce1c43eec")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C60")
 					(unit 1)
@@ -1963,7 +1963,7 @@
 			(uuid "f8040651-9d75-5ced-9d99-2ad0c0819405")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRb5b67b42f3b95d79b11ff9da12dc987a")
 					(unit 1)
@@ -2060,7 +2060,7 @@
 			(uuid "34915e20-b13a-5976-afc5-98d67bbc41cf")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C80")
 					(unit 1)
@@ -2281,7 +2281,7 @@
 			(uuid "e94dde2d-ae04-5476-ad01-1780f1f41426")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR02c991252c3a5c998aaf3a597d166c1e")
 					(unit 1)
@@ -2394,7 +2394,7 @@
 			(uuid "4982edb0-154c-55d6-a983-34d90b57da3d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "J17")
 					(unit 1)
@@ -2541,7 +2541,7 @@
 			(uuid "46b2fafd-648c-5763-9fa0-48f922940763")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR315f7c1304235db3bd0d05cc346108eb")
 					(unit 1)
@@ -2641,7 +2641,7 @@
 			(uuid "d028d2bf-9824-51ae-960b-f42b59e4ceec")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "J21")
 					(unit 1)
@@ -2734,7 +2734,7 @@
 			(uuid "8ea766ca-4dda-514d-b3aa-d9d71ddf8f5f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRbe48a84d5ea75e2a967d06db0e58f292")
 					(unit 1)
@@ -2881,7 +2881,7 @@
 			(uuid "5c43d03c-5a93-5342-93be-3706f9629aa2")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR7c890b87e75554bc8b5a3e3a73c4b72f")
 					(unit 1)
@@ -2974,7 +2974,7 @@
 			(uuid "baed9c03-ebd1-5f40-9a49-5ac6e6595769")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR97f7c3eaa7de58aaa81af78278529cf6")
 					(unit 1)
@@ -3074,7 +3074,7 @@
 			(uuid "087a2159-9514-5f9b-858a-43f7241199a0")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "J22")
 					(unit 1)
@@ -3221,7 +3221,7 @@
 			(uuid "d3811d76-8059-5f85-909e-a7f3bc64e8ae")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR94fbd99a27ff5840afb30858c8f3cc5e")
 					(unit 1)
@@ -3321,7 +3321,7 @@
 			(uuid "0bfaaefd-1618-5de2-8b11-229ef23a0265")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "J19")
 					(unit 1)
@@ -3414,7 +3414,7 @@
 			(uuid "890405e3-28cf-57af-9077-4b3758d5daf2")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRc5b3397b33e457ee9aad61f481046da1")
 					(unit 1)
@@ -3561,7 +3561,7 @@
 			(uuid "5959118d-6865-5ae9-8e10-1e0f6243e25a")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR230b1f70f4f85cf89b252f0dfe9aeb89")
 					(unit 1)
@@ -3661,7 +3661,7 @@
 			(uuid "fe8804f8-dd1d-543f-bceb-7f19819bfba9")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "J20")
 					(unit 1)
@@ -3754,7 +3754,7 @@
 			(uuid "1c64e83e-1936-532c-a76c-2d3b9ceaaead")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR8b57d014114c5f74a7abb5274053255c")
 					(unit 1)
@@ -3868,7 +3868,7 @@
 			(uuid "0477c4b3-bb40-5559-b10f-7bb13c91fbc7")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR25f9ec7da22850f5825862015ca27085")
 					(unit 1)
@@ -3965,7 +3965,7 @@
 			(uuid "53799751-7645-52e7-b5cd-5727efae8ac7")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R83")
 					(unit 1)
@@ -4083,7 +4083,7 @@
 			(uuid "a0b413c0-b0e5-5f14-b32e-fa8501b99323")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R84")
 					(unit 1)
@@ -4176,7 +4176,7 @@
 			(uuid "36927c9c-53d3-5402-a6c6-18009774fa92")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRe81da350a3f85b2ab1dbf0c3d7020f8e")
 					(unit 1)
@@ -4294,7 +4294,7 @@
 			(uuid "094a530f-bc12-560c-bc6f-0b0ab36a733d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R82")
 					(unit 1)
@@ -4387,7 +4387,7 @@
 			(uuid "3e91f624-2332-5d23-a11d-454138e1a9d1")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRe2024f92254b581f8ef81ca9fe1df39c")
 					(unit 1)
@@ -4771,7 +4771,7 @@
 			(uuid "5bbcf5f9-79d8-506b-879e-8194d5dff24d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U22")
 					(unit 1)
@@ -4864,7 +4864,7 @@
 			(uuid "c4a5ac31-95ae-5188-af9a-677fe61f6c6f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR2e9cff9765935950a3e3b90034cd4987")
 					(unit 1)
@@ -4957,7 +4957,7 @@
 			(uuid "b4bca4a4-c48f-5b47-92d9-bbb8ee05e21e")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR6c2606ef25c35b10b4ca4541bc6c0522")
 					(unit 1)
@@ -5050,7 +5050,7 @@
 			(uuid "e1b2f150-d0d9-5c34-a046-2d784c106d69")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRa69e57587847528092ccde8b02011ea6")
 					(unit 1)
@@ -5168,7 +5168,7 @@
 			(uuid "dcce9a23-5d98-5e9b-b4a3-500f3c498091")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R60")
 					(unit 1)
@@ -5261,7 +5261,7 @@
 			(uuid "2caef04c-05ec-5fdc-b962-003f87deae12")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRd899c636b3215c768b4e2a9cfa23524b")
 					(unit 1)
@@ -5379,7 +5379,7 @@
 			(uuid "fb433bd4-c27a-5a26-9b4c-973f9f3d5f46")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R58")
 					(unit 1)
@@ -5472,7 +5472,7 @@
 			(uuid "e521b741-bd88-5ec8-9177-079acfaf9386")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR14d882a238f355279cc18f99163bb880")
 					(unit 1)
@@ -5590,7 +5590,7 @@
 			(uuid "0e3488a1-c64c-542f-b043-5bfbc9c96fac")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C70")
 					(unit 1)
@@ -5683,7 +5683,7 @@
 			(uuid "7575b6b3-38aa-5596-9411-03056cd07502")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRdcea11035af75c8cb6291826c03157cc")
 					(unit 1)
@@ -5797,7 +5797,7 @@
 			(uuid "e6d674e8-5a30-5992-8ff8-1cbe514d75a1")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR72d76ed145655239a65f234a7e3f1099")
 					(unit 1)
@@ -5894,7 +5894,7 @@
 			(uuid "99d63c49-adfa-53c0-9a64-f95ce70981b6")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R62")
 					(unit 1)
@@ -6011,7 +6011,7 @@
 			(uuid "c6c2cc34-1c96-5a86-b947-89725fe98a58")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R59")
 					(unit 1)
@@ -6126,7 +6126,7 @@
 			(uuid "d7810a02-1657-598e-86cd-160daeddb1b1")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR7abba147f78e5cc3b4c4c913421b03f0")
 					(unit 1)
@@ -6219,7 +6219,7 @@
 			(uuid "af3c0629-96a0-5e9e-bb0d-82678b61d8b0")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRa2580fb15a6a5732b9a1ab32ed3ecfb6")
 					(unit 1)
@@ -6316,7 +6316,7 @@
 			(uuid "de82b197-081d-5f05-b6df-511b679ebe03")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C69")
 					(unit 1)
@@ -6430,7 +6430,7 @@
 			(uuid "8261bba3-60a5-5486-b2c2-a1b277002166")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR1069cd70c6c45280a52b5371e6f5a552")
 					(unit 1)
@@ -6527,7 +6527,7 @@
 			(uuid "9d52edf5-90e2-5af7-9711-5ca5dad2be39")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R61")
 					(unit 1)
@@ -6876,7 +6876,7 @@
 			(uuid "20193545-3111-5fa5-b534-299837763df3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR5a239295ef67562fb0abb2110b505d20")
 					(unit 1)
@@ -7004,7 +7004,7 @@
 			(uuid "adc9c0e5-877c-547c-a71c-b1b7f7bf8938")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U23")
 					(unit 1)
@@ -7097,7 +7097,7 @@
 			(uuid "fa48cf04-5674-5d33-a28c-d4cccb2f1806")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRda2fda241920500db90c645ea64d90e9")
 					(unit 1)
@@ -7190,7 +7190,7 @@
 			(uuid "984d688c-3829-56ac-8317-ebdaf59d1a33")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRf6c6dbb816475710a59c4e2bb82863f0")
 					(unit 1)
@@ -7304,7 +7304,7 @@
 			(uuid "1a7ec3d8-1042-503b-832e-ab2e1598e381")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR104368bc86575355a5d232dc02702696")
 					(unit 1)
@@ -7401,7 +7401,7 @@
 			(uuid "6f4e8489-324d-5f38-8b2c-38d74ea01e6f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R65")
 					(unit 1)
@@ -7515,7 +7515,7 @@
 			(uuid "65a89aef-8b50-5f6a-bfcd-c0bfde96f461")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR324917674b2d551988a5fe5038cd15fd")
 					(unit 1)
@@ -7612,7 +7612,7 @@
 			(uuid "53c757a8-c14d-5e30-b7db-73e191102d9f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R63")
 					(unit 1)
@@ -7730,7 +7730,7 @@
 			(uuid "562e06a5-2450-5f01-beeb-50b6bb15e13b")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C73")
 					(unit 1)
@@ -7823,7 +7823,7 @@
 			(uuid "3763119f-6572-5df1-8756-11be4a4396fe")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRfc0af9ad4f0f5868b4ab647143d3987d")
 					(unit 1)
@@ -7937,7 +7937,7 @@
 			(uuid "f21be592-d3b0-5126-8c23-25951ea4501c")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR7caa17571ce25df29fa9c94aa13b0223")
 					(unit 1)
@@ -8034,7 +8034,7 @@
 			(uuid "55105aaa-1d11-5f58-a0f9-4dec08e71804")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R67")
 					(unit 1)
@@ -8151,7 +8151,7 @@
 			(uuid "f504df1a-09d2-5227-9b68-cae74962e205")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R64")
 					(unit 1)
@@ -8266,7 +8266,7 @@
 			(uuid "ff10c314-e1d6-50bd-a2fa-600be4fefc45")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR1ad5b2f3584c5463ad1d7e2b4214f570")
 					(unit 1)
@@ -8359,7 +8359,7 @@
 			(uuid "80502683-d5a4-589b-9d1c-9bc20869ecda")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR9e514c8fa3b15210aae244987fd47945")
 					(unit 1)
@@ -8456,7 +8456,7 @@
 			(uuid "d5d190a9-177b-54b6-983f-44f89795857f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C72")
 					(unit 1)
@@ -8574,7 +8574,7 @@
 			(uuid "179f525b-0925-532c-9bf6-b98918b54949")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R66")
 					(unit 1)
@@ -8667,7 +8667,7 @@
 			(uuid "ad791d95-609d-5f01-a3d4-8396e47d881e")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRd0335e4dc3a959078c9cd9246eed8479")
 					(unit 1)
@@ -9016,7 +9016,7 @@
 			(uuid "a6b307f6-91cc-554d-85c4-28208fd80b8b")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR3765f1c9b94a5b71a0c7bc43d0fdf62f")
 					(unit 1)
@@ -9109,7 +9109,7 @@
 			(uuid "a406ad12-c593-58b6-aa84-64758790e380")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR406bb43a4e9057cca4c2a2baf803a4d8")
 					(unit 1)
@@ -9202,7 +9202,7 @@
 			(uuid "6f7210f2-1556-553c-bffc-0db0ed33396e")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR943ff41423ea5110ad6cdbf9895dd693")
 					(unit 1)
@@ -9330,7 +9330,7 @@
 			(uuid "697fa999-2f6a-58a4-a57b-589a3ed713d7")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U24")
 					(unit 1)
@@ -9448,7 +9448,7 @@
 			(uuid "1329a003-0006-55c7-b5f1-6d3dfe69f755")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R68")
 					(unit 1)
@@ -9541,7 +9541,7 @@
 			(uuid "dc402ed4-f64e-5b54-9835-c511dc77798d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRdaafb04f31195008a2bc5a85c3dc8eac")
 					(unit 1)
@@ -9659,7 +9659,7 @@
 			(uuid "10f54bd1-c759-5e68-8b3e-a1cfdbd54cfc")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R70")
 					(unit 1)
@@ -9752,7 +9752,7 @@
 			(uuid "6aa9768c-f34b-58ed-a8b5-393aa411ab57")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRbf6d03e1492e5af987ce844aeca1ab35")
 					(unit 1)
@@ -9866,7 +9866,7 @@
 			(uuid "dd86e6c9-3d0f-5874-a0b4-88202b7e2031")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR75270b87019c56f084870d4c22a4539c")
 					(unit 1)
@@ -9963,7 +9963,7 @@
 			(uuid "68003d1f-179b-5ce8-a0e3-a812c40be288")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C76")
 					(unit 1)
@@ -10081,7 +10081,7 @@
 			(uuid "992cd943-c3e2-5d48-9daf-0d4d1f2b58f8")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R72")
 					(unit 1)
@@ -10174,7 +10174,7 @@
 			(uuid "1bf47346-ced9-5ea6-a6d4-243fd71ee5c8")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR3b3602cc53f7560c97423deefb4f44e0")
 					(unit 1)
@@ -10291,7 +10291,7 @@
 			(uuid "c4bd518c-3b20-5c75-89cc-e52a8b06aa96")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R69")
 					(unit 1)
@@ -10406,7 +10406,7 @@
 			(uuid "0a3a8cb2-18e7-53f7-81ea-ee3d33c6dbe0")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR32cf1bcf017d54fc91aa9adba14830c6")
 					(unit 1)
@@ -10503,7 +10503,7 @@
 			(uuid "380cf7c8-d1ee-51ff-bb58-dc67fee96a84")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C75")
 					(unit 1)
@@ -10596,7 +10596,7 @@
 			(uuid "1ba80464-8cb7-53c1-aee9-c6bd8ffc6f1a")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRf7a32375ae4350e1908c446c4283c5c7")
 					(unit 1)
@@ -10710,7 +10710,7 @@
 			(uuid "67b69817-29f2-55b5-b4d1-55ccd6eb92fd")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRbf284ebc65135ff6b3b110f969383b99")
 					(unit 1)
@@ -10807,7 +10807,7 @@
 			(uuid "25aafbd4-184e-5655-92a6-49cc77d856c3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R71")
 					(unit 1)
@@ -11156,7 +11156,7 @@
 			(uuid "47ec39e8-f41b-5712-ad03-a83c7d320f2c")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR10c4b23033135d2c86f83e7020494264")
 					(unit 1)
@@ -11284,7 +11284,7 @@
 			(uuid "181d5b8d-ec92-5195-a796-8666b8b7281d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U25")
 					(unit 1)
@@ -11377,7 +11377,7 @@
 			(uuid "1edfdc80-e789-5af8-bc3d-a7cdbb0ecc0b")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR640a3b236eba5207b29e78f07e7c57ac")
 					(unit 1)
@@ -11470,7 +11470,7 @@
 			(uuid "f2bd0888-3467-5010-aaf4-756f37df7c8f")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRd85fb53286db59d2aefddac245eecf03")
 					(unit 1)
@@ -11584,7 +11584,7 @@
 			(uuid "2bd70058-2719-5b5e-9654-1c09528c52b3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR2bb00b30c1575bc98ff6fe86fb8650cc")
 					(unit 1)
@@ -11681,7 +11681,7 @@
 			(uuid "8a24d6fd-b670-5355-998d-26c65fafe38e")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R75")
 					(unit 1)
@@ -11799,7 +11799,7 @@
 			(uuid "8f5c95c2-469d-5c81-8670-f745f24df892")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R73")
 					(unit 1)
@@ -11892,7 +11892,7 @@
 			(uuid "39ecb201-1fff-5a07-8293-dc6f1ca06e77")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRe05d49426fa65dfe986e160443f308ae")
 					(unit 1)
@@ -12010,7 +12010,7 @@
 			(uuid "4e3118b7-d4f5-5578-b56f-ca5622b43ede")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C79")
 					(unit 1)
@@ -12103,7 +12103,7 @@
 			(uuid "3182673b-2ba8-54db-b0b8-6d99f245589c")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRf8d917cffcd7567e84e7eab5cef8b358")
 					(unit 1)
@@ -12217,7 +12217,7 @@
 			(uuid "56b6c896-1385-5503-9d9f-3909a6d43ee3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR1c7d5c60a9815b5b955f55b4b1ba91ff")
 					(unit 1)
@@ -12314,7 +12314,7 @@
 			(uuid "b9bf4fed-40e4-5a0e-af23-a6c334343bf7")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R77")
 					(unit 1)
@@ -12431,7 +12431,7 @@
 			(uuid "180ce5a6-4111-5b21-b55c-12cf729af3c8")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R74")
 					(unit 1)
@@ -12546,7 +12546,7 @@
 			(uuid "b9527acb-f834-5c96-8a3d-08c7726cda36")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR9f0bdad7ce715ca998fd3663ecf1555c")
 					(unit 1)
@@ -12643,7 +12643,7 @@
 			(uuid "aec9210f-580b-5c18-9179-e57329b65af1")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C78")
 					(unit 1)
@@ -12736,7 +12736,7 @@
 			(uuid "54671ecc-1927-5896-8dc7-e31d03fe1154")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRbe82a9f66ec65e37882b7162f2db243a")
 					(unit 1)
@@ -12850,7 +12850,7 @@
 			(uuid "9872abd6-4cc0-5178-acc5-8ccdbce0917b")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRd23d179996935a348edfd26dba80e27e")
 					(unit 1)
@@ -12947,7 +12947,7 @@
 			(uuid "e6a265dc-f30a-5ef8-be63-7a086054fe3b")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R76")
 					(unit 1)
@@ -13331,7 +13331,7 @@
 			(uuid "2ad72320-34d9-5ba7-aabd-58ab50b3c5f9")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U21")
 					(unit 1)
@@ -13424,7 +13424,7 @@
 			(uuid "9218610e-68b8-5606-b911-a82829166c79")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR1d2e2a19d9d35f6f8bf76a78ae76e662")
 					(unit 1)
@@ -13517,7 +13517,7 @@
 			(uuid "d685a426-ad64-5bb7-accf-214dce4f4b88")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR3ec6b6e9b55b5b48826c58c11743ee47")
 					(unit 1)
@@ -13610,7 +13610,7 @@
 			(uuid "0931afa8-c1dd-560b-a6bd-44e865dd67a3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRad78dc16e2dd5c4bbc9c6ea12692325d")
 					(unit 1)
@@ -13728,7 +13728,7 @@
 			(uuid "801b8e51-6d83-55d6-97eb-b75412d550b4")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R53")
 					(unit 1)
@@ -13821,7 +13821,7 @@
 			(uuid "05cb8dc3-7dd4-5440-a5b1-b422892bb235")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRef10727bf2be5d969bbd580bd3e635db")
 					(unit 1)
@@ -13939,7 +13939,7 @@
 			(uuid "3a448da4-af12-5c61-a85b-d51c580a6b78")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R55")
 					(unit 1)
@@ -14032,7 +14032,7 @@
 			(uuid "97308ca6-19ac-5d58-add7-fddf5581201d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRf05a3a2399165944a4efedcee616e9cf")
 					(unit 1)
@@ -14150,7 +14150,7 @@
 			(uuid "4c6a1812-2ab5-5e57-813c-9b0aadeccc3e")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C67")
 					(unit 1)
@@ -14243,7 +14243,7 @@
 			(uuid "1296f00d-7c1b-5280-bd6f-299805539907")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRd6e8f95b68615ad9bd619fced261ae3d")
 					(unit 1)
@@ -14357,7 +14357,7 @@
 			(uuid "86a8ece7-eec2-51d3-b332-ecb558848109")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR0f29dc299df65136a5acbe8392cf0408")
 					(unit 1)
@@ -14454,7 +14454,7 @@
 			(uuid "67ecdf98-40c9-5ba5-a7ce-9722e050ceaa")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R57")
 					(unit 1)
@@ -14571,7 +14571,7 @@
 			(uuid "57c55423-d406-5ca4-a285-43839a68bf54")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R54")
 					(unit 1)
@@ -14689,7 +14689,7 @@
 			(uuid "621fa907-b131-5aac-ba37-2507ed34e959")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R56")
 					(unit 1)
@@ -14782,7 +14782,7 @@
 			(uuid "d6e3a358-a68c-5b64-94f0-6f20b4164a6d")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRcd55c893bb045eca9febfaa861e20379")
 					(unit 1)
@@ -15131,7 +15131,7 @@
 			(uuid "87d629b5-005e-50a1-9c56-54218e3a18f3")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR1c4dd6ebc51c5dc29035b6947e25cbf3")
 					(unit 1)
@@ -15259,7 +15259,7 @@
 			(uuid "2ec3b90c-26c8-5522-827d-d91be7be9881")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "U20")
 					(unit 1)
@@ -15352,7 +15352,7 @@
 			(uuid "d764eb00-3506-595f-94d9-35c4cfb27565")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR7980f10d7eea5869903f5ca78d1df65e")
 					(unit 1)
@@ -15445,7 +15445,7 @@
 			(uuid "c4b36cae-ad4b-5423-8a07-c3e3b4ada011")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRb94f3197061859bda8e2ef01dc940b2e")
 					(unit 1)
@@ -15563,7 +15563,7 @@
 			(uuid "eb52b7b5-ba98-5bf1-9cfd-c52ffbb14d16")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R48")
 					(unit 1)
@@ -15656,7 +15656,7 @@
 			(uuid "a354444b-127b-580e-ac39-6c4de6432ccb")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRca22b7bed85a55ee9676085130652a17")
 					(unit 1)
@@ -15774,7 +15774,7 @@
 			(uuid "8cbf12ef-15aa-52eb-a6e1-1dc04fe778ab")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R50")
 					(unit 1)
@@ -15867,7 +15867,7 @@
 			(uuid "6df8629a-9254-5bb6-978c-aaa699068167")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRbc8baaaeacaa5a2b96a7c0b7c9b7bb1a")
 					(unit 1)
@@ -15985,7 +15985,7 @@
 			(uuid "5b9dc054-bd97-57cf-b3f9-a81d35ecf8f5")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "C64")
 					(unit 1)
@@ -16078,7 +16078,7 @@
 			(uuid "cd51453f-2a01-5bde-96b2-443430f83209")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR5ceb553377b859d2a3d6fbc2fc4a400f")
 					(unit 1)
@@ -16328,7 +16328,7 @@
 			(uuid "e501e81a-6428-515f-9d9e-04431eff0e57")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R52")
 					(unit 1)
@@ -16421,7 +16421,7 @@
 			(uuid "884bbf24-b3a6-5f62-8611-74dd74ae2c99")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWR220c7d286d6359f4b35240f953bd8a8e")
 					(unit 1)
@@ -16538,7 +16538,7 @@
 			(uuid "05a8189e-92dc-579a-907c-512f0388b48c")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R49")
 					(unit 1)
@@ -16656,7 +16656,7 @@
 			(uuid "f8451726-9b75-5447-8522-ca550111e073")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "R51")
 					(unit 1)
@@ -16749,7 +16749,7 @@
 			(uuid "c7e611c0-f335-5144-8891-3baa9492a995")
 		)
 		(instances
-			(project "frida-scc-2p0"
+			(project "frida_scc_rev2"
 				(path "/513d9cc1-d27a-514d-a37c-2f1ca04dddfa/f21da2b0-348e-56e1-8a73-b94994dc6a41"
 					(reference "#PWRde41a1c91457504caf8155c19f3abf55")
 					(unit 1)

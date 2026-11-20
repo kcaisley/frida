@@ -1,5 +1,5 @@
 """
-frida-scc-2p0: the FRIDA single-chip card, revision 2.0.
+frida_scc_rev2: the FRIDA single-chip card, revision 2.0.
 
 The test board for the FRIDA-1 ADC. Against frida-scc-1p1 it makes its own rails from one raw
 +-5 V input, carries a signal source for ramps and low-frequency sines, and replaces the probe
@@ -271,7 +271,7 @@ for index in range(1, 5):
 # tracks are kept) and its LVDS geometry (0.18 mm tracks 0.2 mm apart); new tracks 0.2 mm wide,
 # vias 0.6 / 0.3 mm.
 Board(
-    name="frida-scc-2p0",
+    name="frida_scc_rev2",
     layers=4,
     path="eda",
     schematic=True,

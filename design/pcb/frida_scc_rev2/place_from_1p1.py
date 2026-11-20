@@ -1,10 +1,10 @@
-"""Give frida-scc-2p0's board the outline of frida-scc-1p1 and the placement of the parts both have.
+"""Give frida_scc_rev2's board the outline of frida-scc-1p1 and the placement of the parts both have.
 
 Run with KiCad's Python (its ``pcbnew`` module), after ``pcb layout`` has made the board:
 
     $KICAD_APPDIR/bin/python3.11 place_from_1p1.py
 
-``SAME`` names, for each part of frida-scc-1p1, the part of frida-scc-2p0 that takes its place:
+``SAME`` names, for each part of frida-scc-1p1, the part of frida_scc_rev2 that takes its place:
 its position, rotation and side are copied. A two-pad part whose pads are wired the other way
 round here is turned by 180 degrees, so that each pad stays on the net it was on. Parts with no
 counterpart are moved as one block to the right of the outline, where they wait to be placed.
@@ -22,10 +22,10 @@ import pcbnew
 
 HERE = Path(__file__).parent
 OLD = HERE.parent / "frida-scc-1p1.kicad_pcb"
-NEW = HERE / "eda" / "frida-scc-2p0.kicad_pcb"
+NEW = HERE / "eda" / "frida_scc_rev2.kicad_pcb"
 STAGING_GAP_MM = 15.0  # between the outline's right edge and the parts not yet placed
 
-# frida-scc-1p1 reference -> frida-scc-2p0 instance path
+# frida-scc-1p1 reference -> frida_scc_rev2 instance path
 SAME = {
     # the chip, its clock terminations, decoupling and reset pull-up
     "U3": "ASIC.U_ASIC",

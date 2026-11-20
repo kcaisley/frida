@@ -160,7 +160,7 @@
 		)
 	)
 	(property "PCB_GIT_HASH" "d10d3c0")
-	(property "PCB_NAME" "frida-scc-2p0")
+	(property "PCB_NAME" "frida_scc_rev2")
 	(property "PCB_VERSION" "v0.0.0")
 	(footprint "stdlib_kicad-footprints_Resistor_SMD:R_0603_1608Metric"
 		(layer "F.Cu")
@@ -62603,6 +62603,17 @@
 		)
 		(layer "Edge.Cuts")
 		(uuid "319b79aa-214b-434f-8806-2dbe468bb029")
+	)
+	(gr_text "FRIDA SCC\nRev 2.0"
+		(at 112 138 0)
+		(layer "F.SilkS")
+		(uuid "364f37f2-40f1-48fc-a9a2-726c3c690d17")
+		(effects
+			(font
+				(size 2 2)
+				(thickness 0.3)
+			)
+		)
 	)
 	(segment
 		(start 126.525 90.6)

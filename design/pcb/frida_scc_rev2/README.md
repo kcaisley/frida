@@ -1,4 +1,4 @@
-# frida-scc-2p0
+# frida_scc_rev2
 
 The FRIDA single-chip card, revision 2.0: the test board for the FRIDA-1 ADC, written in
 [Zener](https://docs.pcb.new/pages/spec.md). The `.zen` files are the source; the `pcb` tool makes
@@ -18,10 +18,10 @@ export KICAD_APPDIR=$PWD/../../../build/tools/kicad-10.0.8/AppDir  # in the main
 export KICAD_CLI=$KICAD_APPDIR/bin/kicad-cli KICAD_PCBNEW=$KICAD_APPDIR/bin/pcbnew
 export KICAD_PYTHON_INTERPRETER=$PWD/../kicad-python  # a wrapper that keeps pcb's PYTHONPATH
 
-pcb build frida-scc-2p0.zen                       # check the design, write the netlist
-pcb bom frida-scc-2p0.zen                         # the bill of materials, generics matched to parts
-pcb apply schematic --no-open frida-scc-2p0.zen   # eda/frida-scc-2p0.kicad_sch and its pages
-pcb layout --no-open frida-scc-2p0.zen            # eda/frida-scc-2p0.kicad_pcb
+pcb build frida_scc_rev2.zen                       # check the design, write the netlist
+pcb bom frida_scc_rev2.zen                         # the bill of materials, generics matched to parts
+pcb apply schematic --no-open frida_scc_rev2.zen   # eda/frida_scc_rev2.kicad_sch and its pages
+pcb layout --no-open frida_scc_rev2.zen            # eda/frida_scc_rev2.kicad_pcb
 $KICAD_APPDIR/bin/python3.11 place_from_1p1.py    # frida-scc-1p1's outline and shared placement
 $KICAD_APPDIR/bin/python3.11 place_new.py         # the new parts, around them
 $KICAD_APPDIR/bin/python3.11 route_from_1p1.py    # frida-scc-1p1's tracks and ground plane for the shared parts
@@ -48,7 +48,7 @@ FreeRouting routes it, KiCad reads the result back. FreeRouting and its Java run
 in `pyproject.toml` and fetched on first use.
 
 ```bash
-uv run --no-project --python 3.12 python ../freeroute.py eda/frida-scc-2p0.kicad_pcb --minutes 30
+uv run --no-project --python 3.12 python ../freeroute.py eda/frida_scc_rev2.kicad_pcb --minutes 30
 ```
 
 ## Schematic
@@ -57,14 +57,14 @@ Page 1 is frida-scc-1p1's sheet as it was drawn (its wires, notes and jumper pic
 values and nets of this design; the parts that are new are on pages 2 to 5, in a block per
 function, each pin with the tool's stub and net label (connections there are by net name, between
 pages by global labels). `arrange_schematic.py` made it that way and says how in its heading; it
-runs again when parts are added. `kicad-cli sch export pdf eda/frida-scc-2p0.kicad_sch` prints
+runs again when parts are added. `kicad-cli sch export pdf eda/frida_scc_rev2.kicad_sch` prints
 all pages.
 
 ## Structure
 
 | File | What it holds |
 | --- | --- |
-| `frida-scc-2p0.zen` | The board: rails, buses, one instance of each module, the probe matrix's node map |
+| `frida_scc_rev2.zen` | The board: rails, buses, one instance of each module, the probe matrix's node map |
 | `modules/Asic.zen` | The FRIDA-1 die, its clock terminations, decoupling and reset pull-up |
 | `modules/FpgaLink.zen` | DisplayPort (clocks, COMP_OUT) and RJ45 (SPI, reset) to the BDAQ53, the level shifter |
 | `modules/AuxLink.zen` | A second RJ45: an SPI bus for the DAC and the probe matrix |
@@ -101,6 +101,9 @@ nodes; four chained shift registers on the second RJ45 hold the selection. The t
 | CH2 | COMP+, INIT-, LOGIC- | VIN-, amplifier OUT-, VOCM, SPI_SCLK |
 | CH3 | LOGIC+, COMP- | I(VDD_A), I(VDD_DAC), V3P3A / 2, SPI_SDI |
 | CH4 | COMP_OUT+, SAMP+ | I(VDD_D), I(VDD_IO), (V3P3A + VS_N) / 2, SPI_SDO |
+
+**Label.** The top silkscreen reads "FRIDA SCC / Rev 2.0" in the corner by mounting hole H4
+(`place_new.py`'s `LABEL`; `place_new.py label` adds it to a board placed before it existed).
 
 **Corrections.** The chip symbol's pin 13 is `COMP_OUT_N` (was spelled `COUP_OUT_N`); Q1 is a
 BSS84 on a SOT-23 footprint the libraries resolve; the DisplayPort cable's power pin no longer

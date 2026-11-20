@@ -2,6 +2,6 @@
 pcb-version = "0.4"
 
 [board]
-name = "frida-scc-2p0"
-path = "frida-scc-2p0.zen"
+name = "frida_scc_rev2"
+path = "frida_scc_rev2.zen"
 description = "FRIDA single-chip card, revision 2.0: the FRIDA-1 ADC test board with on-board supplies, signal source and probe matrix."
