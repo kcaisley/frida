@@ -203,7 +203,7 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     assert [digest(samp) for samp in _values("tsmc65", "samp")] == [
         "2e79aff2a06f",  # FRIDA-1's transmission gate
         "18974fb68159",  # bootstrapped, 32 minimum widths, its boost capacitor and bottom-plate switch sized together
-        "50ff3c89cf27",  # 64, boosted alike
+        "b3b1c02f0a83",  # 64, boosted alike
         "a740af318f58",  # 112
         "938983663b81",  # 160
     ]

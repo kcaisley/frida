@@ -16,9 +16,10 @@ the complementary clock an edge late, the pedestal; at the ADC's timing a full-s
 acquisition times, and the same step at the highest supply; the hold, at 25 C and hot, its droop;
 two sines of the ADC's swing, their held samples' distortion and the behavioral model's distance
 from them; the held output stepped as the ADC's first decision steps it, at the lowest level a side
-reaches and at the common mode, hot, its droop. Where the runs save their devices' values, their
-largest voltages, the level runs' and the full-scale steps' apart from the DAC step's. Twenty-six
-Spectre runs an instance.
+reaches and at the common mode, hot, its droop. Every run saves its devices' values: their largest
+voltages over every run, the DAC steps' apart. While the switch holds the input never moves faster
+than the converter's own, a full-scale sine at its Nyquist frequency. Twenty-six Spectre runs an
+instance.
 """
 
 from __future__ import annotations
@@ -155,30 +156,44 @@ def bootstrap() -> Params:
 
 def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk``, by name (each run's folder): the
-    input stepping a 120th of the supply onto each input level in mid-track and off it in mid-hold
-    (``vin_<twelfths>``, and ``vin_top`` the supply less half the step, its own steps half as
-    large), at the nominal input at
+    input stepping a 120th of the supply onto each input level in mid-track and off it in mid-hold,
+    there no faster than the converter's input moves (``vin_<twelfths>``, and ``vin_top`` the supply
+    less half the step, its own steps half as large), at the nominal input at
     each other supply (``supply_<percent>``; the nominal one is ``vin_6``), at the slow and fast
     corners and hot (``slow``, ``fast``, ``hot``), with the complementary clock an edge late
     (``skew``); at the ADC's timing: a full-scale step at the nominal supply and at the highest
     (``acquire``, ``acquire_<percent>``), the input still at its nominal level, at 25 C and hot
     (``droop``, ``droop_hot``), a sine of the ADC's swing by its
     cycles in the samples (``sine_<cycles>``), and the held output raised by the ADC's first step,
-    hot, at the lowest level a side reaches and at the common mode (``dac_low``, ``dac_cm``). The
-    level runs at the ends and the middle, the highest supply's, the full-scale steps' and the
-    DAC's save every transistor's operating values. Every run is at a gmin below the leakage a
-    hold shows (``params.LEAKAGE_GMIN_S``)."""
+    hot, at the lowest level a side reaches and at the common mode (``dac_low``, ``dac_cm``). Every
+    run saves every transistor's operating values and is at a gmin below the leakage a hold shows
+    (``params.LEAKAGE_GMIN_S``)."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    # not in the reference texts: while the switch holds, the level runs' input changes no faster
+    # than the converter's input moves, a full-scale sine at the Nyquist frequency, dV/dt <= 2 pi
+    # (f_s / 2) A_FS: a step of SMALL_STEP V_DD over t_slew >= SMALL_STEP V_DD / (pi f_s A_FS)
+    # Terms: A_FS a side's full-scale amplitude, ADC_FULL_SCALE V_DD; f_s the sample rate, 1 /
+    #   ADC_PERIOD_S (flow.samp.params: both from flow.adc's default converter); t_slew the hold
+    #   step's transition (tb.input_transition_time_s).
+    # Ours against the source: none.
+    # Holds for: the level, supply, corner and skew runs (vin_top's half step changes at half the
+    #   rate); the full-scale step's own transition is below. The step in mid-track keeps a clock
+    #   edge's change: the switch is closed and its gate rides the input, so it puts no device past
+    #   a supply, and a step response is what the closed switch's time constant is read from (the
+    #   lag a ramp leaves is too small against the gate drive's own settling to read it by).
+    slew = SMALL_STEP * ADC_PERIOD_S / (math.pi * ADC_FULL_SCALE)
     nominal = TbParams(
         pdk=pdk,
         params=params,
         vdd=round(supply, 4),
         input_voltage=round(NOMINAL_VIN * supply, 4),
         input_step_v=round(SMALL_STEP * supply, 4),
+        input_transition_time_s=slew,
         track_step_v=round(SMALL_STEP * supply, 4),
         clock_period_s=LEVEL_PERIOD_S,
         clock_high_time_s=LEVEL_TRACK_S,
+        oppoint=True,
         gmin_s=LEAKAGE_GMIN_S,
     )
     benches = {
@@ -196,14 +211,10 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         input_step_v=round(SMALL_STEP * supply / 2, 4),
         track_step_v=round(SMALL_STEP * supply / 2, 4),
     )
-    for name in ("vin_1", "vin_6", "vin_top"):
-        benches[name] = replace(benches[name], oppoint=True)
     highest = max(SUPPLY_SWEEP)
     for factor in SUPPLY_SWEEP:
         if factor != 1.0:
-            benches[f"supply_{round(factor * 100)}"] = replace(
-                nominal, vdd=round(factor * supply, 4), oppoint=factor == highest
-            )
+            benches[f"supply_{round(factor * 100)}"] = replace(nominal, vdd=round(factor * supply, 4))
     benches["slow"] = replace(nominal, corner=h.pdk.Corner.SLOW)
     benches["fast"] = replace(nominal, corner=h.pdk.Corner.FAST)
     benches["hot"] = replace(nominal, temperature_c=HOT_C)
@@ -234,7 +245,6 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         clock_period_s=ADC_PERIOD_S,
         clock_high_time_s=ADC_TRACK_S,
         periods=4,
-        oppoint=True,
     )
     benches["acquire"] = replace(acquire, input_voltage=round(ADC_CM * supply, 4))
     benches[f"acquire_{round(highest * 100)}"] = replace(
@@ -246,6 +256,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     adc = replace(
         nominal,
         input_step_v=0.0,
+        input_transition_time_s=None,
         track_step_v=0.0,
         clock_period_s=ADC_PERIOD_S,
         clock_high_time_s=ADC_TRACK_S,
@@ -294,7 +305,6 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
             input_voltage=round(level * supply, 4),
             dac_step_v=step,
             temperature_c=HOT_C,
-            oppoint=True,
         )
     return benches
 
@@ -311,8 +321,7 @@ def results(measurements: dict[str, Meas]) -> Results:
     supply_track, supply_hold = analyze_track(by_supply), analyze_hold(by_supply)
     boost = analyze_boost(by_vin)
     dac = [measurements["dac_low"], measurements["dac_cm"]]
-    full_scale = [measurements[name] for name in measurements if name.startswith("acquire")]
-    levels = [measurement for measurement in [*by_vin, *by_supply, *full_scale] if measurement.param.oppoint]
+    judged = [measurement for name, measurement in measurements.items() if not name.startswith("dac_")]
     return Results(
         metrics=metrics(
             track=track,
@@ -324,7 +333,7 @@ def results(measurements: dict[str, Meas]) -> Results:
             droop=analyze_droop([measurements["droop"], measurements["droop_hot"]]),
             skew=analyze_hold([measurements["skew"]]),
             boost=boost,
-            stress=analyze_stress(levels, track=track),
+            stress=analyze_stress(judged, track=track),
             dac_stress=analyze_stress(dac, track=track),
             acquisition=analyze_acquisition([measurements["acquire"]]),
             sine=analyze_sine([measurements[f"sine_{cycles}"] for cycles in SINE_CYCLES], track=track, hold=hold),

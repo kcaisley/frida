@@ -139,7 +139,7 @@ def track_result(
 def test_an_rc_step_gives_its_time_constant_resistance_and_bandwidth() -> None:
     """tau = 200 ps into 1 pF: R_on = tau / C = 200 ohm, f_-3dB = 1 / (2 pi tau) = 795.8 MHz."""
     # [Razavi-Analog] Eq. (13.31), p. 552: tau = R_on C_H, the sampler's time constant
-    # [Razavi-ADC] Eq. (3.26), p. 29: an RC sampler's attenuation 1/sqrt(R_on^2 C_1^2 w^2 + 1), -3 dB at w = 1/(R_on C_1)
+    # [Razavi-ADC] Eq. (3.26), p. 28: an RC sampler's attenuation 1/sqrt(R_on^2 C_1^2 w^2 + 1), -3 dB at w = 1/(R_on C_1)
     track = analyze_track([sampler_run(TB, tau_s=200e-12)])
     assert tau_of(track)[0] == pytest.approx(200e-12, rel=1e-3)
     assert ron_of(track)[0] == pytest.approx(200.0, rel=1e-3)
@@ -381,7 +381,7 @@ def test_each_side_holds_kt_over_c_of_its_plate() -> None:
 
 def test_a_ramp_lags_by_the_time_constant() -> None:
     """A 1 V/us ramp through 200 ohm into 1 pF: held 200 ps late, 0.2 mV below the input."""
-    # [Razavi-ADC] Eq. (3.26), p. 29: the RC sampler's phase shift tan^-1(R_on C_1 w), a delay of R_on C_1 for R_on C_1 w << 1
+    # [Razavi-ADC] Eq. (3.26), p. 28: the RC sampler's phase shift tan^-1(R_on C_1 w), a delay of R_on C_1 for R_on C_1 w << 1
     switch = Model.Behavioral(ron_table_v=(0.0, 1.2), ron_table_ohm=(200.0, 200.0))
     held = Model.sample(
         Params(),

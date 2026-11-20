@@ -57,20 +57,20 @@ def test_the_32_unit_bootstrap_by_hand() -> None:
     carry 14730.24 aF (the test above). C_b must reach 0.9 / 0.1 x 4/3 = 12 times that,
     176762.88 aF; a 16-long capacitor has 15.72 x 93 + 72 = 1533.96 aF a unit width, so 116 wide
     (177939.36 aF; 115 wide has 176405.4 aF). Its bottom plate: to the substrate 116 x 16 x 8.6 +
-    (2 x 116 + 3 x 4) x 30 = 23281.6 aF; the control node 4 x (3 x 30 + 4 x 36) + 555.84 / 2 =
+    (2 x 116 + 5 x 4) x 30 = 23521.6 aF; the control node 4 x (3 x 30 + 4 x 36) + 555.84 / 2 =
     1213.92 aF; through C_b the 4707.84 aF that stay put and MN's and Mbot_in's overlaps of vin,
-    36 x 36 = 1296 aF: 177939.36 x 6003.84 / 183943.2 = 5807.88 aF. C_Q = 30303.40 aF, so
-    L_2 >= 3 x (4 x 1 / 32) x 1 pF / 30.3034 fF = 12.375. One unit shorter (12) asks a 113-wide
-    capacitor (12 x 14358.24 aF over 1533.96), whose 29705.57 aF asks 12.624 units: 13 is the
+    36 x 36 = 1296 aF: 177939.36 x 6003.84 / 183943.2 = 5807.88 aF. C_Q = 30543.40 aF, so
+    L_2 >= 3 x (4 x 1 / 32) x 1 pF / 30.5434 fF = 12.278. One unit shorter (12) asks a 113-wide
+    capacitor (12 x 14358.24 aF over 1533.96), whose 29945.57 aF asks 12.523 units: 13 is the
     shortest. Eq. (3.70) by this count: 177939.36 / (177939.36 + 14730.24) = 0.9235."""
     design = _bootstrapped(32)
     assert (design.boot_w, design.cap_w, design.cap_l, design.bot_l) == (4, 116, 16, 13)
     assert _boost_f(design) / AF == pytest.approx(177939.36)
-    assert _bottom_f(design) / AF == pytest.approx(30303.40, rel=1e-6)
-    assert _bottom_length(design, LOAD_F) == pytest.approx(12.375, abs=1e-3)
+    assert _bottom_f(design) / AF == pytest.approx(30543.40, rel=1e-6)
+    assert _bottom_length(design, LOAD_F) == pytest.approx(12.278, abs=1e-3)
     assert _boost_f(design) / (_boost_f(design) + _boosted_f(design)) == pytest.approx(0.9235, abs=1e-4)
     shorter = Params(switch_type=SwitchType.BOOTSTRAP, boot_w=4, cap_w=113, cap_l=16, bot_l=12)
-    assert _bottom_length(shorter, LOAD_F) == pytest.approx(12.624, abs=1e-3) and not valid(shorter, "tsmc65")
+    assert _bottom_length(shorter, LOAD_F) == pytest.approx(12.523, abs=1e-3) and not valid(shorter, "tsmc65")
     assert valid(design, "tsmc65") and runs.bootstrap.build() == design
 
 

@@ -72,13 +72,18 @@ def netlist(param: Params) -> h.Module:
     #     Mgate_pass conducts past the diode, so that A is pulled to 0 V, not to a threshold above.
     #   - Mgate_off_dummy, drain and source on the pull-down's foot (``gate_off``), on the clock,
     #     against Mgate_off's clock edge, whose kick reaches A through the cascodes (below).
+    #   - Mctl_cap, a capacitor between gate_ctl and Q, against Mctl_p's kick while the
+    #     complementary clock lags (below).
     #   - Mpre is PRECHARGE_W helpers wide: it holds P at vdd while A charges from it.
-    # Holds for: a design ``flow.samp.params.valid`` admits; an input that makes no large move
-    #   while holding faster than a full-scale sine at the ADC's Nyquist frequency (a full-scale
-    #   fall at a clock edge's rate couples A tens of millivolts below 0 V through MN's gate; a
-    #   step of the level runs' size at that rate couples under a millivolt). No terminal pair
-    #   then passes the highest supply by more than the coupling of a clock edge or of the moving
-    #   input onto a node held at a rail.
+    # Holds for: a design ``flow.samp.params.valid`` admits; clocks whose edges meet or whose
+    #   complement lags by up to an edge; an input that moves no faster than a full-scale sine at
+    #   the ADC's Nyquist frequency while holding. Every node held at a rail while holding is held
+    #   through a channel: a clock edge moves it by the charge it couples over the node's
+    #   capacitance, a moving input by C dV/dt times the channel's resistance. A pair that holds a
+    #   whole supply while holding (Mcap between P and Q; Mpre, Mgate and Mgate_top against A;
+    #   Mctl_p, Mctl_on and Mctl_cap against gate_ctl and Q) passes the supply by as much: inside
+    #   the stress limit at the nominal supply, past it by that coupling at the highest, where the
+    #   limit is the supply itself.
     if bootstrap:
         Samp.gate = h.Signal(desc="Boosted switch gate")
         Samp.boot_top, Samp.boot_bot, Samp.gate_ctl = h.Signal(), h.Signal(), h.Signal()
@@ -92,8 +97,9 @@ def netlist(param: Params) -> h.Module:
         # Ours against the source: applied to a helper, not to the sampling switch. The node also
         #   carries Mctl_on's source, whose gate is on clk_b too: its overlap alone balances
         #   Mctl_p's, so with the dummy's two clk_b couples twice what clk does onto gate_ctl. As
-        #   holding starts at an input near the supply (gate_ctl already near vdd) that lifts
-        #   gate_ctl some tens of millivolts above vdd until Mctl_p has pulled it back.
+        #   tracking starts that pulls gate_ctl a few millivolts down before Mctl_on conducts; as
+        #   holding starts at an input near the supply (gate_ctl already near vdd) it lifts
+        #   gate_ctl above vdd while clk is still falling, until Mctl_p has pulled it back.
         # Holds for: clock edges that meet; a helper at least two units wide.
         small = {"vth": param.mos_vth, "w": max(1, param.boot_w // 2), "l": 1}
         # the bottom plate follows vin while tracking, its gate boosted with the switch's
@@ -101,6 +107,15 @@ def netlist(param: Params) -> h.Module:
             d=Samp.boot_bot, g=Samp.gate, s=Samp.vin, b=Samp.vss
         )
         # bottom plate to vss during hold
+        # not in the reference texts: no dummy on the bottom plate. A dummy against Mbot's turn-off
+        # would be on clk, its gate-source pair V_DD - V_Q while tracking, past V_DD wherever Q is
+        # below 0 V; and early in the track phase Q is: A charges from P, P droops, and the
+        # floating Q (Mbot off, the long Mbot_in not yet lifting it) follows P below 0 V by more
+        # than Mbot's kick
+        # Terms: V_Q boot_bot; V_DD the dummy's gate (clk) while tracking; Mbot's kick its overlap
+        #   and its channel's release onto Q as clk_b falls.
+        # Holds for: every design; the cost is the kick itself, which passes Mcap's pair (P at vdd
+        #   against Q) past the supply by its size as tracking starts.
         Samp.Mbot = mos(tp=MosType.NMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.vss, b=Samp.vss)
         # gate pull-down during hold, under the cascodes
         Samp.Mgate_top = mos(tp=MosType.NMOS, **aux)(d=Samp.gate, g=Samp.boot_top, s=Samp.gate_top, b=Samp.vss)
@@ -110,15 +125,16 @@ def netlist(param: Params) -> h.Module:
         Samp.Mgate_off = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_off, g=Samp.clk_b, s=Samp.vss, b=Samp.vss)
         # not in the reference texts: Mgate_off_dummy as wide as Mgate_off (boot_w), twice the
         # half width the dummy of [Razavi-ADC] Sec. 3.7, p. 42 has: its two overlaps on clk are
-        # twice Mgate_off's one on clk_b, so that as tracking starts the foot, and A through the
-        # cascodes, is kicked above 0 V and not below it
+        # twice Mgate_off's one on clk_b, so that as tracking starts the foot is kicked above 0 V,
+        # not below it
         # Terms: the source's M1 Mgate_off (on clk_b), its M3 Mgate_off_dummy (on clk), drain and
         #   source on gate_off; W_3 = W_1 = boot_w.
-        # Ours against the source: with W_3 = 0.5 W_1 the foot, and A with it, still dips a few
-        #   millivolts below 0 V as tracking starts (Mgate_off's source is the rail: its channel
-        #   charge does not split in halves), and every pair that holds a supply against A (Mpre's
-        #   and Mgate_top's gates, Mgate's drain) then passes the supply by as much; ours
-        #   over-compensates on purpose.
+        # Ours against the source: Mgate_off's source is the rail, so its channel charge does not
+        #   split in halves; the dummy over-compensates on purpose. It keeps the foot's kick off
+        #   A, which reduces A's dip below 0 V as tracking starts but does not remove it: A also
+        #   follows P through Mpre's channel (on while holding, its gate on A, its source on P)
+        #   as Mbot's kick drags Q and P down (Mbot's note), and every pair that holds a supply
+        #   against A (Mpre's and Mgate_top's gates, Mgate's drain) passes it by that dip.
         # Holds for: clock edges that meet.
         Samp.Mgate_off_dummy = mos(tp=MosType.NMOS, **aux)(d=Samp.gate_off, g=Samp.clk, s=Samp.gate_off, b=Samp.vss)
         # top plate to the gate while tracking
@@ -131,6 +147,29 @@ def netlist(param: Params) -> h.Module:
         Samp.Mctl_p = mos(tp=MosType.PMOS, **aux)(d=Samp.gate_ctl, g=Samp.clk, s=Samp.vdd, b=Samp.vdd)
         Samp.Mctl_on = mos(tp=MosType.PMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.gate_ctl, b=Samp.vdd)
         Samp.Mctl_dummy = mos(tp=MosType.PMOS, **small)(d=Samp.gate_ctl, g=Samp.clk_b, s=Samp.gate_ctl, b=Samp.vdd)
+        # not in the reference texts: Mctl_cap, gate on gate_ctl, drain and source on Q, boot_w by
+        # 4 units, against Mctl_p's kick while the complementary clock lags (as one made from clk
+        # through an inverter does): from clk's rise, which turns Mctl_p off, to clk_b's fall,
+        # which turns Mctl_on on, gate_ctl floats, and Mctl_p's overlap and channel lift it by
+        # Delta V = q / C_ctl above vdd, against Mctl_on's drain and Mgate's drain at 0 V. Mbot
+        # holds Q at 0 V meanwhile, so Mctl_cap's gate, its channel inverted with a supply across
+        # it, adds to C_ctl about what the node has of its own and halves Delta V. As tracking
+        # starts Mctl_on joins its two plates, and it adds no charge to Q: the current Mctl_on
+        # carries leaves gate_ctl and enters Q, C_ctl0 Delta V_ctl + C_Q0 Delta V_Q = 0 whatever the
+        # capacitance between the two
+        # Terms: C_ctl gate_ctl's capacitance (Mctl_p's, Mctl_on's and Mctl_dummy's junctions and
+        #   overlaps, Mgate's gate) with Mctl_cap's gate; C_ctl0 and C_Q0 each node's capacitance to
+        #   nodes that stay put; q the charge clk's rise moves through Mctl_p's gate-drain
+        #   capacitance and its channel's release.
+        # Ours against the source: [Razavi-ADC] Fig. 3.41(b), p. 48 drives M3's gate from the clock.
+        # Holds for: a complement up to a clock edge late at the nominal supply, the lift then under
+        #   the stress limit's margin over the supply, (SUPPLY_CORNER_MAX - 1) V_DD; at the highest
+        #   supply there is no margin, and its runs take clock edges that meet. While tracking
+        #   gate_ctl is within about a threshold of Q: Mctl_cap's channel is off then, and its two
+        #   junctions on Q count in Q's capacitance (flow.samp.params._bottom_f).
+        Samp.Mctl_cap = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.boot_w, l=4)(
+            d=Samp.boot_bot, g=Samp.gate_ctl, s=Samp.boot_bot, b=Samp.vss
+        )
         # the boost capacitor: an NMOS whose channel (drain and source on the bottom plate) faces its gate
         Samp.Mcap = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.cap_w, l=param.cap_l)(
             d=Samp.boot_bot, g=Samp.boot_top, s=Samp.boot_bot, b=Samp.vss
@@ -177,6 +216,7 @@ def netlist(param: Params) -> h.Module:
                 Samp.Mgate_off,
                 Samp.Mgate_off_dummy,
                 Samp.Mbot,
+                Samp.Mctl_cap,
             ),
             row(Samp.MN, Samp.Mbot_in),
         )

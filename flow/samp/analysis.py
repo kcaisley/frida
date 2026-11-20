@@ -162,6 +162,14 @@ def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
             # Holds for: an error that falls by a further factor e inside the phase after the gate
             #   drive has settled, and is still ERROR_SETTLED of its largest or more there; NaN
             #   otherwise.
+            # not in the reference texts: a time constant no longer than twice the error's first
+            # e-fold from its largest, tau <= 2 (t_1/e - t_peak), else NaN
+            # Terms: t_peak the error's largest since the phase's last step, t_1/e where it has
+            #   fallen by e (before the gate drive may have settled); tau the window's.
+            # Holds for: a gate drive whose settling lowers R_on, if anything, so that the settled
+            #   switch's e-fold is no longer than the first. A window that falls much slower reads a
+            #   gate drive still settling after the switch's own error has gone, coupled onto vout
+            #   through MN's gate overlap: the bootstrapping path's time, not R_on C_H.
             peak = int(np.argmax(error))
             error, error_s = error[peak:], error_s[peak:]
             first = calc.cross(error, error_s, float(error[0]) / math.e, edge="falling")
@@ -173,6 +181,8 @@ def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
                 second = calc.cross(later, later_s, float(later[0]) / math.e, edge="falling")
                 readable = float(later[0]) >= ERROR_SETTLED * float(error[0])
                 constant = float(second[0]) - begin if len(second) and readable else math.nan
+                if constant > 2 * (float(first[0]) - float(error_s[0])):
+                    constant = math.nan
             constants[rising].append(constant)
             # [Razavi-ADC] Sec. 3.9.1, p. 53: the error |V_in - V_out| left when acquisition ends
             # Terms: V_in vin, V_out vout, a clock edge before the clock's falling crossing (from
@@ -250,7 +260,16 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
             if not len(stepped):
                 continue
             step = float(stepped[0])
-            held_s, before_s, after_s = (fall + step) / 2, step - transition, release - transition
+            # not in the reference texts: the instants the hold is read at: halfway between the
+            # clock's fall and the input's step (t_held), half a clock edge before the step's
+            # change starts (t_before = t_step - t_slew / 2 - t_edge / 2) and a clock edge before
+            # the next track phase (t_after)
+            # Terms: t_step the crossing above; t_slew the change's transition
+            #   (tb.input_transition_time_s, else the clock's edge t_edge).
+            # Holds for: a linear change centred on the crossing that ends a clock edge or more
+            #   before the next track phase (TbParams refuses a longer one).
+            slew = transition if tb.input_transition_time_s is None else float(tb.input_transition_time_s)
+            held_s, before_s, after_s = (fall + step) / 2, step - (slew + transition) / 2, release - transition
             held = calc.value(output, time_s, held_s)
             before = calc.value(output, time_s, before_s)
             # [Pelgrom] Eq. (8.3), p. 387: V_droop = -I_leak T_hold / C_hold, a linear fall: its slope
@@ -750,11 +769,23 @@ def _settled_span(track: AnalysisTrack) -> tuple[float, float]:
 
 def _largest(values: np.ndarray, mask: np.ndarray | None = None) -> float:
     """The largest magnitude among the finite ``values`` (where ``mask``), NaN where there is none."""
-    # not in the reference texts: a metric over points or corners is max_i |x_i| over the finite x_i
-    # Terms: x_i an analysis result's value at each point (a level, a supply, a corner, a run).
-    # Holds for: at least one finite value; NaN otherwise (a point not measured is no worst case).
+    # not in the reference texts: a metric over the input levels or the runs is max_i |x_i| over
+    # the finite x_i
+    # Terms: x_i an analysis result's value at each point (a level, a run).
+    # Holds for: at least one finite value; NaN otherwise. A level without a value lies outside
+    #   the input range (no time constant in the track window), no large value.
     kept = np.abs(values[np.isfinite(values) & (np.ones(len(values), bool) if mask is None else mask)])
     return float(kept.max()) if kept.size else math.nan
+
+
+def _worst(values: np.ndarray) -> float:
+    """The largest magnitude among ``values``, NaN where any of them is NaN."""
+    # not in the reference texts: a metric over the supply corners or the process and temperature
+    # corners is max_k |x_k|, NaN where any x_k is NaN
+    # Terms: x_k an analysis result's value at each corner, every one at the nominal input.
+    # Holds for: corners that each should have a reading: a corner without one (its time
+    #   constant unreadable, ``analyze_track``) may be the worst, so the maximum is unknown.
+    return math.nan if bool(np.isnan(values).any()) else float(np.max(np.abs(values)))
 
 
 def metrics(
@@ -782,8 +813,8 @@ def metrics(
     given, the corners' (``corners``, ``corners_hold``), the droop over the ADC's hold at 25 C and
     hot (``droop``, in that order: the droop in place of the level run's), the pedestal with a
     late complementary clock (``skew``), the boost's V_GS over the input and the gate's peak
-    (``boost``), the devices' largest voltages in the level runs and the full-scale step
-    (``stress``) and under the DAC's step (``dac_stress``), the acquisition times and the full-scale track error
+    (``boost``), the devices' largest voltages in every run but the DAC's (``stress``) and under
+    the DAC's step (``dac_stress``), the acquisition times and the full-scale track error
     (``acquisition``), the sines' distortion, their distance from the model and the aperture
     (``sine``, low tone first), the droop under the DAC's step (``dac``) and the energy a cycle
     (``energy``)."""
@@ -853,22 +884,26 @@ def metrics(
         "feedthrough_db": float(feedthrough_db[nominal]),
         **({} if floor_db is None else {"feedthrough_floor_db": float(floor_db[nominal])}),
         # not in the reference texts: the largest R_on over the 90, 100 and 110 % supply runs at the
-        # nominal input, max_k R_on(V_DD,k)
-        # Terms: ``supply.ron_ohm`` (``analyze_track`` of the supply runs), finite ones.
-        # Holds for: the nominal input (of the nominal supply) at each supply.
-        "ron_max_supply_ohm": _largest(supply.ron_ohm),
+        # nominal input, max_k R_on(V_DD,k) (``_worst``)
+        # Terms: ``supply.ron_ohm`` (``analyze_track`` of the supply runs).
+        # Holds for: the nominal input (of the nominal supply) at each supply; NaN where a supply's
+        #   run has no reading.
+        "ron_max_supply_ohm": _worst(supply.ron_ohm),
     }
     if supply_hold is not None:
         # not in the reference texts: the largest |pedestal| over the 90, 100 and 110 % supply runs
+        # (``_worst``)
         # Terms: ``supply_hold.pedestal_v`` (``analyze_hold`` of the supply runs).
-        # Holds for: the nominal input at each supply.
-        found["pedestal_max_supply_v"] = _largest(supply_hold.pedestal_v)
+        # Holds for: the nominal input at each supply; NaN where a supply's run has no reading.
+        found["pedestal_max_supply_v"] = _worst(supply_hold.pedestal_v)
     if corners is not None and corners_hold is not None:
-        # not in the reference texts: the largest R_on and |pedestal| over the slow, fast and hot runs
+        # not in the reference texts: the largest R_on and |pedestal| over the slow, fast and hot
+        # runs (``_worst``)
         # Terms: ``corners.ron_ohm`` and ``corners_hold.pedestal_v`` (the corner runs' analyses).
-        # Holds for: the nominal input and supply; slow and fast at 25 C, hot at typical process.
-        found["ron_max_corner_ohm"] = _largest(corners.ron_ohm)
-        found["pedestal_max_corner_v"] = _largest(corners_hold.pedestal_v)
+        # Holds for: the nominal input and supply; slow and fast at 25 C, hot at typical process;
+        #   NaN where a corner's run has no reading.
+        found["ron_max_corner_ohm"] = _worst(corners.ron_ohm)
+        found["pedestal_max_corner_v"] = _worst(corners_hold.pedestal_v)
     if droop is not None:
         # [Pelgrom] Eq. (8.3), p. 387: the droop over the ADC's hold, hot (``droop``'s last point)
         # Terms: ``droop.droop_v_per_s[-1]`` (``analyze_droop`` of the hot run).
@@ -904,8 +939,8 @@ def metrics(
         # Terms: ``terminal_v`` the largest |V_GS|, |V_GD|, |V_DS| of any transistor, ``gate_bulk_v``
         #   the largest |V_GB| (``analyze_stress``); max over the runs that saved their devices.
         # Ours against the source: the source names the stress without a limit.
-        # Holds for: the level runs at the ends and the middle, the highest supply's run and the
-        #   full-scale steps (``stress``); the DAC runs (``dac_stress``).
+        # Holds for: every run but the DAC's, the level, supply, corner, skew, full-scale, droop
+        #   and sine runs (``stress``); the DAC runs (``dac_stress``).
         found[f"terminal_max{suffix}_v"] = _largest(given.terminal_v)
         found[f"gate_bulk_max{suffix}_v"] = _largest(given.gate_bulk_v)
         # [Razavi-Analog] Sec. 2.1, p. 9: the source and drain junctions kept reverse biased: the

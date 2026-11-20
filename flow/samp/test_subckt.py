@@ -124,7 +124,7 @@ def test_the_named_structures_rows() -> None:
         "bootstrap": [
             ["Mpre", "Mgate", "Mctl_p", "Mctl_on", "Mctl_dummy"],
             ["Mcap"],
-            ["Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot"],
+            ["Mgate_top", "Mgate_drop", "Mgate_pass", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mctl_cap"],
             ["Mn", "Mbot_in"],
         ],
     }
