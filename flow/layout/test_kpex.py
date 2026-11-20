@@ -143,3 +143,62 @@ def test_the_2_5d_fit_recovers_its_forms() -> None:
     assert fit.sidewall_fit(spaces, 20.0 / (spaces + 0.05), 0.1) == pytest.approx((20.0, 0.05))
     k, o = fit.sidewall_fit(spaces, np.array([1.0, 50.0, 30.0, 20.0, 10.0]), 0.1)
     assert o == 0.0 and k > 0
+
+
+def _toy_parasitics() -> dict:
+    """A 2.5-D coefficient table for the toy kit's poly and two metals: every conductor's own and
+    every pair's, round numbers."""
+    names = ("PO", "M1", "M2")
+    return {
+        "side_halo": 8.0,
+        "capacitance": {
+            "substrates": [{"layer_name": n, "area_capacitance": 10.0, "perimeter_capacitance": 10.0} for n in names],
+            "overlaps": [
+                {"top_layer_name": top, "bottom_layer_name": bottom, "capacitance": 20.0}
+                for i, bottom in enumerate(names)
+                for top in names[i + 1 :]
+            ],
+            "sidewalls": [{"layer_name": n, "capacitance": 40.0, "offset": 0.0} for n in names],
+            "sideoverlaps": [
+                {"in_layer_name": a, "out_layer_name": b, "capacitance": 5.0} for a in names for b in names if a != b
+            ],
+        },
+        "resistance": {},
+    }
+
+
+@pytest.mark.skipif(not (kpex.KPEX_HOME / "bin" / "python").is_file(), reason="KLayout-PEX's own Python is not here")
+def test_a_sidewall_ends_at_its_edges_own_polygon(kit: Path, tmp_path: Path) -> None:
+    """The 2.5-D engine's sidewall from an edge stops at the edge's own polygon: a comb's far wall
+    shields a wire beyond it from the comb's near wall, so the comb and its far wall alone couple to
+    the wire alike (kpex 0.6.12 took the nearest polygon of another net however far,
+    ``flow.layout.kpex_extract``)."""
+    import json
+
+    from klayout import db
+
+    from flow.layout.annotate import capacitors
+
+    (kit / "parasitics.json").write_text(json.dumps(_toy_parasitics()))
+
+    def coupling(walls: list[tuple[int, int, int, int]], name: str) -> float:
+        layout = db.Layout()
+        layout.dbu = 0.001
+        top = layout.create_cell("TOY")
+        m1 = layout.layer(2, 0)
+        region = db.Region()
+        for box in walls:
+            region.insert(db.Box(*box))
+        top.shapes(m1).insert(region.merged())
+        top.shapes(m1).insert(db.Box(1000, 0, 1100, 5000))
+        top.shapes(m1).insert(db.Text("A", db.Trans(550, 2500)))
+        top.shapes(m1).insert(db.Text("B", db.Trans(1050, 2500)))
+        gds = tmp_path / f"{name}.gds"
+        layout.write(str(gds))
+        netlist = kpex.run_layout_pex("toykit", gds, "TOY", name, tmp_path / name, engine=kpex.Engine.RCX25)
+        return sum(c for a, b, c in capacitors(netlist) if {a, b} == {"A", "B"}) * 1e15  # fF
+
+    comb = coupling([(0, 0, 100, 5000), (500, 0, 600, 5000), (0, 0, 600, 100)], "comb")
+    wall = coupling([(500, 0, 600, 5000)], "wall")
+    assert wall > 0
+    assert comb == pytest.approx(wall, rel=0.02)

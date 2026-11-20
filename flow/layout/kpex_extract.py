@@ -11,7 +11,8 @@ add (a net the layout leaves unlabelled: its conductor, a point on it and its na
 FasterCap's executable and settings, and the netlist to write. The layout's nets are found by
 KLayout (each conductor joined to itself, each via to the conductors above and below it, each label
 naming the net under it). FasterCap's model of them gives a Maxwell matrix, a net's capacitance to
-infinity its row sum; the 2.5-D engine gives each pair's capacitance, the substrate's among them.
+infinity its row sum; the 2.5-D engine gives each pair's capacitance, the substrate's among them,
+each edge's sidewall stopped at its own polygon (``_shielded_by_own_polygon``).
 Either becomes a Spectre netlist of capacitors between the nets by their labels, a net's capacitance
 to the substrate or infinity to ground, ``0``, as an extractor whose substrate is an infinite plane
 counts it. Beside it (``spec["probes"]``), each net's
@@ -28,6 +29,8 @@ import klayout.db as kdb
 from klayout_pex.fastercap.fastercap_input_builder import FasterCapInputBuilder
 from klayout_pex.fastercap.fastercap_runner import fastercap_parse_capacitance_matrix, run_fastercap
 from klayout_pex.klayout.lvsdb_extractor import KLayoutExtractionContext
+from klayout_pex.rcx25.c.polygon_utils import find_polygon_with_nearest_edge
+from klayout_pex.rcx25.c.sidewall_and_fringe_extractor import SidewallAndFringeExtractor
 from klayout_pex.rcx25.extractor import RCX25Extractor
 from klayout_pex.rcx25.pex_mode import PEXMode
 from klayout_pex.tech_info import TechInfo
@@ -124,9 +127,41 @@ def fastercap(context: KLayoutExtractionContext, tech: TechInfo, spec: dict, out
     return found + [(a, ground, sum(matrix[i]) * 1e15) for i, a in enumerate(names) if a != ground]
 
 
+def _shielded_by_own_polygon() -> None:
+    """The 2.5-D engine's sidewall stopped by the edge's own polygon: kpex 0.6.12 takes, for each
+    stretch of an edge, the nearest polygon of another net on its layer however far, past the
+    edge's own polygon where it lies nearer (a merged comb's other walls: the top plate's ring walls
+    of an array's units, which saw another stage's finger through every empty unit between them, up
+    to the halo). Its fringe stops there already (the lateral shield). Wraps kpex's visitor: each
+    stretch's own nearest distance noted as kpex meets the edge, a sidewall beyond it dropped."""
+    visitor = SidewallAndFringeExtractor.PEXEdgeNeighborhoodVisitor
+    if getattr(visitor, "_own_polygon_shields", False):
+        return
+    on_edge, emit_sidewall = visitor.on_edge, visitor.emit_sidewall
+
+    def noted(self, layout, cell, edge, neighborhood):
+        own = len(self.all_layer_names)  # kpex's child index of the edge's own polygon
+        self.own_nearest = {
+            tuple(interval): find_polygon_with_nearest_edge(by_child[own])[0]
+            for interval, by_child in neighborhood
+            if by_child.get(own)
+        }
+        return on_edge(self, layout, cell, edge, neighborhood)
+
+    def shielded(self, layer_name, edge, edge_interval, polygon, geometry_restorer):
+        distance = min(polygon.bbox().p1.y, polygon.bbox().p2.y)
+        if self.own_nearest.get(tuple(edge_interval), distance + 1) < distance:
+            return
+        return emit_sidewall(self, layer_name, edge, edge_interval, polygon, geometry_restorer)
+
+    visitor.on_edge, visitor.emit_sidewall, visitor._own_polygon_shields = noted, shielded, True
+
+
 def rcx25(context: KLayoutExtractionContext, tech: TechInfo, out: Path) -> list[tuple[str, str, float]]:
     """kpex's 2.5-D capacitances (fF) of the layout's nets, by the technology's coefficients: each
-    pair's, a net's to the substrate among them."""
+    pair's, a net's to the substrate among them. Each edge's sidewall stops at its own polygon
+    (``_shielded_by_own_polygon``)."""
+    _shielded_by_own_polygon()
     extractor = RCX25Extractor(
         pex_context=context,
         pex_mode=PEXMode.CC,
