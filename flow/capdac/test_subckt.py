@@ -149,3 +149,39 @@ def test_a_plates_load_is_its_drawn_capacitances(monkeypatch) -> None:
     assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15 + route + sense)
     assert diff == pytest.approx(1e-15 * (top - 1e-15) / top + 0.5e-15 + 0.5e-15 + route)
     assert other == pytest.approx(main)
+
+
+def test_the_sense_inverters_row_counts_in_the_outline() -> None:
+    """``_extent``: the sense inverters' row (its width) is one row more, beside the capacitors a
+    row's height more; under them (stacked) none; and as wide as it is where it is the widest."""
+    pair = ([[0]], [[0]])
+    assert subckt._extent(pair, [1000], [800], (5000, 40000), 1800, False, 0) == (5000, 40000 + 2 * 1800)
+    assert subckt._extent(pair, [1000], [800], (5000, 40000), 1800, False, 0, 6000) == (6000, 40000 + 3 * 1800)
+    assert subckt._extent(pair, [1000], [800], (5000, 40000), 1800, True, 0, 3000) == (5000, 40000)
+
+
+def test_a_small_stages_main_driver_settles_its_own_step_where_its_difference_driver_runs_ahead(
+    monkeypatch,
+) -> None:
+    """``_keys``: a stage whose difference driver is drawn faster than its main driver settles (the
+    least inverter on a small plate) has its main driver settle its plate's own step: a small stage
+    of two plates tens of units each much stronger than its weight alone asks; a large stage, its
+    main plate about its weight, about as it was."""
+    from flow.layout.devices.mosfet.table import MosfetTable
+
+    table = MosfetTable(
+        pdk="synthetic",
+        vdd_v=1.0,
+        switching_ohm={"NMOS/LOW": 10e3, "PMOS/LOW": 25e3},
+        triode_ohm={"NMOS/LOW": 4e3, "PMOS/LOW": 10e3},
+        fo4_delay_s={"LOW": 20e-12},
+    )
+    monkeypatch.setattr(subckt, "mosfet_table", lambda pdk: table)
+    monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
+    monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_TAU_SCALE=1.0))
+    weights, loads = [1000.0, 1.0], [(60e-15, 1e-15), (5e-15, 4e-15)]
+    plain = subckt._keys(Params(), "synthetic", weights, loads, True)
+    own = subckt._keys(Params(), "synthetic", weights, loads, True, [1000.5, 32.5])
+    assert own[1][0][0] < 0.5 * plain[1][0][0]  # the small stage's main driver: its own step
+    assert own[0][0][0] == pytest.approx(plain[0][0][0], rel=0.02)  # the large one's: about its weight
+    assert own[1][1] == plain[1][1]  # the difference drivers as they were
