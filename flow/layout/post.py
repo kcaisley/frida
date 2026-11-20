@@ -497,13 +497,15 @@ def _rail_bridge(
     top.shapes(layout.layer(*LAYERS["M2"])).insert(drawn)
     jumps["M2"].insert(drawn)
     if not jumps["shield"].is_empty() and (y // rowcell.H) % 2 == 0:
-        # a gap narrower than M2's space between the bar and a shield (VSS both) filled
-        near = jumps["shield"] & kdb.Region(bar.enlarged(M2_SPACE, M2_SPACE))
+        # a gap narrower than M2's space between the bar or its cuts' pads and a shield (VSS both)
+        # filled (SKY130's pads stood 0.1 um from its shield's M2 beside a bar that ran into it)
+        reach = drawn.bbox().enlarged(M2_SPACE, M2_SPACE)
+        near = jumps["shield"] & kdb.Region(reach)
         if not near.is_empty():
-            both = (kdb.Region(bar) + near).merged()
+            both = (drawn + near).merged()
             half = (M2_SPACE - 1) // 2
-            fill = (both.sized(half).sized(-half) - both) & kdb.Region(bar.enlarged(M2_SPACE, M2_SPACE))
-            fill = fill.interacting(kdb.Region(bar))
+            fill = (both.sized(half).sized(-half) - both) & kdb.Region(reach)
+            fill = fill.interacting(drawn)
             if not fill.is_empty():
                 top.shapes(layout.layer(*LAYERS["M2"])).insert(fill)
                 jumps["M2"].insert(fill)
@@ -1210,8 +1212,9 @@ def close_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
 
 def clear_rails(layout: kdb.Layout, top: kdb.Cell, routes: kdb.Region) -> int:
     """In a PDK whose M1 keeps a wider space beside a wide wire (``_rail_space``): each rail shaved
-    back where ALIGN's M1 (``routes``, another net's: not touching it) comes nearer than that
-    space, ALIGN's router knowing M1's plain space alone. Returns the pieces shaved off."""
+    back where M1 no row cell draws (``routes``: ALIGN's, and the MOM units' landings; not touching
+    it) comes nearer than that space, ALIGN's router knowing M1's plain space alone. Returns the
+    pieces shaved off."""
     import tech as _tech
 
     space = _rail_space()
@@ -1412,7 +1415,9 @@ def post(
         ):
             layout.clear_layer(li)
     n_cuts = single_cuts(layout, top) + close_cuts(layout, top)
-    n_shaved = clear_rails(layout, top, routes)
+    # beside every M1 no row cell draws: ALIGN's and the MOM units' landings (a kit whose shield is
+    # M1 lands its plates there, by the rails of the band beside the array)
+    n_shaved = clear_rails(layout, top, foreign)
     n_notches = fill_notches(layout, top)
     netcells.close_wells(layout, kdb, top)
     for c in list(layout.top_cells()):  # an unused helper (the filler copy when no row needed fill)
