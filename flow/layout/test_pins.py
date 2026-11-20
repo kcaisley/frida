@@ -211,8 +211,8 @@ def test_a_signal_is_lifted_in_place_or_recorded_as_drawn(tmp_path: Path, kit) -
 
 
 def test_a_generators_edge_pins_ride_on_its_module() -> None:
-    """``edge_pins`` on the module's own ports, its plan by name, a bus a net a bit; a signal not its
-    port refused."""
+    """``edge_pins`` on the module's own ports, its plan by name, a bus a net a bit (and a pin a bit);
+    a signal not its port refused."""
 
     @h.module
     class Block:
@@ -220,9 +220,13 @@ def test_a_generators_edge_pins_ride_on_its_module() -> None:
         state = h.Input(width=2)
         vdd = h.Power()
 
-    edge_pins(Block, EdgePin(Block.vin, Border.TOP, Spot.LAST, mirror=Block.vout))
+    edge_pins(Block, EdgePin(Block.vin, Border.TOP, Spot.LAST, mirror=Block.vout), EdgePin(Block.state, Border.BOTTOM))
     plan = port_plan(Block)
-    assert plan["edges"] == [{"net": "vin", "side": "top", "spot": "last", "mirror": "vout"}]
+    assert plan["edges"] == [
+        {"net": "vin", "side": "top", "spot": "last", "mirror": "vout"},
+        # a bus a pin a bit
+        *({"net": f"state_{bit}", "side": "bottom", "spot": "nearest", "mirror": None} for bit in range(2)),
+    ]
     assert {"net": "state_1", "use": "signal"} in plan["ports"] and {"net": "vdd", "use": "power"} in plan["ports"]
     with pytest.raises(ValueError, match="already"):
         edge_pins(Block, EdgePin(Block.vout, Border.RIGHT))

@@ -60,6 +60,9 @@ _TO_TOP = {"top": db.Trans.R0, "right": db.Trans.R90, "bottom": db.Trans.R180, "
 LOWEST = 2  # the lowest metal a route leaves a port's wiring on: its routes', above the devices' M1
 _TRIES = 4000  # the points tried for an edge pin on one metal, in their order
 _LIFT_TRIES = 600  # and for a lifted one, nearest its label first
+# an edge pin's points that many to a lifted one's step: capdac's sense inverters' outputs, short
+# pieces between their inputs' routes, hold a landing's stack of cuts in a window narrower than it
+EDGE_STEPS = 4
 # how far along its side from its spot a shielded edge pin may land (nm, the layouts' database unit)
 SHIELD_WITHIN_NM = 2000
 
@@ -437,9 +440,11 @@ class _Search:
         """The points of the net's wiring (metal, x, y in the frame) a landing may leave from: on each
         of its metals up to the landing metal (only below it in place), along each piece's middle line,
         a cut inside its ends, a step apart from the ``anchor`` (its label: a capacitor array's inputs
-        centred on their tracks); ``at_x``: at that place across the side alone."""
+        centred on their tracks), an edge pin's a quarter of a lifted one's (``EDGE_STEPS``: its stack
+        of cuts must find the one place between its neighbours' wiring that holds its pads); ``at_x``:
+        at that place across the side alone."""
         kit, found = self.kit, []
-        step = max(kit.grid, kit.up(min(kit.width(self.metal), 200)))
+        step = max(kit.grid, kit.up(min(kit.width(self.metal), 200) // (EDGE_STEPS if self.edge else 1)))
         for metal in kit.metals:
             if metal < LOWEST or metal > self.metal or (metal == self.metal and not self.edge):
                 continue
@@ -732,16 +737,14 @@ def _order(
 
 
 def _thinned(points: list[tuple[int, int, int]], edge_y: int, step: int, keep: int = 3) -> list[tuple[int, int, int]]:
-    """An edge pin's ``points`` in their order, at most ``keep`` of each metal at each place across
-    the side (within ``step``): those nearest the side, a route from further back crossing what
-    theirs crosses."""
-    kept: dict[tuple[int, int], list[tuple[int, int, int]]] = {}
-    for point in sorted(points, key=lambda p: edge_y - p[2]):
-        group = kept.setdefault((point[0], point[1] // step), [])
-        if len(group) < keep:
-            group.append(point)
-    chosen = {point for group in kept.values() for point in group}
-    return [point for point in points if point in chosen]
+    """An edge pin's ``points`` in their order, of each metal at each place across the side (within
+    ``step``) those at the ``keep`` distances from the side nearest it, a route from further back
+    crossing what theirs crosses (every point at one distance kept: a piece along the side)."""
+    runs: dict[tuple[int, int], set[int]] = {}
+    for metal, x, y in points:
+        runs.setdefault((metal, x // step), set()).add(edge_y - y)
+    nearest = {place: set(sorted(found)[:keep]) for place, found in runs.items()}
+    return [point for point in points if edge_y - point[2] in nearest[(point[0], point[1] // step)]]
 
 
 def _search(

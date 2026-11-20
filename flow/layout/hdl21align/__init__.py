@@ -233,7 +233,8 @@ class EdgePin:
     ``mirror``, a port that lands on the same side at the mirror image of this one's place, about
     the outline's centre line across the side (a differential pair's two inputs); ``shield``, its wire
     shielded from the signals' metal under it by a strip of the block's ground (a top plate's, over
-    the routes of the plates it couples to: ``flow.layout.pins``)."""
+    the routes of the plates it couples to: ``flow.layout.pins``). A bus lands a pin a bit, each as
+    the port says (a mirror a bus as wide, bit by bit)."""
 
     port: h.Signal
     side: Border
@@ -250,6 +251,8 @@ def edge_pins(module: h.Module, *pins: EdgePin) -> None:
         for port in (pin.port, pin.mirror):
             if port is not None and id(port) not in ports:
                 raise ValueError(f"{module.name}: an edge pin on a signal not its port: {port.name}")
+        if pin.mirror is not None and pin.mirror.width != pin.port.width:
+            raise ValueError(f"{module.name}: {pin.port.name}'s edge pin mirrored by a port of another width")
     if module.props.get(_EDGE_PINS) is not None:
         raise ValueError(f"{module.name} already states its edge pins")
     module.props.set(_EDGE_PINS, tuple(pins))
@@ -260,21 +263,27 @@ def port_plan(module: h.Module) -> dict[str, Any]:
     as the netlist names them (a bus a net a bit, ``dac_state_0``) and its use (``signal``,
     ``clock``, ``power``, ``ground``), and its edge pins (``edge_pins``: each port's side, spot and
     mirror, by name)."""
-    ports = []
-    for name, port in module.ports.items():
-        nets = [name.lower()] if port.width == 1 else [f"{name.lower()}_{bit}" for bit in range(port.width)]
-        ports += [{"net": net, "use": port.usage.name.lower()} for net in nets]
+    ports = [{"net": net, "use": port.usage.name.lower()} for port in module.ports.values() for net in _bits(port)]
     edges = [
         {
-            "net": pin.port.name.lower(),
+            "net": net,
             "side": pin.side.name.lower(),
             "spot": pin.spot.name.lower(),
-            "mirror": pin.mirror.name.lower() if pin.mirror is not None else None,
+            "mirror": mirror,
             **({"shield": True} if pin.shield else {}),
         }
         for pin in module.props.get(_EDGE_PINS) or ()
+        for net, mirror in zip(
+            _bits(pin.port), _bits(pin.mirror) if pin.mirror is not None else [None] * pin.port.width, strict=True
+        )
     ]
     return {"ports": ports, "edges": edges}
+
+
+def _bits(port: h.Signal) -> list[str]:
+    """A port's nets as the netlist names them: a bus a net a bit (``dac_state_0``)."""
+    name = port.name.lower()
+    return [name] if port.width == 1 else [f"{name}_{bit}" for bit in range(port.width)]
 
 
 def own_name(name: str, letter: str) -> str:
