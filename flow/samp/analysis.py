@@ -866,7 +866,7 @@ def metrics(
         "bandwidth_hz": float(track.bandwidth_hz[nominal]),
         # [Razavi-ADC] Sec. 3.9.1, p. 53: |V_in - V_out| as tracking ends, at the nominal input
         # Terms: ``track.track_error_v`` at the nominal point: what the level runs' step leaves.
-        # Ours against the source: the level runs' small step in mid-track, not a full-scale one.
+        # Ours against the source: the level runs' small step inside the track phase, not a full-scale one.
         # Holds for: the level runs' step and track window (the full-scale one:
         #   track_error_full_scale_v).
         "track_error_v": float(track.track_error_v[nominal]),

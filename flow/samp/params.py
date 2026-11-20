@@ -146,7 +146,7 @@ NOMINAL_VIN = 0.5
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
 # [Razavi-ADC] Example 3.6, p. 28: R_on read with a small (10 mV) difference across the switch
 # Terms: the difference is the level runs' input step, SMALL_STEP of the supply (10 mV of 1.2 V),
-#   onto the level in mid-track and off it in mid-hold (flow.samp.sim.testbench), the hold step
+#   onto the level inside the track phase (TbParams.track_step_s) and off it in mid-hold (flow.samp.sim.testbench), the hold step
 #   no faster than the converter's input (flow.samp.runs.testbenches).
 # Ours against the source: the source holds the difference still and reads V/I; ours steps it and
 #   reads the output's time constant into the load (flow.samp.analysis.analyze_track).
