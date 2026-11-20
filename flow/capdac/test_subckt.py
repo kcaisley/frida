@@ -37,6 +37,25 @@ def test_the_fewest_rows_where_more_would_not_narrow_the_outline() -> None:
     assert len(m) == 1 and d == []
 
 
+def test_a_rows_drivers_stand_over_their_stages_as_their_order_allows() -> None:
+    # alone each over its target; two wanting one place share it about it; held within the extent
+    assert subckt._row_places([2, 2], [3, 9], 20) == [3, 9]
+    assert subckt._row_places([2, 2], [5, 5], 20) == [4, 6]
+    assert subckt._row_places([2, 2], [0, 0], 20) == [1, 3]
+    assert subckt._row_places([2, 2], [30, 30], 20) == [17, 19]
+
+
+def test_the_routes_along_the_capacitors_end_count_where_most_pass() -> None:
+    # four one-piece stages 10 wide, drivers 20 wide in one row: the row twice the stages' width,
+    # its drivers reach past their stages, the middle two stages' routes and an outer one's overlap
+    pieces, unit = [1, 1, 1, 1], 10
+    assert subckt._crossings([20] * 4, [[0, 1, 2, 3]], pieces, unit) == 2
+    # drivers as wide as their stages stand over them: no route runs along
+    assert subckt._crossings([10] * 4, [[0, 1, 2, 3]], pieces, unit) == 0
+    # a stage of three pieces runs along its own pieces, from its first landing to its last
+    assert subckt._crossings([10, 10], [[0, 1]], [3, 1], unit) == 1
+
+
 def test_a_stage_in_as_many_strips_as_pieces_is_its_pieces() -> None:
     plates = [(64.0, 0.0), (64.0, 0.0), (44.0, 20.0)]
     assert subckt._segments(plates, 3) == plates

@@ -281,6 +281,15 @@ def _balanced(widths: list[int], rows: int, gap_nm: int = 0) -> list[list[int]]:
 
 # a band's rows at most (the owner's, 2026-11-16): the main drivers' and the difference drivers'
 MAIN_ROWS, DIFF_ROWS = 3, 2
+# the plates' routes along the capacitors' end (``_crossings``) a band's row holds over itself on its
+# drivers' free M2, beside the gap's own tracks (``_landing_gap_nm``). Fitted, not derived: to capdac
+# frida1's layouts (2026-11-20, every kit whose capacitors stand beside the rows), where every band
+# routed its routes along on the gap's three tracks with at most three over each of its rows (GF180,
+# IHP130, LF150, SKY130, TPSC65: up to 7 past one place over two rows, LF150's main band, and 6 over
+# one, IHP130's and LF150's difference bands) but Tower180's difference band, 8 past one place over
+# its one row, whose last two ALIGN's router took under the array; the routes the rows hold depend
+# on their cells' own M2, which the flow does not count
+_ROUTES_OVER_ROW = 3
 
 
 def _driver_rows(
@@ -572,7 +581,7 @@ def _place(
     diff_rows: list[list[int]],
     gap_nm: int,
     room_nm: int = 0,
-    apart_nm: int = 0,
+    apart_nm: tuple[int, int] = (0, 0),
     ties: tuple[h.ExternalModule, set[str]] | None = None,
 ) -> None:
     """The side's layout (``side``): its rows top first, its difference drivers, its capacitors, its
@@ -598,7 +607,8 @@ def _place(
     beside the capacitors last), the difference drivers ``gap_nm`` apart in their rows. Routing room
     at the side's left and right edges, ``room_nm``, kept clear of every instance inside the outline
     the routers keep to (its right edge is the seam with the converter's other side). Where the
-    bands stand beyond the capacitors' ends, each band's row beside them ``apart_nm`` from them: a
+    bands stand beyond the capacitors' ends, each band's row beside them ``apart_nm`` from them (the
+    difference band's, the main band's): a
     row's rail beside the capacitors' shield keeps its metals' space from it. ``ties``: the kit's
     well-tie cell, abutting each driver (``_tied_row``), and the drivers wider than its reach."""
 
@@ -657,8 +667,9 @@ def _place(
         inner += [
             c.Order((upper[0], lower[0]), c.OrderDirection.TOP_TO_BOTTOM, abut=True) for upper, lower in pairwise(band)
         ]
-    if apart_nm:
-        inner += [c.Spread((*caps, *band), c.Axis.VERTICAL, apart_nm) for band in (diffs[-1:] + mains[:1]) if band]
+    for band, apart in ((diffs[-1:], apart_nm[0]), (mains[:1], apart_nm[1])):
+        if band and apart:
+            inner.append(c.Spread((*caps, *band[0]), c.Axis.VERTICAL, apart))
     room = (c.Boundary(halo_horizontal_um=room_nm / 1000),) if room_nm else ()
     if slice_ is not None:
         shield, top = slice_
@@ -694,17 +705,63 @@ def _place(
     place(side, rows(*(row(*region) for region in regions)), symmetric=False, constraints=tuple(inner))
 
 
-def _landing_gap_nm(pdk: str) -> int:
+def _row_places(widths: list[int], targets: list[float], extent: int) -> list[float]:
+    """A row's drivers ``widths`` wide (nm, in the row's order, abutting at the closest) along
+    ``extent``, each as near its ``target`` (the middle it would stand on) as the row's order allows:
+    their middles, the squares of their distances from the targets least (pool-adjacent-violators on
+    the left edges less the widths before them, held within the extent)."""
+    before = [sum(widths[:k]) for k in range(len(widths))]
+    want = [t - w / 2 - b for t, w, b in zip(targets, widths, before, strict=True)]
+    blocks: list[list[float]] = []  # [mean, count]
+    for value in want:
+        blocks.append([value, 1])
+        while len(blocks) > 1 and blocks[-2][0] > blocks[-1][0]:
+            (a, n), (b, m) = blocks.pop(-2), blocks.pop()
+            blocks.append([(a * n + b * m) / (n + m), n + m])
+    low, high = 0, max(0, extent - sum(widths))
+    lefts = [min(max(mean, low), high) for mean, count in blocks for _ in range(int(count))]
+    return [q + b + w / 2 for q, b, w in zip(lefts, before, widths, strict=True)]
+
+
+def _crossings(widths: list[int], rows: list[list[int]], pieces: list[int], unit_nm: int, gap_nm: int = 0) -> int:
+    """The most routes of a band's drivers that run along the capacitors' end past one place: each
+    stage's from its driver (``rows``, stage indices; ``widths``, nm; neighbours ``gap_nm`` apart, each
+    as near the middle of its stage's pieces as its row allows, ``_row_places``) to its pieces'
+    landings, every one of them (``pieces`` a stage, ``unit_nm`` wide each, side by side in the
+    stages' order), from the nearest of those to the farthest."""
+    starts = [sum(pieces[:k]) * unit_nm for k in range(len(pieces))]
+    extent = max(sum(pieces) * unit_nm, _rows_width(widths, rows, gap_nm))
+    ends: list[tuple[float, int]] = []
+    for stages in rows:
+        if not stages:
+            continue
+        middles = [starts[k] + pieces[k] * unit_nm / 2 for k in stages]
+        places = _row_places([widths[k] + gap_nm for k in stages], middles, extent + gap_nm)
+        for k, x in zip(stages, places, strict=True):
+            first, last = starts[k] + unit_nm / 2, starts[k] + (pieces[k] - 0.5) * unit_nm
+            ends += [(min(x, first), 1), (max(x, last), -1)]
+    most = level = 0
+    for _x, step in sorted(ends):  # a route that ends where another starts passes it
+        level += step
+        most = max(most, level)
+    return most
+
+
+def _landing_gap_nm(pdk: str, along: int = 3) -> int:
     """Where the capacitors stand beside the rows (their shield on M2, their landings on M1 under
     their channels' bars at the array's top and bottom edges), the least distance from the array's
-    edge to the line of a band's row beside it that holds three free M2 tracks between them: a route
+    edge to the line of a band's row beside it that holds ``along`` free M2 tracks between them,
+    three at least: a route
     from a landing runs up or down it on M1 out of the array, under the shield's edge, and turns onto
     M2 there, its cut's M1 pad M1's space from the rail and its wire M2's space from the shield's bar
     at the array's edge and from the rail's own M2 (a kit whose rails carry no taps draws one). Whole
     M2 tracks, as ALIGN places the rows and the capacitors on them. A band nearer than this leaves
     each plate there only the shield's metal to reach its driver on, which ALIGN's router cannot
     (``Router-Error: fail to find dest vertices on grids``); with one track, neighbouring stages'
-    routes block each other there."""
+    routes block each other there. Of the band's routes that run along the capacitors' end past one
+    place (``_crossings``), the gap takes those its rows do not hold over themselves
+    (``_ROUTES_OVER_ROW``; the caller's ``along``): with fewer tracks ALIGN's router, which never rips
+    a route up, takes the last of them under the capacitors, below their shield."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     pitch, width = metal_tracks(pdk, "M2")
     rules = tech.RULES
@@ -714,10 +771,11 @@ def _landing_gap_nm(pdk: str) -> int:
         rail_m2 = max(width // 2, getattr(tech, "M2_VIA_PAD", {}).get("V1", (0, 0))[1])
         clear = max(clear, rail_m2 + tech.M2_SPACE + width // 2)
     track = -(-clear // pitch) * pitch  # the track nearest the rail its route may take
-    # and two more: a route turns onto M2 under its landing, on a wire of M2's minimum length, longer
+    # and more: a route turns onto M2 under its landing, on a wire of M2's minimum length, longer
     # than a unit is wide, so neighbouring stages' turns take a track each; and the plates' routes
-    # run along the array on M2 there, no higher than the metal over the shield (``_place``)
-    track += 2 * pitch
+    # run along the array on M2 there, no higher than the metal over the shield (``_place``), a
+    # track each
+    track += (max(3, along) - 1) * pitch
     return -(-(track + width // 2 + tech.M2_SPACE) // pitch) * pitch
 
 
@@ -915,7 +973,13 @@ def netlist(params: Params) -> h.Module:
     grid = [[stages[stage].pieces[index] for stage, index in column] for column in columns] if columns else None
     # beyond the capacitors' ends, each band's rail beside their shield far enough from it that a
     # plate's route from its landing reaches the band (``_landing_gap_nm``)
-    apart_nm = _landing_gap_nm(pdk) if slice_ is None and difference else 0
+    apart_nm = (0, 0)
+    if slice_ is None and difference:
+        pieces = [len(stage) for stage in strips]
+        # the routes along the capacitors' end, less those over the band's own rows
+        diff_along = _crossings(diff_widths, diff_rows, pieces, outline[0], gap_nm) - _ROUTES_OVER_ROW * len(diff_rows)
+        main_along = _crossings(main_widths, main_rows, pieces, outline[0]) - _ROUTES_OVER_ROW * len(main_rows)
+        apart_nm = (_landing_gap_nm(pdk, diff_along), _landing_gap_nm(pdk, main_along))
     ties = None
     if tied:
         wide_drivers = {
