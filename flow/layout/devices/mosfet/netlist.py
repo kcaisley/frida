@@ -27,7 +27,7 @@ from flow.layout.pdkproc import in_pdk, pdk_value
 
 from ..device import active_pdk, mark
 from ..device import place as drawn
-from .geometry import ChainGeometry, InverterGeometry
+from .geometry import ChainGeometry, InverterGeometry, MosGeometry, flavor
 from .table import mosfet_table
 
 # The PDK whose unit sizes analog devices keep physically in another PDK; None keeps them
@@ -198,6 +198,31 @@ def _pick(target: float, low: float, high: float, ratio: float, most: int) -> in
 def input_load(pdk: str, request: DriverRequest) -> float:
     """The load ``request``'s chain puts on its source, in minimum inverters: its first one's input."""
     return _input(*request.stages(pdk)[0]) / _input(1, 1)
+
+
+def input_f(pdk: str, request: DriverRequest) -> float:
+    """The capacitance (F) ``request``'s chain puts on the node its input senses: its first
+    inverter's gates' widths (``_input``) at the PDK's input capacitance per unit width
+    (``MosfetTable.input_f``)."""
+    return mosfet_table(pdk).input_f(MosVth.LOW, _input(*request.stages(pdk)[0]))
+
+
+def drawn_ohm(pdk: str, request: DriverRequest) -> float:
+    """The on-resistance ``request``'s last inverter is drawn at: the slower type's, at the widths the
+    row cells draw it (``_inverter_sizes``: a request below the kit's least inverter drawn at that)."""
+    table = mosfet_table(pdk)
+    n_w, p_w, _nf = _inverter_sizes(*request.stages(pdk)[-1])
+    return max(
+        table.resistance(MosGeometry(MosType.NMOS, MosVth.LOW, n_w), on=True),
+        table.resistance(MosGeometry(MosType.PMOS, MosVth.LOW, p_w), on=True),
+    )
+
+
+def least_inverter(pdk: str) -> DriverRequest:
+    """The least inverter the PDK draws: each type one unit wide (at the narrowest its row cell
+    contacts), its request's on-resistance the slower type's unit's (``MosfetTable.width``)."""
+    table = mosfet_table(pdk)
+    return DriverRequest(max(table.triode_ohm[flavor(tp, MosVth.LOW)] for tp in (MosType.NMOS, MosType.PMOS)), True)
 
 
 def shared_fanin(pdk: str, others: list[DriverRequest]) -> float:

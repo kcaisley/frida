@@ -14,7 +14,11 @@ each threshold, an inverter's delay at a fan-out of four (``fo4_delay_s``, a tra
 of inverters each four times the one before it (NMOS two unit widths, PMOS as many more as its
 switching resistance asks), the delay of one inside it from its input's mid-supply crossing to its
 output's, the mean of its rising and falling output: what each inner inverter of a driver's chain
-adds (``flow.layout.devices.mosfet.netlist``: a chain tapers at FO4).
+adds (``flow.layout.devices.mosfet.netlist``: a chain tapers at FO4); and an inverter's input
+capacitance per unit width of its gates (``input_f_per_unit``): the charge its source gives the
+chain's first inverter over its input's swing, rising and falling alike, over the swing, the
+inverter loaded at FO4 as the one measured (its output's swing on its gates' overlap counted):
+what a gate on a node loads it with (capdac's plates' sense inverters).
 
     python -m flow.layout.devices.mosfet.characterize tsmc65 [tsmc28 ...]
 """
@@ -78,16 +82,16 @@ _FO4_EDGE_S = 50e-12
 
 def _fo4_bench(vdd: float, ratio: dict[MosVth, float], period_s: float) -> h.Module:
     """At each threshold a chain of ``_FO4_STAGES`` inverters, each four times the one before it,
-    from one pulse: its PMOS ``ratio`` times its NMOS."""
+    from a pulse of its own: its PMOS ``ratio`` times its NMOS."""
 
     bench = h.Module(name="fo4_characterization")
     bench.VSS = h.Port()
-    bench.vdd, bench.vin = h.Signal(), h.Signal()
+    bench.vdd = h.Signal()
     bench.vsupply = Vdc(dc=vdd)(p=bench.vdd, n=bench.VSS)
     pulse = {"delay": period_s / 4, "rise": _FO4_EDGE_S, "fall": _FO4_EDGE_S, "width": period_s / 2, "period": period_s}
-    bench.vpulse = Vpulse(v1=0.0, v2=vdd, **pulse)(p=bench.vin, n=bench.VSS)
     for vth, p_over_n in ratio.items():
-        node = bench.vin
+        node = bench.add(h.Signal(), name=f"vin_{vth.name}")
+        bench.add(Vpulse(v1=0.0, v2=vdd, **pulse)(p=node, n=bench.VSS), name=f"vpulse_{vth.name}")
         for stage in range(_FO4_STAGES):
             out = bench.add(h.Signal(), name=f"n_{vth.name}_{stage}")
             n = _FO4_UNITS * 4**stage
@@ -112,9 +116,14 @@ def _crossings(time_s: np.ndarray, v: np.ndarray, level: float) -> np.ndarray:
     return time_s[index] + (level - v[index]) * (time_s[index + 1] - time_s[index]) / (v[index + 1] - v[index])
 
 
-def _fo4_delay(attrs: list, vdd: float, ratio: dict[MosVth, float], run_dir: Path) -> dict[str, float]:
+def _fo4(
+    attrs: list, vdd: float, ratio: dict[MosVth, float], run_dir: Path
+) -> tuple[dict[str, float], dict[str, float]]:
     """Each threshold's FO4 inverter delay (s, ``_fo4_bench``): the measured inverter's from its
-    input's mid-supply crossing to its output's, the mean over its rising and falling outputs."""
+    input's mid-supply crossing to its output's, the mean over its rising and falling outputs; and
+    its inverters' input capacitance per unit width of their gates (F): the charge the first one's
+    source gives it over each edge's half period, the mean of the rising and the falling, over the
+    swing and its gates' widths (its NMOS's and its PMOS's, in unit widths)."""
 
     # not in the reference texts: an inverter's delay at a fan-out of four, the logic designers' unit
     # of gate delay; a propagation delay is [Baker] Fig. 10.9, p. 333, the mid-supply to mid-supply
@@ -131,12 +140,21 @@ def _fo4_delay(attrs: list, vdd: float, ratio: dict[MosVth, float], run_dir: Pat
     )
     data = result.an[0].data
     time_s = np.asarray(data["time"])
-    found = {}
-    for vth in ratio:
+    delays, inputs = {}, {}
+    for vth, p_over_n in ratio.items():
         into = _crossings(time_s, np.asarray(data[f"xtop.n_{vth.name}_{_FO4_MEASURED - 1}"]), vdd / 2)
         out = _crossings(time_s, np.asarray(data[f"xtop.n_{vth.name}_{_FO4_MEASURED}"]), vdd / 2)
-        found[vth.name] = float(np.mean([min(o for o in out if o > i) - i for i in into]))
-    return found
+        delays[vth.name] = float(np.mean([min(o for o in out if o > i) - i for i in into]))
+        # [Baker] Eq. (11.6), p. 352: an inverter's effective input capacitance; here the charge its
+        # source gives it over the swing (its gates', and their overlaps' through its output's swing)
+        current = np.asarray(data[f"xtop.vpulse_{vth.name}:p"])
+        charges = []
+        for start in (period / 4, 3 * period / 4):  # the rising edge's half period, the falling's
+            window = (time_s >= start) & (time_s <= start + period / 2)
+            charges.append(abs(float(np.trapezoid(current[window], time_s[window]))))
+        gates = _FO4_UNITS + max(1, round(_FO4_UNITS * p_over_n))
+        inputs[vth.name] = float(np.mean(charges)) / vdd / gates
+    return delays, inputs
 
 
 def _flavors(pdk_logic) -> list[tuple[MosType, MosVth]]:
@@ -206,11 +224,17 @@ def characterize(pdk: str) -> Path:
         for vth in (MosVth.STD, MosVth.LOW)
         if (MosType.NMOS, vth) in flavors and (MosType.PMOS, vth) in flavors
     }
-    fo4 = _fo4_delay([a for a in attrs if not isinstance(a, hs.Op)], vdd, ratio, run_dir / "fo4")
+    fo4, inputs = _fo4([a for a in attrs if not isinstance(a, hs.Op)], vdd, ratio, run_dir / "fo4")
     return write_table(
         "mosfet",
         pdk,
-        {"vdd_v": vdd, "unit": {"w_m": w_unit, "l_m": l_min}, "devices": devices, "fo4_delay_s": fo4},
+        {
+            "vdd_v": vdd,
+            "unit": {"w_m": w_unit, "l_m": l_min},
+            "devices": devices,
+            "fo4_delay_s": fo4,
+            "input_f_per_unit": inputs,
+        },
         method="Spectre operating point; FO4 inverter chain transient",
     )
 

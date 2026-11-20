@@ -3,6 +3,7 @@ that netlist as ideal devices and resolve to a PDK's own."""
 
 import io
 import json
+from dataclasses import replace
 from importlib import import_module
 from itertools import pairwise
 
@@ -16,7 +17,7 @@ from .momcap.netlist import StripParams, UnitParams, strip, unit
 from .momcap.table import MomcapTable
 from .moscap.table import MosCapTable
 from .mosfet.geometry import ChainGeometry, InverterGeometry
-from .mosfet.netlist import DriverParams, DriverRequest, _input, driver, shared_fanin
+from .mosfet.netlist import DriverParams, DriverRequest, _input, driver, input_f, least_inverter, shared_fanin
 from .mosfet.table import MosfetTable
 from .polyres.table import PolyResTable
 
@@ -79,6 +80,18 @@ def test_a_driver_chain_tapers_at_fo4_from_its_flip_flop_and_keeps_its_polarity(
     small = DriverRequest(1e5, True).stages("synthetic")
     assert len(small) == 1 and len(DriverRequest(1e5, False).stages("synthetic")) == 2
     assert shared_fanin("synthetic", [DriverRequest(1e5, True)]) == 4.0 - _input(*small[0]) / least
+
+
+def test_the_least_inverter_is_a_unit_of_each_type_and_loads_its_node_by_its_gates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``least_inverter``: one inverter, each type one unit wide; ``input_f``: its gates' widths at
+    the table's input capacitance per unit width."""
+    table = replace(_mosfets(), input_f_per_unit={"LOW": 0.3e-15})
+    monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
+    least = least_inverter("synthetic")
+    assert least.invert and least.stages("synthetic") == [(1, 1)]
+    assert input_f("synthetic", least) == pytest.approx(0.3e-15 * _input(1, 1))
 
 
 def _strips() -> MomcapTable:
