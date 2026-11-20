@@ -12,7 +12,9 @@ FasterCap's executable and settings, and the netlist to write. The layout's nets
 KLayout (each conductor joined to itself, each via to the conductors above and below it, each label
 naming the net under it). FasterCap's model of them gives a Maxwell matrix, a net's capacitance to
 infinity its row sum; the 2.5-D engine gives each pair's capacitance, the substrate's among them,
-each edge's sidewall stopped at its own polygon (``_shielded_by_own_polygon``).
+each edge's sidewall stopped at its own polygon (``_shielded_by_own_polygon``), the fringe past each
+line end on the conductors the spec gives a reach (``line_ends``), and where the spec asks, its
+capacitances by the coefficient each is linear in (``parts``).
 Either becomes a Spectre netlist of capacitors between the nets by their labels, a net's capacitance
 to the substrate or infinity to ground, ``0``, as an extractor whose substrate is an infinite plane
 counts it. Beside it (``spec["probes"]``), each net's
@@ -23,6 +25,7 @@ finds the net among its own (``flow.layout.annotate``).
 import json
 import os
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import klayout.db as kdb
@@ -157,10 +160,116 @@ def _shielded_by_own_polygon() -> None:
     visitor.on_edge, visitor.emit_sidewall, visitor._own_polygon_shields = noted, shielded, True
 
 
-def rcx25(context: KLayoutExtractionContext, tech: TechInfo, out: Path) -> list[tuple[str, str, float]]:
+def _tips(polygon: kdb.Polygon) -> list[tuple[kdb.Point, tuple[int, int], tuple[int, int]]]:
+    """A polygon's line ends: each edge shorter than both its neighbours, both its corners convex,
+    axis-parallel (a finger's tips, a difference stub's however short). Each end's two corners, each with the unit direction past the
+    tip along its side and the side's outward normal (KLayout's hulls run clockwise: outward is
+    left of an edge's direction)."""
+    points = list(polygon.each_point_hull())
+    count = len(points)
+    found = []
+
+    def unit(a: kdb.Point, b: kdb.Point) -> tuple[int, int]:
+        return ((b.x > a.x) - (b.x < a.x), (b.y > a.y) - (b.y < a.y))
+
+    for i in range(count):
+        before, start, end, after = (points[(i + k) % count] for k in (-1, 0, 1, 2))
+        lengths = [start.distance(before), end.distance(start), after.distance(end)]
+        directions = [unit(before, start), unit(start, end), unit(end, after)]
+        if any(0 not in d for d in directions) or lengths[1] >= min(lengths[0], lengths[2]):
+            continue
+        # convex corners turn right on a clockwise hull: a negative cross product
+        if any(a[0] * b[1] - a[1] * b[0] >= 0 for a, b in pairwise(directions)):
+            continue
+        side, other = directions[0], directions[2]
+        found.append((start, side, (-side[1], side[0])))
+        found.append((end, (-other[0], -other[1]), (-other[1], other[0])))
+    return found
+
+
+def _beyond(box: kdb.Box, corner: kdb.Point, normal: tuple[int, int]) -> int:
+    """How far a box lies out from a side's line through ``corner``, along the side's ``normal``."""
+    return {
+        (1, 0): box.left - corner.x,
+        (-1, 0): corner.x - box.right,
+        (0, 1): box.bottom - corner.y,
+        (0, -1): corner.y - box.top,
+    }[normal]
+
+
+def line_ends(l2n: kdb.LayoutToNetlist, tech: TechInfo, lengths: dict[str, float]) -> list[list]:
+    """The fringe past each wire's end, which kpex's 2.5-D engine leaves out (its sidewall ends with
+    the edge), on the conductors ``lengths`` names (um, ``flow.layout.kpex_coefficients``'s fit of
+    a MOM finger's ends): each side of a line end (``_tips``) continued that far past the tip, its
+    sidewall, by the conductor's coefficients, to the nearest polygon it faces there within the
+    halo where that is another net's. As ``parts``' rows: ``line_end``, the conductor twice, the
+    two nets, fF."""
+    dbu = l2n.internal_layout().dbu
+    halo = round(tech.tech.process_parasitics.side_halo / dbu)
+    nets = [(net.expanded_name(), net) for net in l2n.netlist().top_circuit().each_net()]
+    found: dict[tuple, float] = {}
+    for layer, length_um in lengths.items():
+        coefficient = tech.sidewall_cap_by_layer_name[layer]
+        shapes = kdb.Shapes()
+        owned = []
+        for name, net in nets:
+            for polygon in l2n.shapes_of_net(net, l2n.layer_by_name(layer), True).merged().each():
+                shapes.insert(kdb.PolygonWithProperties(polygon, {"net": name}))
+                owned.append((name, polygon))
+        reach = round(length_um / dbu)
+        for name, polygon in owned:
+            for corner, past, normal in _tips(polygon):
+                ends = [corner.x + past[0] * reach + normal[0] * halo, corner.y + past[1] * reach + normal[1] * halo]
+                box = kdb.Box(corner.x, corner.y, *ends)
+                nearest = None
+                for shape in shapes.each_overlapping(box):
+                    for piece in (kdb.Region(shape.polygon) & kdb.Region(box)).each():
+                        near = _beyond(piece.bbox(), corner, normal)
+                        if near > 0 and (nearest is None or near < nearest[0]):
+                            nearest = (near, shape.property("net"))
+                if nearest is None or nearest[1] == name:
+                    continue
+                # not in the reference texts: kpex's sidewall, length K / (s + o) per facing pair
+                # of edges halved (each edge counts its half), over the length past the tip
+                value = length_um * coefficient.capacitance / (nearest[0] * dbu + coefficient.offset) / 2 / 1000
+                index = ("line_end", layer, layer, *sorted((name, nearest[1])))
+                found[index] = found.get(index, 0.0) + value
+    return [[*index, value] for index, value in sorted(found.items())]
+
+
+def parts(results) -> list[list]:
+    """The 2.5-D engine's capacitances (fF) by the coefficient each is linear in: each net pair's
+    overlaps (``overlap``, the top conductor and the bottom one: the substrate's area capacitance
+    where it is the substrate), sidewalls (``sidewall``, the conductor twice) and fringes
+    (``sideoverlap``, the edge's conductor and the plate's: the substrate's perimeter capacitance
+    where it is the substrate), summed."""
+    found: dict[tuple, float] = {}
+    for cell in results.cell_extraction_results.values():
+        tables = (
+            ("overlap", cell.overlap_table, lambda k: (k.layer_top, k.layer_bot, k.net_top, k.net_bot)),
+            ("sidewall", cell.sidewall_table, lambda k: (k.layer, k.layer, k.net1, k.net2)),
+            (
+                "sideoverlap",
+                cell.sideoverlap_table,
+                lambda k: (k.layer_inside, k.layer_outside, k.net_inside, k.net_outside),
+            ),
+        )
+        for kind, table, fields in tables:
+            for key, entries in table.items():
+                a, b, net1, net2 = fields(key)
+                index = (kind, a, b, *sorted((net1, net2)))
+                found[index] = found.get(index, 0.0) + sum(entry.cap_value for entry in entries)
+    return [[*index, value] for index, value in sorted(found.items())]
+
+
+def rcx25(
+    context: KLayoutExtractionContext, tech: TechInfo, out: Path, spec: dict, l2n: kdb.LayoutToNetlist
+) -> list[tuple[str, str, float]]:
     """kpex's 2.5-D capacitances (fF) of the layout's nets, by the technology's coefficients: each
-    pair's, a net's to the substrate among them. Each edge's sidewall stops at its own polygon
-    (``_shielded_by_own_polygon``)."""
+    pair's, a net's to the substrate among them, and the fringe past the line ends on the
+    conductors the spec gives a length (``line_ends``); and, where the spec asks (``parts``), the
+    capacitances by coefficient (``parts``, ``line_ends``) written there. Each edge's sidewall
+    stops at its own polygon (``_shielded_by_own_polygon``)."""
     _shielded_by_own_polygon()
     extractor = RCX25Extractor(
         pex_context=context,
@@ -172,8 +281,12 @@ def rcx25(context: KLayoutExtractionContext, tech: TechInfo, out: Path) -> list[
         report_path=str(out / "rcx25_report.rdb"),
         report_caps=False,
     )
-    summary = extractor.extract().summarize()
-    return [(key.net1, key.net2, c) for key, c in summary.capacitances.items()]
+    results = extractor.extract()
+    ends = line_ends(l2n, tech, spec.get("line_ends") or {})
+    if spec.get("parts"):
+        Path(spec["parts"]).write_text(json.dumps(parts(results) + ends) + "\n")
+    found = [(key.net1, key.net2, c) for key, c in results.summarize().capacitances.items()]
+    return found + [(net1, net2, value) for _kind, _a, _b, net1, net2, value in ends]
 
 
 def main(path: str) -> None:
@@ -187,7 +300,7 @@ def main(path: str) -> None:
         lvsdb=l2n, top_cell=spec["top"], tech=tech, blackbox_devices=False
     )
     if spec["engine"] == "rcx25":
-        found, made = rcx25(context, tech, out), "kpex's 2.5-D engine"
+        found, made = rcx25(context, tech, out, spec, l2n), "kpex's 2.5-D engine"
     else:
         found, made = fastercap(context, tech, spec, out), "FasterCap"
     # the substrate's net is ground (the 2.5-D engine's own name for it, VSUBS, too)

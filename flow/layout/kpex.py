@@ -48,6 +48,10 @@ K_VOID = 3.9
 TOP_SPAN_UM = 5.0
 # the film of a metal's level around its shapes (um): thin, the level's permittivity
 FILM_UM = 0.005
+# a coefficient table's keys that are frida's, not kpex's (``flow.layout.kpex_coefficients``): its
+# provenance, and each MOM metal's length past a line end its fringe reaches (um), which
+# ``kpex_extract.line_ends`` adds to kpex's 2.5-D engine
+FRIDA_KEYS = ("provenance", "line_ends_um")
 
 
 class Engine(Enum):
@@ -122,10 +126,11 @@ def _k(slabs: list[list[float]], bottom: float, top: float, *, along: bool = Fal
     return sum(span for span, _k in covered) / sum(span / k for span, k in covered)
 
 
-def technology(pdk: str) -> tuple[dict, dict]:
-    """kpex's technology of the PDK (``stack.json`` and its layout tech; its 2.5-D coefficients where
-    the kit has them, ``parasitics.json``), and the layers' GDS pairs, labels and vias the
-    extraction joins its nets by."""
+def technology(pdk: str, parasitics: dict | None = None) -> tuple[dict, dict]:
+    """kpex's technology of the PDK (``stack.json`` and its layout tech; its 2.5-D coefficients,
+    ``parasitics`` or else the kit's where it has them, ``parasitics.json``, frida's own keys left
+    out: ``FRIDA_KEYS``), and the layers' GDS pairs, labels and vias the extraction joins its nets
+    by, and the line ends' length (``line_ends``: ``kpex_extract.line_ends``)."""
 
     folder = ROOT / "pdk" / pdk / "kpex"
     stack = json.loads((folder / "stack.json").read_text())
@@ -216,8 +221,10 @@ def technology(pdk: str) -> tuple[dict, dict]:
         "process_stack": {"layers": process},
         "substrate": {"net_names": ["GROUND"]},
     }
-    if (folder / "parasitics.json").is_file():
-        kpex["process_parasitics"] = json.loads((folder / "parasitics.json").read_text())
+    if parasitics is None and (folder / "parasitics.json").is_file():
+        parasitics = json.loads((folder / "parasitics.json").read_text())
+    if parasitics is not None:
+        kpex["process_parasitics"] = {key: value for key, value in parasitics.items() if key not in FRIDA_KEYS}
     # each conductor's labels: its pin layer, its pin text, any text on its drawn pair
     labels = {
         name: [
@@ -232,6 +239,7 @@ def technology(pdk: str) -> tuple[dict, dict]:
         | {f"V{name[1:]}": [list(tech.LAYERS[f"V{name[1:]}"])] for name in metals[:-1]},
         "labels": labels,
         "vias": [[name, f"V{name[1:]}", metals[i + 1]] for i, name in enumerate(metals[:-1])],
+        "line_ends": (parasitics or {}).get("line_ends_um", {}),
     }
     return kpex, joins
 
@@ -246,6 +254,8 @@ def run_layout_pex(
     texts: list[tuple[str, int, int, str]] = (),
     engine: Engine = Engine.FASTERCAP,
     timeout: float | None = None,
+    parts: Path | None = None,
+    parasitics: dict | None = None,
 ) -> Path:
     """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by ``engine``, FasterCap to its relative
     ``tolerance`` (``TOLERANCE``: a unit's, the arrays' ratios; looser for a block's parasitics) or
@@ -253,9 +263,12 @@ def run_layout_pex(
     capacitances (``<output_stem>.pex.netlist``). ``texts``: labels to add, (conductor, x, y in
     database units, name), for nets the layout leaves unlabelled. Refuses the 2.5-D engine in a kit
     without its coefficients. ``timeout``: seconds before the extraction is stopped (where FasterCap
-    does not converge), raising; None: none."""
+    does not converge), raising; None: none. ``parts``: where the 2.5-D engine writes its
+    capacitances by the coefficient each is linear in (``kpex_extract.parts``); None: nowhere.
+    ``parasitics``: the 2.5-D coefficients in place of the kit's (a fit's,
+    ``flow.layout.kpex_coefficients``)."""
 
-    kpex, joins = technology(pdk)
+    kpex, joins = technology(pdk, parasitics)
     if engine is Engine.RCX25 and "process_parasitics" not in kpex:
         raise ValueError(f"{pdk} has no 2.5-D coefficients (pdk/{pdk}/kpex/parasitics.json): extract it by FasterCap")
     work = (run_dir / "kpex").resolve()
@@ -278,6 +291,7 @@ def run_layout_pex(
         "galerkin": True,
         "k_void": K_VOID,
         "threads": int(os.environ.get("KPEX_THREADS", "4")),
+        "parts": str(parts.resolve()) if parts else None,
     }
     (work / "spec.json").write_text(json.dumps(spec, indent=1))
     log = work / "kpex.log"

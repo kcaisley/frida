@@ -1,7 +1,8 @@
 """A kit's coefficients for KLayout-PEX's 2.5-D engine (kpex's ``process_parasitics``,
 ``pdk/<pdk>/kpex/parasitics.json``), fitted to direct 2-D field solves of test cross-sections in
 the kit's own planar stack, the one FasterCap extracts in (``flow.layout.kpex.technology``:
-``stack.json``, each metal's level and the dielectric above it).
+``stack.json``, each metal's level and the dielectric above it), then the MOM metals' sidewall
+and line ends fitted to FasterCap's 3-D solves of the capacitive DAC's strips (``calibrate``).
 
 The solver is capiche's ``solve2d`` (``CAPICHE``: its ``src`` folder): a fixed mesh graded toward
 every corner, solved directly, so a cross-section takes about a second and no convergence test can
@@ -15,26 +16,46 @@ stop it early (FasterCap's 3-D solves of the same structures took hours). The fo
   widths of (c - overlap W) / 2 of a wire on one conductor over (or under) a plate on another.
 
 The structures take the kit's minimum width and space of each metal (its layout tech's ``RULES``);
-poly takes the first metal's. On TSMC65 the fit comes within a few percent of the coefficients fitted
-to FasterCap's 3-D solves of test structures, and on the capacitive DAC's arrays the 2.5-D engine on
-it within a few percent of FasterCap's extraction in every kit FasterCap finished.
+poly takes the first metal's.
 
-    uv run python -m flow.layout.kpex_coefficients <pdk> [--out FILE] [--work DIR] [--workers N]
+A lone pair of wires is not a MOM strip: its plates stack on two or three metals at their minimum
+space, their own net above and below each finger, and the pair's sidewall counts the fringe over
+and under each finger that the stack's neighbours take. ``calibrate`` draws the strips as the
+kit's arrays draw them (``flow.layout.devices.momcap``: a difference unit on each metal count its
+arrays draw, its channels, at ``CALIBRATION_UM``), extracts each by FasterCap and by the 2.5-D
+engine with its capacitances by coefficient (``flow.layout.kpex_extract.parts``), and fits two
+things per MOM metal to FasterCap: the sidewall's scale to the slope of a plate's coupling to the
+top plate over its finger's length, which leaves the finger's ends out; then the length a line
+end's fringe reaches past the tip (``flow.layout.kpex_extract.line_ends``: kpex's sidewall ends
+with the edge, where FasterCap's field wraps round a finger's tip) to the strips' plates, main
+finger and difference stub, their errors relative least squares (a strip's weight, main less
+difference finger, is the same whatever the length: both have a tip at the ring and one at their
+gap). The table's provenance
+holds each strip's couplings by both engines, the scales and lengths, and each metal count's
+lines before and after them.
+
+    uv run python -m flow.layout.kpex_coefficients <pdk> [--out FILE] [--work DIR] [--workers N] [--timeout MIN]
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
+from datetime import UTC, datetime
 from importlib import import_module
+from multiprocessing import get_context
 from pathlib import Path
 
 import numpy as np
 
-from flow.layout.kpex import ROOT, technology
+from flow.layout.devices.momcap.characterize import extract
+from flow.layout.devices.momcap.geometry import ArrayKind, MomcapGeometry, MomStyle, Neighbour
+from flow.layout.devices.momcap.table import momcap_table
+from flow.layout.kpex import ROOT, TOLERANCE, Engine, run_layout_pex, technology
 
 CAPICHE = Path(os.environ.get("CAPICHE", "~/Documents/libs/capiche/src")).expanduser()
 # the vacuum permittivity, aF/um
@@ -48,6 +69,10 @@ PLATE_UM = 20.0
 # a dielectric's slabs past the top metal (um) and the solver's span of the interfaces (um)
 TOP_SPAN_UM = 5.0
 SPAN_UM = 60.0
+# the calibration's main finger lengths (um), up to about the arrays' longest pieces, and its first
+# guess of a line end's reach (um), which it fits
+CALIBRATION_UM = (4.0, 12.0, 24.0)
+LINE_END_GUESS_UM = 0.25
 
 
 def slabs(pdk: str) -> tuple[list[tuple[float, float, float]], dict[str, tuple[float, float]]]:
@@ -213,14 +238,253 @@ def coefficients(pdk: str, work: Path, workers: int = 8) -> dict:
     return {"side_halo": 8.0, "capacitance": capacitance, "resistance": {}}
 
 
+def calibration_strips(pdk: str) -> list[MomcapGeometry]:
+    """The strips ``calibrate`` extracts: on each metal count the kit's arrays draw (its momcap
+    table's difference units drawn as the array draws them), the main finger at each of
+    ``CALIBRATION_UM`` and the difference finger at its shortest, apart from their neighbours on
+    both sides (most of the capacitive DAC's pieces); and at the middle length joined on both sides
+    and apart on one and the array's edge on the other (its last piece)."""
+    table = momcap_table(pdk)
+    found = []
+    apart, joined, edge = Neighbour.APART, Neighbour.JOINED, Neighbour.EDGE
+    for count, entry in table.styles[MomStyle.DIFFERENCE.name].items():
+        if entry["drawn"] != "array":
+            continue
+        least, grid = table.shortest_nm(int(count)), entry["grid_nm"]
+        lengths = [max(least, round(um * 1000 / grid) * grid) for um in CALIBRATION_UM]
+        sides = [(apart, apart, length) for length in lengths] + [
+            (joined, joined, lengths[1]),
+            (apart, edge, lengths[1]),
+        ]
+        found += [
+            MomcapGeometry(MomStyle.DIFFERENCE, int(count), length, least, left, right, array=ArrayKind.CHANNELS)
+            for left, right, length in sides
+        ]
+    return found
+
+
+def _apart(geometry: MomcapGeometry) -> bool:
+    """Whether a strip is apart from its neighbours on both sides: one of the lines' strips."""
+    return geometry.left is geometry.right is Neighbour.APART
+
+
+def _strip_name(geometry: MomcapGeometry) -> str:
+    return f"strip_{geometry.layers}_{geometry.length_nm}_{geometry.diff_length_nm}_{geometry.sides}"
+
+
+def _fastercap(job: tuple[str, MomcapGeometry, Path, float | None]) -> tuple[str, dict[str, float] | None]:
+    """A strip drawn into ``work/<name>/`` and extracted as the momcap table's structures are
+    (``flow.layout.devices.momcap.characterize.extract``: drawn as its array draws it, DRC-checked,
+    FasterCap at the units' tolerance, stopped after ``timeout_s`` seconds or where it diverges):
+    its terminal pairs' capacitances (fF), kept (``fastercap.json``) and reused; None where
+    FasterCap did not finish."""
+    pdk, geometry, work, timeout_s = job
+    folder = work / _strip_name(geometry)
+    done = folder / "fastercap.json"
+    if done.is_file():
+        return _strip_name(geometry), json.loads(done.read_text())
+    try:
+        found, _refused, _drc = extract(folder, pdk, geometry, timeout_s)
+    except RuntimeError as error:
+        print(f"{pdk} {_strip_name(geometry)}: {str(error).splitlines()[0]}", flush=True)
+        return _strip_name(geometry), None
+    pairs = {"-".join(pair): c * 1e15 for pair, c in found.items()}
+    done.write_text(json.dumps(pairs, indent=1) + "\n")
+    return _strip_name(geometry), pairs
+
+
+def _rcx25(pdk: str, geometry: MomcapGeometry, work: Path, table: dict, label: str) -> list[list]:
+    """A strip (drawn by ``_fastercap``) extracted by the 2.5-D engine on ``table``: its
+    capacitances by coefficient (``flow.layout.kpex_extract.parts``), in ``work/<name>/<label>``."""
+    folder = work / _strip_name(geometry)
+    parts = folder / label / "parts.json"
+    run_layout_pex(
+        pdk,
+        folder / "momunit.gds",
+        "momunit",
+        "momunit",
+        folder / label,
+        engine=Engine.RCX25,
+        parts=parts,
+        parasitics=table,
+    )
+    return json.loads(parts.read_text())
+
+
+def coupling(parts: list[list], pair: tuple[str, str], metals: set[str] | None = None, kind: str = "sidewall") -> float:
+    """The 2.5-D capacitance (fF) between two terminals of a structure, from its capacitances by
+    coefficient (``flow.layout.kpex_extract.parts``, ``line_ends``): all of it, or (``metals``)
+    only the ``kind`` (``sidewall``, ``line_end``) on those conductors."""
+    return sum(
+        value
+        for found, a, _b, net1, net2, value in parts
+        if {net1, net2} == set(pair) and (metals is None or (found == kind and a in metals))
+    )
+
+
+def slope(lengths_um: list[float], values: list[float]) -> tuple[float, float]:
+    """A plate's coupling over its finger's length: the slope (fF/um) and the ends' constant (fF)
+    of the line through ``values`` at ``lengths_um``."""
+    # not in the reference texts: a least-squares line
+    per_um, ends = np.polyfit(np.asarray(lengths_um), np.asarray(values), 1)
+    return float(per_um), float(ends)
+
+
+def nested_fit(terms: dict[int, list[tuple[float, dict[str, float], float]]]) -> dict[str, float]:
+    """Each MOM metal's coefficient that brings the 2.5-D engine to FasterCap, by metal count: its
+    values (FasterCap's, each metal's part of the 2.5-D engine's at a coefficient of 1, and the rest
+    of it: a line's slope, its sidewalls; a strip's plate, its line ends). The fewest metals
+    first, a count's metals not yet fitted one coefficient between them, its values' errors
+    relative to FasterCap's least squares (a count takes the top metals of the fewer counts and
+    more): a count of one value comes out FasterCap's."""
+    fitted: dict[str, float] = {}
+    for count in sorted(terms):
+        rows = terms[count]
+        new = sorted({metal for _fc, parts, _rest in rows for metal, part in parts.items() if part > 0} - set(fitted))
+        if not new:
+            continue
+        # not in the reference texts: x * (the new metals' part) + the rest = FasterCap's, the
+        # errors relative to FasterCap's least squares in x
+        own = [sum(parts.get(metal, 0.0) for metal in new) for _fc, parts, _rest in rows]
+        left = [
+            fastercap - rest - sum(fitted[metal] * part for metal, part in parts.items() if metal in fitted)
+            for fastercap, parts, rest in rows
+        ]
+        weight = [1 / fastercap**2 for fastercap, _parts, _rest in rows]
+        coefficient = sum(w * y * a for w, y, a in zip(weight, left, own, strict=True)) / sum(
+            w * a * a for w, a in zip(weight, own, strict=True)
+        )
+        fitted.update(dict.fromkeys(new, coefficient))
+    return fitted
+
+
+def scaled(table: dict, scales: dict[str, float]) -> dict:
+    """``table`` with each metal's sidewall capacitance times its scale (``scales``)."""
+    out = json.loads(json.dumps(table))
+    for entry in out["capacitance"]["sidewalls"]:
+        if entry["layer_name"] in scales:
+            entry["capacitance"] = round(entry["capacitance"] * scales[entry["layer_name"]], 4)
+    return out
+
+
+def calibrate(pdk: str, table: dict, work: Path, workers: int = 8, timeout_s: float | None = None) -> dict:
+    """``table`` (the 2-D fit) with the MOM metals' sidewall fitted to FasterCap's coupling per
+    length of the kit's strips (``calibration_strips``; each FasterCap run stopped after
+    ``timeout_s`` seconds, and a strip it does not finish left out), and its provenance: each
+    strip's terminal pairs by FasterCap and by the 2.5-D engine on the result, the scales, and each
+    metal count's line (slope and ends) by FasterCap and by the 2.5-D engine before and after them.
+    Raises where too few of a metal count's strips finish to draw its line."""
+    work.mkdir(parents=True, exist_ok=True)
+    every = calibration_strips(pdk)
+    # the longest first; each FasterCap run takes KPEX_THREADS cores. Spawned, not forked: the
+    # strips' lengths came from the PDK's process (``flow.layout.pdkproc``), whose pool a fork
+    # copies mid-call, and a worker's next call there waits on it for good
+    jobs = [(pdk, g, work, timeout_s) for g in sorted(every, key=lambda g: -g.length_nm)]
+    with ProcessPoolExecutor(workers, mp_context=get_context("spawn")) as pool:
+        fastercap = {name: pairs for name, pairs in pool.map(_fastercap, jobs) if pairs is not None}
+    strips = [g for g in every if _strip_name(g) in fastercap]
+    for count in {g.layers for g in every}:
+        if sum(g.layers == count and _apart(g) for g in strips) < 2:
+            raise RuntimeError(f"{pdk}: too few strips on {count} metals finished by FasterCap to draw their line")
+    mom = import_module(f"pdk.{pdk}.layout.tech").MOM_LAYERS
+    metals = {f"M{metal}" for g in strips for metal in mom[-g.layers :]}
+    before = {_strip_name(g): _rcx25(pdk, g, work, table, "rcx25_2d") for g in strips}
+    counts = sorted({g.layers for g in strips})
+
+    def line(count: int, values: dict[str, float]) -> tuple[float, float]:
+        group = [g for g in strips if g.layers == count and _apart(g)]
+        return slope([g.length_nm / 1000 for g in group], [values[_strip_name(g)] for g in group])
+
+    def by_pair(found: dict[str, list], pair: str, only: set[str] | None = None, kind: str = "sidewall") -> dict:
+        return {name: coupling(parts, tuple(pair.split("-")), only, kind) for name, parts in found.items()}
+
+    main = {name: pairs["MAIN-TOP"] for name, pairs in fastercap.items()}
+    slopes = {}
+    for count in counts:
+        sidewalls = {metal: line(count, by_pair(before, "MAIN-TOP", {metal}))[0] for metal in sorted(metals)}
+        rest = line(count, by_pair(before, "MAIN-TOP"))[0] - sum(sidewalls.values())
+        slopes[count] = [(line(count, main)[0], sidewalls, rest)]
+    scales = nested_fit(slopes)
+    out = scaled(table, scales)
+    # the line ends: each apart strip's plates (its main finger, its difference stub) by FasterCap
+    # against the 2.5-D engine's and its line ends' (linear in their length, but which polygon a
+    # side faces past its tip with it: twice, from a guess; none shorter than nothing, where the
+    # 2.5-D engine's ends already reach FasterCap's)
+    lengths = dict.fromkeys(sorted(metals), LINE_END_GUESS_UM)
+    for _ in range(2):
+        reach = {metal: max(length, LINE_END_GUESS_UM / 5) for metal, length in lengths.items()}
+        probe = {_strip_name(g): _rcx25(pdk, g, work, {**out, "line_ends_um": reach}, "rcx25_ends") for g in strips}
+        ends = {}
+        for count in counts:
+            ends[count] = []
+            for g in (g for g in strips if g.layers == count and _apart(g)):
+                for pair in ("MAIN-TOP", "DIFF-TOP"):
+                    parts, terminals = probe[_strip_name(g)], tuple(pair.split("-"))
+                    per_um = {m: coupling(parts, terminals, {m}, "line_end") / reach[m] for m in sorted(metals)}
+                    rest = coupling(parts, terminals) - sum(per_um[m] * reach[m] for m in per_um)
+                    ends[count].append((fastercap[_strip_name(g)][pair], per_um, rest))
+        lengths = {metal: round(max(length, 0.0), 4) for metal, length in nested_fit(ends).items()}
+    out["line_ends_um"] = lengths
+    after = {_strip_name(g): _rcx25(pdk, g, work, out, "rcx25") for g in strips}
+    lines = {
+        str(count): {
+            pair: {
+                "fastercap": line(count, {name: pairs.get(pair, 0.0) for name, pairs in fastercap.items()}),
+                "rcx25_2d": line(count, by_pair(before, pair)),
+                "rcx25": line(count, by_pair(after, pair)),
+            }
+            for pair in ("MAIN-TOP", "DIFF-TOP")
+        }
+        for count in counts
+    }
+    out["provenance"] = {
+        "method": METHOD,
+        "code_sha": _code_sha(),
+        "date": datetime.now(UTC).date().isoformat(),
+        "fastercap_tolerance": TOLERANCE,
+        "sidewall_scales": {metal: round(scale, 5) for metal, scale in sorted(scales.items())},
+        "line_ends_um": lengths,
+        "lines_ff_per_um_and_ff": lines,
+        "strips_ff": {
+            name: {
+                pair: {
+                    "fastercap": round(fastercap[name].get(pair, 0.0), 5),
+                    "rcx25": round(by_pair(after, pair)[name], 5),
+                }
+                for pair in ("MAIN-TOP", "DIFF-TOP", "DIFF-MAIN")
+            }
+            for name in after
+        },
+    }
+    return out
+
+
+METHOD = (
+    "kpex's forms fitted to 2-D cross-sections (capiche solve2d) in the kit's stack; the MOM metals' sidewall "
+    "scaled to FasterCap's 3-D coupling per finger length of the capacitive DAC's strips, and their line ends' "
+    "reach to its ends (flow.layout.kpex_coefficients)"
+)
+
+
+def _code_sha() -> str:
+    """The hash of the code that makes the coefficients: this file and the extraction's."""
+    digest = hashlib.sha1()
+    for path in (Path(__file__), Path(__file__).with_name("kpex_extract.py")):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("pdk")
     parser.add_argument("--out", type=Path, help="default: pdk/<pdk>/kpex/parasitics.json")
     parser.add_argument("--work", type=Path, help="the cross-sections' folder (default: build/kpex_coefficients/<pdk>)")
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=8, help="the solves at once (FasterCap's: KPEX_THREADS each)")
+    parser.add_argument("--timeout", type=float, default=60, help="minutes FasterCap may take on a strip (0: no limit)")
     args = parser.parse_args()
     out = args.out or ROOT / "pdk" / args.pdk / "kpex" / "parasitics.json"
-    table = coefficients(args.pdk, args.work or ROOT / "build" / "kpex_coefficients" / args.pdk, args.workers)
+    work = args.work or ROOT / "build" / "kpex_coefficients" / args.pdk
+    table = coefficients(args.pdk, work, args.workers)
+    table = calibrate(args.pdk, table, work / "strips", args.workers, args.timeout * 60 or None)
     out.write_text(json.dumps(table, indent=1) + "\n")
     print(out)

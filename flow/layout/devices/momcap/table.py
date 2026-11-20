@@ -42,11 +42,18 @@ class MomcapTable:
             values[tuple(pair.split("-"))] = max(0.0, ff) * 1e-15
         return values
 
+    def shortest_nm(self, layers: int) -> int:
+        """The shortest finger a strip on ``layers`` metals can draw: one that holds its vias and its
+        channel, on the grid."""
+        entry = self._entry(MomStyle.DIFFERENCE, layers)
+        grid = entry["grid_nm"]
+        return -(-max(entry["min_length_nm"], self.channel_nm.get(layers, 0)) // grid) * grid
+
     def _strip_at(self, layers: int, net_f: float, whole_f: float) -> tuple[int, int, int]:
         """A strip's fingers on ``layers`` metals, and the shortest a finger can be there."""
         entry = self._entry(MomStyle.DIFFERENCE, layers)
         grid = entry["grid_nm"]
-        least = -(-max(entry["min_length_nm"], self.channel_nm.get(layers, 0)) // grid) * grid
+        least = self.shortest_nm(layers)
         main, diff = entry["pairs"]["MAIN-TOP"], entry["pairs"]["DIFF-TOP"]
         # net(Lm, Ld) = p Lm + q Ld + r (um, fF)
         p = main["main_ff_per_um"] - diff["main_ff_per_um"]

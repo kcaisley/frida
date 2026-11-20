@@ -202,3 +202,82 @@ def test_a_sidewall_ends_at_its_edges_own_polygon(kit: Path, tmp_path: Path) -> 
     wall = coupling([(500, 0, 600, 5000)], "wall")
     assert wall > 0
     assert comb == pytest.approx(wall, rel=0.02)
+
+
+def test_the_calibration_scales_each_mom_metals_sidewall_to_fastercaps_slope() -> None:
+    """``flow.layout.kpex_coefficients``'s 3-D stage: a strip's coupling by coefficient sums by
+    terminal pair (and by a metal's sidewalls alone); its slope over the finger's length leaves the
+    ends out; the fewest metals' count sets its metals' scale and a count of more metals the rest,
+    so each count's slope comes out FasterCap's; the table scales only those metals' sidewalls."""
+    from flow.layout import kpex_coefficients as fit
+
+    parts = [
+        ["sidewall", "M3", "M3", "MAIN", "TOP", 1.0],
+        ["sidewall", "M4", "M4", "MAIN", "TOP", 2.0],
+        ["sideoverlap", "M3", "M2", "MAIN", "TOP", 0.5],
+        ["sidewall", "M4", "M4", "DIFF", "TOP", 4.0],
+    ]
+    assert fit.coupling(parts, ("TOP", "MAIN")) == pytest.approx(3.5)
+    assert fit.coupling(parts, ("MAIN", "TOP"), {"M4"}) == pytest.approx(2.0)
+    assert fit.slope([2.0, 4.0, 8.0], [1.5, 2.5, 4.5]) == pytest.approx((0.5, 0.5))
+    # one metal (M4) alone: FasterCap's 0.9 of its 1.0, the rest 0.0; then both: M3 takes the rest
+    slopes = {1: [(0.9, {"M4": 1.0, "M3": 0.0}, 0.0)], 2: [(2.0, {"M4": 1.0, "M3": 1.2}, 0.2)]}
+    scales = fit.nested_fit(slopes)
+    assert scales == pytest.approx({"M4": 0.9, "M3": (2.0 - 0.2 - 0.9) / 1.2})
+    for [(fastercap, sidewalls, rest)] in slopes.values():
+        assert sum(scales[m] * s for m, s in sidewalls.items()) + rest == pytest.approx(fastercap)
+    # several values: their errors relative to FasterCap's least squares
+    (length,) = fit.nested_fit({1: [(1.1, {"M4": 1.0}, 0.0), (1.8, {"M4": 2.0}, 0.0)]}).values()
+    assert length == pytest.approx((1.1 / 1.1**2 + 1.8 * 2 / 1.8**2) / (1 / 1.1**2 + 4 / 1.8**2))
+    table = _toy_parasitics()
+    out = fit.scaled(table, {"M1": 0.5})
+    assert [e["capacitance"] for e in out["capacitance"]["sidewalls"]] == [40.0, 20.0, 40.0]
+    assert table["capacitance"]["sidewalls"][1]["capacitance"] == 40.0  # its own left as it was
+
+
+def test_a_tables_own_keys_stay_out_of_kpexs_technology(kit: Path) -> None:
+    """A coefficient table's provenance and line ends (``kpex_coefficients``'s) are frida's, not
+    kpex's: the technology leaves them out, from the kit's file or a table given in its place, and
+    the line ends go to the extraction's own step (``kpex_extract.line_ends``)."""
+    import json
+
+    table = {**_toy_parasitics(), "provenance": {"method": "toy"}, "line_ends_um": {"M1": 0.3}}
+    (kit / "parasitics.json").write_text(json.dumps(table))
+    kept, joins = kpex.technology("toykit")
+    assert not set(kpex.FRIDA_KEYS) & set(kept["process_parasitics"]) and joins["line_ends"] == {"M1": 0.3}
+    given, joins = kpex.technology("toykit", {**table, "side_halo": 4.0, "line_ends_um": {}})
+    assert given["process_parasitics"]["side_halo"] == 4.0 and "provenance" not in given["process_parasitics"]
+    assert joins["line_ends"] == {}
+
+
+@pytest.mark.skipif(not (kpex.KPEX_HOME / "bin" / "python").is_file(), reason="KLayout-PEX's own Python is not here")
+def test_a_line_ends_fringe_continues_its_sides_past_the_tip(kit: Path, tmp_path: Path) -> None:
+    """A wire's two ends in a comb (a finger between two walls, its bar below it): each of its four
+    corners continues the side's sidewall the table's line end past the tip, to the wall it faces
+    there (``flow.layout.kpex_extract.line_ends``), and adds it to the wire's coupling."""
+    import json
+
+    from klayout import db
+
+    layout = db.Layout()
+    layout.dbu = 0.001
+    top = layout.create_cell("TOY")
+    m1 = layout.layer(2, 0)
+    comb = db.Region()
+    for box in [(0, 0, 100, 5000), (500, 0, 600, 5000), (0, 0, 600, 100)]:
+        comb.insert(db.Box(*box))
+    top.shapes(m1).insert(comb.merged())
+    top.shapes(m1).insert(db.Box(250, 500, 350, 4000))
+    top.shapes(m1).insert(db.Text("A", db.Trans(550, 2500)))
+    top.shapes(m1).insert(db.Text("B", db.Trans(300, 2500)))
+    gds = tmp_path / "comb.gds"
+    layout.write(str(gds))
+    table = {**_toy_parasitics(), "line_ends_um": {"M1": 0.2}}
+    parts = tmp_path / "parts.json"
+    netlist = kpex.run_layout_pex(
+        "toykit", gds, "TOY", "comb", tmp_path / "comb", engine=kpex.Engine.RCX25, parts=parts, parasitics=table
+    )
+    ends = [row for row in json.loads(parts.read_text()) if row[0] == "line_end"]
+    # four corners, each 0.2 um of the 40 aF/um sidewall at the walls' 0.15 um, halved per pair
+    assert ends == [["line_end", "M1", "M1", "A", "B", pytest.approx(4 * 0.2 * 40 / 0.15 / 2 / 1000)]]
+    assert "( A B )" in netlist.read_text() or "( B A )" in netlist.read_text()
