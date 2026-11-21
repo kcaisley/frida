@@ -304,13 +304,15 @@ def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
     drawn (the netlist lowers a request to its drawn on-resistance and counts that one's chain, which
     can be two inverters longer than the one counted here), or a unit below the kit's smallest
     (drawn at that, its weights then not the design's). An array it admits may still fail
-    to build (the run records it so), and one it refuses may build."""
+    to build (the run records it so), and one it refuses may build. A checkout without the kit
+    (CI's) raises ModuleNotFoundError: the kit's own design space, which it does not have."""
     import importlib
 
+    # the kit's module before its tables: a kit not checked out raises ModuleNotFoundError
+    supply_v = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     table = mosfet_table(pdk)
     budget_s = params.settle_ps * 1e-12 / params.settle_margin
     weights = _weights(params)
-    supply_v = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     main_f, diff_f = _design_plates(params, supply_v)
     top_f = float(main_f.sum() + diff_f.sum())
     # [Razavi-ADC] Eq. (11.10), p. 215: the heaviest plate's load, its capacitance in series with

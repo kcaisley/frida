@@ -190,6 +190,7 @@ def test_each_swept_array_is_an_instance_of_the_dacs_design_space() -> None:
     """The model reads a converter's DAC from capdac's characterization of the same parameters,
     found by their digest: every array the converters take, of either weight build and FRIDA-1's, is
     an instance of capdac's design space in the PDK, and every instance of it is swept."""
+    pytest.importorskip("pdk.tsmc65.hdl21.site")  # capdac's params.valid reads the kit's devices
     dacs = design_space("capdac", "tsmc65")
     assert all(digest(adc.cdac) in dacs for adc in _instances("tsmc65"))
     assert {digest(cdac) for cdac in _swept_arrays()} == set(dacs) and len(dacs) == 121
