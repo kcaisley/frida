@@ -14,7 +14,7 @@ that (the measurement is valid where a stage settles in its window's first half)
 half an LSB, its drivers' delay and the time constant the behavioral ADC settles it with, by
 stage, at the typical corner and at the slow and fast corners; each run's settling judged against
 ``settle_ps`` (``settles_in_time``, a bound); and its plates' Monte Carlo at three mismatch
-coefficients of a capacitor, 0.1, 0.5 and 1 %·sqrt(fF) (an assumed range: the kits give none).
+coefficients of a capacitor, 0.1, 0.5 and 1 %·sqrt(fF) (an assumed range, not a kit's).
 """
 
 import importlib
@@ -71,15 +71,19 @@ def testbenches(pdk: str, params: Params, level: Level = Level.SEARCH) -> dict[s
     ``Level.FULL`` (the flow's), the settling run at the slow corner at 90 % of the supply and hot
     (``settling_slow``) and at the fast corner at 110 % (``settling_fast``). A call without a level
     is the search's: the typical corner's runs alone."""
+    # the bench's supply, the kit's typical rounded to 0.1 mV (a netlist's value; the netlist draws
+    # its plates at the unrounded one, a difference below 0.05 mV)
     supply = round(importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP), 4)
     # not in the reference texts: the window, four times settle_ps rounded up to 100 ps, so a step
     #   that settles within twice settle_ps does so in the window's first half (``settled``); its
     #   output every 2000th of it (2 ps at 1000 ps), well below the stages' settling
     window = math.ceil(4 * params.settle_ps / 100) * 100e-12
     settling = TbParams(pdk=pdk, params=params, vdd=supply, window_s=window, waveform_sample_interval_s=window / 2000)
+    # [Pelgrom] Table 4.7, p. 144: indicative matching of a process's capacitors (a pair's, as Eq.
+    #   (4.34), p. 144; one capacitor's is 1 / sqrt(2) of it), the anchor of the range
     # not in the reference texts: the Monte Carlo's conditions, an assumed range of a capacitor's
-    #   coefficient, 100 runs each from one seed (common random numbers: the conditions' draws are
-    #   one draw scaled, so they carry one sample's spread, and their decision paths)
+    #   coefficient (not a kit's), 100 runs each from one seed (common random numbers: the conditions'
+    #   draws are one draw scaled, so they carry one sample's spread, and their decision paths)
     benches = {"settling": settling} | {
         f"mc_a{round(pelgrom * 1000)}": replace(settling, pelgrom=pelgrom, mc_runs=100)
         for pelgrom in (0.001, 0.005, 0.010)

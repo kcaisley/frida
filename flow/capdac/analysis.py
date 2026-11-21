@@ -73,10 +73,14 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
         for direction, _ in directions
     }
     design = tb.ideal_step_v
-    # not in the reference texts: the drawn array's gain, the least-squares fit g = s . d / d . d of
-    #   the measured rising steps s_k to the design's d_k (the heavy stages, drawn as designed, set it)
-    # Terms: s_k ``step["rise"]``; d_k ``TbParams.ideal_step_v``.
-    # Holds for: a gain common to every stage (the top plate's parasitic); a unit drawn other than
+    # [Razavi-ADC] Eqs. (11.3)-(11.4), p. 211: a load C_L on the top plate scales every step by
+    #   m C_0 / (m C_0 + C_L), a gain error; the estimator is the code's own, the least-squares fit
+    #   g = s . d / d . d of the measured rising steps s_k to the design's d_k (the heavy stages set
+    #   it), not Sec. 8.2.1, p. 145's slope of the line through the end points
+    # Terms: s_k ``step["rise"]``; d_k ``TbParams.ideal_step_v``; C_L the drawn top plate's load
+    #   beyond the design's plates (the units' capacitance to their shields, the stubs).
+    # Holds for: a gain common to every stage: the heavy stages drawn as designed (no unit at the
+    #   kit's smallest, which draws a stage heavier than its weight); a unit drawn other than
     #   designed is the step error.
     gain = float(np.dot(step["rise"], design) / np.dot(design, design))
     # not in the reference texts: the drawn full scale, half the sum of the two-sided steps
@@ -112,8 +116,10 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
                 settling = settled - edge_s
             delays[direction].append(delay)
             settlings[direction].append(settling)
-            # the converter's own condition: one side switching, a stage of A state 0 rising and of
-            # 1 falling ([Razavi-ADC] Sec. 16.2.1, p. 346), its top plate within half the LSB
+            # [Razavi-ADC] Sec. 16.2.1, p. 346: the converter's own condition, one side switching a
+            #   decision; not in the reference texts: its direction by the A state, a stage of A 0
+            #   rising and of A 1 falling (flow.adc's own, ``TbParams.astate``)
+            # Terms: the top plate ``vdac_p``; the band half the drawn LSB, as the bench's.
             if (direction == "rise") == (tb.astate[stage] == 0):
                 start, stop = spans[stage, direction]
                 one = math.nan
@@ -148,8 +154,13 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
             for direction, _ in directions
         }
     plates = [meas.v[name] for name in meas.v if name.startswith(("dut_p.main_", "dut_p.diff_"))]
-    # not in the reference texts: a bottom plate's farthest excursion past either rail, which
-    #   forward-biases its driver's drain junction (beyond 0.3 V) or stresses its off device
+    # [Razavi-Analog] Sec. 15.4.2, p. 641: a forward bias of 300 mV draws negligible junction current,
+    #   the limit an excursion past a rail is held to here
+    # own: a bottom plate's farthest excursion past either rail, max(V - V_DD, -V) over the P
+    #   side's main and difference plates, which forward-biases its driver's drain junction or
+    #   stresses its off device (the stress limit frida's own, 1.1 V_DD)
+    # Terms: V each saved bottom plate ``dut_p.main_<k>``, ``dut_p.diff_<k>``; V_DD ``vdd``.
+    # Holds for: the P side (the N side its mirror, the opposite edges).
     excursion = max((max(float(np.max(v)) - vdd, -float(np.min(v))) for v in plates), default=math.nan)
     return AnalysisSettling(
         group=meas.group,
@@ -205,18 +216,24 @@ def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
     curves = []
     for run in range(runs):
         sides = tuple((drawn[f"main_{side}"][run], drawn[f"diff_{side}"][run]) for side in ("p", "n"))
-        # [Razavi-ADC] Sec. 8.2, p. 145: a DAC's DNL and INL (Example 8.4, p. 146: a heavy MSB),
-        #   each side's DAC alone over every control word, its steps the plates' shares of its top
-        #   plate ([Razavi-ADC] Eq. (11.3), p. 211), against the end points' line (calc_dac_transfer)
+        # [Razavi-ADC] Eq. (8.5), p. 145: DNL; Sec. 8.2, Fig. 8.11, p. 147: INL against the line
+        #   through the end points; Example 8.2, p. 144: the end points' LSB (Example 8.4, p. 146: a
+        #   heavy MSB); each side's DAC alone over every control word, its steps the plates' shares of
+        #   its top plate ([Razavi-ADC] Eq. (11.3), p. 211) (calc_dac_transfer)
         # Terms: each stage's step (main - diff) / (sum main + sum diff), of the run's drawn plates;
         #   the codes by the design weights; the LSB the end points' over the total weight.
-        # Holds for: the plates alone (no parasitic, no drivers); the worse side's.
+        # Holds for: the plates alone (no parasitic, no drivers).
         transfers = [calc_dac_transfer((main - diff) / (main.sum() + diff.sum()), weights) for main, diff in sides]
+        # not in the reference texts: the reduction over the sides, the INL (and its curves) the
+        #   worse side's by its worst |INL|, the DNL the worst |DNL| of either side
         worse = max(transfers, key=lambda transfer: float(np.nanmax(np.abs(transfer[1]))))
         curves.append((worse[1], worse[2]))
         values["dac_inl"][run] = float(np.nanmax(np.abs(worse[1])))
         values["dac_dnl"][run] = max(float(np.nanmax(np.abs(transfer[2]))) for transfer in transfers)
-        # the converter: every decision path of the drawn sides, from its A state
+        # the converter: every decision path of the drawn sides, from its A state ([Razavi-ADC] Sec.
+        #   16.2.1, p. 346: one side a decision), each decision's step the switching side's plates over
+        #   its top plate with no parasitic (0.0: the plates alone), in the LSB the nominal plates give
+        #   (calc_decision_steps)
         a, b = calc_decision_steps(sides, 0.0, code_max, nominal=nominal, astate=tb.astate)
         paths = calc_paths(a, b, decoder, code_max)
         # [Razavi-ADC] Eq. (12.11), p. 242: DNL_j, each code's width against the mean width (the
@@ -307,6 +324,9 @@ def analyze_transition(
     fitted_inputs = np.unique(np.round(np.concatenate([item.vin_diff_v for item in switching]), decimals=12))
     if not np.array_equal(fitted_inputs, offset.vin_diff_v):
         raise ValueError("switching-curve fit was not made from these measurements")
+    # not in the reference texts: the transition, the S-curve fit's 50 % point (the comparator's
+    #   offset fit, ``comp.analyze_offset_noise``, of this curve), valid where the curve rises
+    #   monotonically and the fit found a point
     valid = offset.validity != "non_monotonic" and math.isfinite(offset.offset_v)
     return AnalysisTransition(
         group=identity.group,
@@ -367,6 +387,9 @@ def analyze_cap_mismatch(
         # Terms: V_OS ``comparator.offset_v``; V_transition the curve's 50 % point; V_REF ``vdd_dac_v``.
         # Holds for: a top plate whose whole load the fraction's denominator counts.
         signed_step = (comparator.offset_v - transition.transition_v) / reference_v if transition.valid else math.nan
+        # not in the reference texts: the fraction's sign, + for the P side and - for the N side (a
+        #   stage moves its side's top plate, the differential the other way on N), + for 0 to 1 and
+        #   - for 1 to 0 (the plate falls), so every stage's fraction is positive as designed
         side_sign = 1.0 if side == "p" else -1.0
         direction_sign = 1.0 if direction == "0to1" else -1.0
         per_mode_direction[0 if side == "p" else 1, element, diffcaps, 0 if direction == "1to0" else 1] = (
@@ -384,6 +407,8 @@ def analyze_cap_mismatch(
             for diffcaps in range(2):
                 directions = per_mode_direction[side, element, diffcaps]
                 if np.all(np.isfinite(directions)):
+                    # not in the reference texts: a mode's fraction the mean of its two directions'
+                    #   (their difference, halved, the direction bias)
                     mode_values.append(calc.average(directions))
                     direction_bias[side, element, diffcaps] = float((directions[0] - directions[1]) / 2.0)
                 else:
@@ -450,14 +475,25 @@ def metrics(
         )
     }
     corners = [run for run in (slow, fast) if run is not None]
+    # not in the reference texts: the reductions over the stages, the slowest stage's settling (NaN
+    #   where a stage's is not measured), both sides' and one side's in the converter's direction
     slowest = float(np.max(settling.settling_s))
     side = float(np.max(settling.side_settling_s)) if settling.side_settling_s is not None else math.nan
-    every = [slowest, side, *(float(np.max(run.settling_s)) for run in corners)]
+    # every settling judged against settle_ps: the typical run's and each corner run's, both sides'
+    # and one side's (where a run measures it)
+    every = [
+        slowest,
+        side,
+        *(float(np.max(run.settling_s)) for run in corners),
+        *(float(np.max(run.side_settling_s)) for run in corners if run.side_settling_s is not None),
+    ]
     fraction = settling.full_scale_v / settling.reference_v
     # [Razavi-ADC] Eq. (11.52), p. 230: both sides' kT/C over the drawn top plate, C_top / g, against
     #   Eq. (12.6), p. 239: the quantization noise Delta^2 / 12 of the drawn LSB
     # Terms: C_top ``load_f`` (the design's plates), g ``gain``; Delta ``lsb_v``; T 300 K (the sizing's).
-    # Holds for: the typical corner's top plate; the comparator's input not on it.
+    # Holds for: the typical corner's top plate; the comparator's input not on it; C_top / g the drawn
+    #   top plate while the gain is common to every stage (no unit at the kit's smallest: there the
+    #   drawn plates exceed the design's and C_top / g is not the drawn top plate).
     ktc = 2 * Boltzmann * 300.0 * settling.gain / settling.load_f / (settling.lsb_v**2 / 12)
     energies = [e for e in (settling.energy_rise_j, settling.energy_fall_j) if e is not None]
     return conditions | {
@@ -471,20 +507,25 @@ def metrics(
         "lsb_v": settling.lsb_v,
         "ktc_noise_ratio": ktc,
         "settling_max_s": slowest,
+        # C0's, the heaviest stage's (with its weight redistributed it is not the slowest)
         "settling_msb_s": float(settling.settling_s[0]),
         "settling_side_max_s": side,
         "settling_slow_max_s": float(np.max(slow.settling_s)) if slow is not None else math.nan,
         "settling_fast_max_s": float(np.max(fast.settling_s)) if fast is not None else math.nan,
-        # not in the reference texts: the slowest typical settling over the drivers' budget
-        #   (settle_ps / settle_margin, ``subckt._drive_r_ohm``), and whether every measured settling,
-        #   at every corner run, is within settle_ps ([Razavi-ADC] Sec. 8.2.2, p. 150: t_s)
-        "settling_budget_ratio": slowest / settling.budget_s,
+        # not in the reference texts: the slowest typical settling, both sides' or one side's, over
+        #   the drivers' budget (settle_ps / settle_margin, ``subckt._drive_r_ohm``; NaN where either
+        #   is not measured), and whether every measured settling, at every corner run, is within
+        #   settle_ps ([Razavi-ADC] Sec. 8.2.2, p. 150: t_s)
+        "settling_budget_ratio": float(np.max([slowest, side])) / settling.budget_s,
         "settles_in_time": bool(all(math.isfinite(t) and t <= settling.settle_s for t in every)),
+        # the largest delay and time constant over the stages (NaN where a stage's is not measured)
         "delay_max_s": float(np.max(settling.delay_s)),
         "tau_max_s": float(np.max(settling.tau_s)),
         "window_s": settling.window_s,
         "step_error_lsb": settling.step_error_lsb,
+        # the supply's energy summed over every window, both directions (``energy_*_j``)
         "supply_energy_j": float(sum(np.sum(e) for e in energies)) if energies else math.nan,
+        # the farthest excursion of the typical run's and the corner runs' (NaN where one is unmeasured)
         "excursion_v": float(np.max([settling.excursion_v, *(run.excursion_v for run in corners)])),
     }
 

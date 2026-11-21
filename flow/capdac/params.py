@@ -109,9 +109,12 @@ class Params:
     )
 
     def __post_init__(self) -> None:
-        # the extra cycles each scheme can spend, as building every array finds (subckt.py): binary
-        # none, a split one for each binary weight of at least 2, the overlay bits - 4; a redundant
-        # scheme at least one, as with none it is the binary array
+        # not in the reference texts: the extra cycles each scheme can spend, as building every array
+        #   finds (``_split``, ``_msb_redist``): binary none, a split one for each binary weight of at
+        #   least 2 (1 to N - 2), the overlay 1 to N - 4; a redundant scheme at least one, as with none
+        #   it is the binary array
+        # Terms: N ``bits``; ``steps`` N - 1; ``extra`` the cycles spent.
+        # Holds for: 8 to 14 bits; an array's own ``weights`` checked by ``_weights``.
         steps = self.bits - 1
         most = {
             Redundancy.BINARY: 0,
@@ -145,7 +148,9 @@ def _binary(steps: int) -> list[int]:
     # [Razavi-ADC] Sec. 11.2, p. 212: a binary-weighted CDAC, here C0 the heaviest, 2^(N-2) ... 1 units
     # Terms: N - 1 = ``steps``; each weight a stage's main less difference plates in units.
     # Ours against the source: an N-bit converter's first decision switches nothing, so its DAC has
-    #   N - 1 binary steps; the last decision weighs one in the decoder (``Model.weights``).
+    #   N - 1 binary steps; the source's binary array carries a grounded dummy unit beside them (Fig.
+    #   11.6(b), p. 213; Fig. 11.8(a), p. 214), ours none: the decoder's final decision weighs 1 in its
+    #   place (``Model.weights``), so a unit's step is 2^(N-1) / (2^(N-1) - 1) of the source's LSB.
     # Holds for: every array without redundancy (BINARY) and as the base the schemes respread.
     return [2**k for k in range(steps - 1, -1, -1)]
 
@@ -227,7 +232,11 @@ def _switched_f(params: Params, reference_v: float, temperature_k: float = 300.0
     its whole top plate, so its own sampled noise over its own quantization noise is C_top / C_sw
     times ``1 / scale``, the record's ``ktc_noise_ratio``."""
     # [Razavi-ADC] Eq. (11.52), p. 230: the kT/C noise the reset leaves on the array; Eq. (12.6),
-    #   p. 239: the quantization noise Delta^2 / 12; 2 kT / C = Delta^2 / 12 gives C = 24 kT / Delta^2
+    #   p. 239: the quantization noise Delta^2 / 12
+    # own criterion, from the two: both sides' sampled noise equal to the quantization noise,
+    #   2 kT / C = Delta^2 / 12, so C = 24 kT / Delta^2 at ``scale`` 1. The source's own rule, Eq.
+    #   (11.53), p. 230, keeps the rms noise near 0.2 LSB; ``scale`` 2 gives sqrt(1 / 24) = 0.204 LSB
+    #   of the reference's.
     # Terms: C = C_sw, the side's switched capacitance (main less difference plates, ``Model.plates``);
     #   Delta = ``lsb_v`` = 2 V_REF / 2^N, V_REF = ``reference_v`` the DAC's reference, the kit's supply;
     #   2 the two sides' noise, uncorrelated; T = ``temperature_k``.
@@ -283,12 +292,17 @@ def _design_plates(params: Params, reference_v: float) -> tuple[np.ndarray, np.n
 
 
 def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
-    """Whether ``params`` is a design in ``pdk``: whether its heaviest stage's main driver can be
-    sized within its budget (``settle_ps`` over ``settle_margin``), the chain of inverters that
-    tapers at FO4 from a minimum flip-flop to it leaving time to settle its step. The netlist
-    (``flow.capdac.subckt._drive_r_ohm``) sizes it for the plate's load as drawn and raises where
-    the chain's FO4 delays take the whole budget; here the same sizing at the design's load times
-    ``drawn``, the most the drawn load exceeds it by."""
+    """Whether ``params`` is a design in ``pdk``, as far as its heaviest stage's main driver tells:
+    whether it can be sized within its budget (``settle_ps`` over ``settle_margin``), the chain of
+    inverters that tapers at FO4 from a minimum flip-flop to it leaving time to settle its step.
+    The netlist (``flow.capdac.subckt``) sizes it for the plate's load as drawn and raises where the
+    chain's FO4 delays take the whole budget; here the same sizing at the design's load times
+    ``drawn``, a bound fitted on GF180's 14-bit arrays. It does not check what only the netlist
+    finds: a drawn load beyond ``drawn`` times the design's (a 10-bit array's small MSB, other kits'
+    stubs and shields), the drivers and the arrangement standing still, a difference driver sized
+    for its own plate's step (``subckt._keys``), a light stage's driver, or a unit below the kit's
+    smallest (drawn at that, its weights then not the design's). An array it admits may still fail
+    to build (the run records it so), and one it refuses may build."""
     import importlib
 
     table = mosfet_table(pdk)
@@ -298,16 +312,22 @@ def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
     main_f, diff_f = _design_plates(params, supply_v)
     top_f = float(main_f.sum() + diff_f.sum())
     # [Razavi-ADC] Eq. (11.10), p. 215: the heaviest plate's load, its capacitance in series with
-    #   the rest of the top plate; [Razavi-ADC] Eq. (8.14), p. 151: ln(step / half an LSB) time
-    #   constants; [Baker] Eq. (10.19), p. 334: the half swing at the switching resistance
-    # Terms: k C_0 main_f[0], m C_0 ``top_f``; the step 2^(N+1) w_0 / W LSB (both sides', as
-    #   ``_drive_r_ohm``); rho the kit's switching over triode resistance; the kit's DRIVER_TAU_SCALE.
+    #   the rest of the top plate (the series capacitance alone, as ``subckt._plate_load``: the
+    #   source's resistance of the rest's switches left to the fitted DRIVER_TAU_SCALE), its stage's
+    #   difference plate stepping the other way; [Razavi-ADC] Eq. (8.14), p. 151: ln(step / half an
+    #   LSB) time constants; [Baker] Eq. (10.19), p. 334: the half swing at the switching resistance
+    # Terms: k C_0 main_f[0], its difference plate diff_f[0], m C_0 ``top_f``; the step 2^(N+1) w_0 / W
+    #   LSB (both sides', as ``_drive_r_ohm``); rho the kit's switching over triode resistance; the
+    #   kit's DRIVER_TAU_SCALE.
     # Ours against the source: as ``_drive_r_ohm``, the drawn load bounded by the design's times
-    #   ``drawn``: fitted, not derived (the drawn MSB loads of the grid's 14-bit arrays in GF180 are
-    #   1.3 to 2.1 times their design's: stubs, shields and the sense inverter's input).
-    # Holds for: the heaviest stage (C0), the slowest to size; the kit's typical tables; a drawn
-    #   load within ``drawn`` times the design's.
-    load_f = drawn * float(main_f[0]) * (top_f - float(main_f[0])) / top_f
+    #   ``drawn``.
+    # Holds for: the heaviest stage (C0), the slowest to size where the budget binds (12 and 14
+    #   bits); the kit's typical tables; a drawn load within ``drawn`` times the design's.
+    load_f = drawn * float(main_f[0]) * (top_f - float(main_f[0]) + float(diff_f[0])) / top_f
+    # fitted, not derived: ``drawn``, the most the drawn MSB load exceeded the design's series load
+    #   over GF180's 14-bit grid arrays (stubs, shields and the sense inverter's input), assumed for
+    #   every kit and resolution
+    # as ``subckt._drive_r_ohm`` (its citations): k time constants, rho, the kit's scale, the FO4 delay
     constants = math.log(2 ** (params.bits + 1) * weights[0] / sum(weights))
     rho = max(
         table.switching_ohm[flavor(tp, MosVth.LOW)] / table.triode_ohm[flavor(tp, MosVth.LOW)]
@@ -406,9 +426,12 @@ class TbParams(pipeline.TbParams):
     def astate(self) -> tuple[int, ...]:
         """Each stage's state before it switches: the converter's A state, alternating from 0
         (``flow.adc.sim._Converter.tb``)."""
-        # not in the reference texts: the converter's A state, 0 and 1 by turns from C0 (flow.adc's
-        #   own; from equal A states it switches one side a decision, [Razavi-ADC] Sec. 16.2.1, p. 346:
-        #   a stage of A 0 rises on the side that switches, of A 1 falls)
+        # [Razavi-ADC] Sec. 16.2.1, p. 346: from equal A states the converter switches one side a
+        #   decision (monotonic switching)
+        # not in the reference texts: the A state itself, 0 and 1 by turns from C0, so that a stage of
+        #   A 0 rises on the side that switches and of A 1 falls (flow.adc's own; the source's scheme
+        #   only lowers a side's plates)
+        # Holds for: flow.adc's converter (``_Converter.tb``), every array.
         return tuple(stage % 2 for stage in range(self.stages))
 
     @property
@@ -436,9 +459,10 @@ class TbParams(pipeline.TbParams):
         top plate, main less difference (as ``flow.adc.sim._Converter.full_scale_v``)."""
         # [Razavi-ADC] Eq. (11.3), p. 211: a CDAC's output k C_0 / (m C_0 + C_L) V_REF, the switched
         #   plates over the top plate's whole load
-        # Terms: k C_0 the switched share, sum of main less difference plates (main_f - diff_f);
-        #   m C_0 + C_L the top plate's load, ``load_f`` (the difference plates in C_L, unswitched by
-        #   the net); V_REF ``vdd``, the bench's supply (the DAC's reference).
+        # Terms: m C_0 + C_L the top plate's load, ``load_f``: every main and difference plate; k C_0
+        #   the main less the difference plates (main_f - diff_f): the difference plates switch the
+        #   other way, -V_REF, so by superposition of (11.3) they subtract from the main plates' step;
+        #   V_REF ``vdd``, the bench's supply (the DAC's reference).
         # Ours against the source: every stage switched is the full scale, +- as a side's half of the
         #   differential range; the difference plates switch against the main ones (diffcaps 1).
         # Holds for: the design's plates (no parasitic: gain 1); the drawn array's is the analysis's.

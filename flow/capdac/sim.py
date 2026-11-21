@@ -44,6 +44,10 @@ def testbench(tb: TbParams) -> h.Module:
     run's, the design's plates alone, each top plate bled to ground."""
 
     if tb.mc_runs:
+        # not in the reference texts: the Monte Carlo's circuit, each stage's main and difference
+        #   plate one varying capacitor at its design value (no stub, no parasitic, no driver) between
+        #   ground and its side's top plate, the top plate bled to ground through 1 TOhm (its DC path)
+        # Holds for: the plates' mismatch alone, as the static analyses take it (``analyze_mismatch``).
         plates = h.Module(name="CapdacPlates")
         plates.vss = h.Port()
         for side in ("p", "n"):

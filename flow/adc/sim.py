@@ -942,8 +942,8 @@ class _Converter:
     @property
     def stage_tau_s(self) -> tuple[float, ...]:
         """Each stage's top-plate settling time constant, C0 first: the one that brings its step
-        within half an LSB when SPICE does (``flow.capdac.model``); as designed, the one its drivers
-        are sized for."""
+        within half an LSB when SPICE does (``flow.capdac.model``); as designed, the single pole that
+        settles at the drivers' budget (``capdac.Model.design``: an upper bound, not the drawn R C)."""
         return self.cdac.tau_s
 
     @property

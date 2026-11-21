@@ -28,11 +28,12 @@ class AnalysisSettling(Analysis):
     decisions span (``Model.full_scale_v``'s, the mean of both directions), and ``lsb_v`` its LSB.
 
     The bench switches both sides at once (P up, N down): a step of 2^N w / W of the converter's
-    LSB. The converter switches one side a decision, from its A state (``TbParams.astate``): half
-    the step, settling ln 2 time constants sooner where it settles as one pole. ``side_settling_s``
-    is that settling, each stage's P top plate alone (``vdac_p``) in the direction the converter
-    switches it, to the same half LSB; the two sides are separate circuits on an ideal supply, so it
-    is the converter's own.
+    LSB, its differential the average of a rising and a falling edge. The converter switches one
+    side a decision, from its A state (``TbParams.astate``): half the step on one edge alone, which
+    is not the bench's settling less ln 2 time constants (a heavy stage rising alone, on the slower
+    pull-up, settles no sooner). ``side_settling_s`` is that settling, each stage's P top plate
+    alone (``vdac_p``) in the direction the converter switches it, to the same half LSB; the two
+    sides are separate circuits on an ideal supply, so it is the converter's own.
 
     The behavioral ADC (``flow.adc.sim``) starts each stage's step its driver's delay after
     the edge and settles it as one exponential: ``tau_s`` is the time constant that brings the
@@ -112,6 +113,12 @@ class AnalysisSettling(Analysis):
     @property
     def step_v(self) -> np.ndarray:
         """Each stage's step, in its slower direction."""
+        # not in the reference texts: each stage's step in the direction that settles later, as
+        #   ``delay_s`` and ``settling_s`` are, so ``tau_s`` takes one direction's step, delay and
+        #   settling (``Model.measured_steps``, the converter's extracted weights, its magnitude)
+        # Terms: the steps ``step_rise_v``, ``step_fall_v``; the settlings ``settling_rise_s``, ``settling_fall_s``.
+        # Holds for: steps whose two directions agree (a driver's pull-up and pull-down reach the
+        #   same rails; the full scale takes their mean, ``analyze_settling``).
         return np.where(self.settling_rise_s >= self.settling_fall_s, self.step_rise_v, self.step_fall_v)
 
     @property
@@ -125,8 +132,8 @@ class AnalysisSettling(Analysis):
         # Terms: t_s ``settling_s``; t_d ``delay_s`` (the main bottom plate's 50 %); s ``step_v``.
         # Ours against the source: the step is not one pole (its plates' drivers, the difference
         #   plate first): tau reproduces the half-LSB instant alone, not the residue before it.
-        # Holds for: the bench's two-sided step; the converter's one side reaches half an LSB ln 2
-        #   tau sooner on the same exponential.
+        # Holds for: the bench's two-sided step at its half-LSB instant; the converter's one side
+        #   settles on its own edge (``side_settling_s``), not on this exponential.
         ratios = np.abs(self.step_v) / self.tolerance_v
         return np.asarray(
             [
@@ -159,14 +166,21 @@ class Metrics(pipeline.Metrics):
         "Both sides' sampled kT/C noise over the quantization noise, at the drawn top plate and LSB", "lower"
     )
     settling_max_s: float = metric("The slowest stage's settling to half an LSB, both sides switched", "lower")
-    settling_msb_s: float = metric("C0's settling to half an LSB, both sides switched", "lower")
+    settling_msb_s: float = metric(
+        "C0's settling to half an LSB, both sides switched (the heaviest stage, not always the slowest)", "lower"
+    )
     settling_side_max_s: float = metric(
         "The slowest stage's settling to half an LSB, one side in the converter's direction", "lower"
     )
     settling_slow_max_s: float = metric("The slowest settling at the slow corner, 90 % supply, hot", "lower")
     settling_fast_max_s: float = metric("The slowest settling at the fast corner, 110 % supply", "lower")
-    settling_budget_ratio: float = metric("The slowest typical settling over the drivers' budget", "lower")
-    settles_in_time: bool = metric("Whether every stage settles within settle_ps at every corner run", "true")
+    settling_budget_ratio: float = metric(
+        "The slowest typical settling, both sides or one in the converter's direction, over the drivers' budget",
+        "lower",
+    )
+    settles_in_time: bool = metric(
+        "Whether every stage settles within settle_ps at every corner run, both sides and one", "true"
+    )
     delay_max_s: float = metric("The largest driver delay (state to main bottom plate, 50 %)", "lower")
     tau_max_s: float = metric("The largest time constant of the behavioral model", "lower")
     window_s: float = metric("The bench's window a stage and direction (the bench's)", "none")

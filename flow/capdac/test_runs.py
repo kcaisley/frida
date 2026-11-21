@@ -141,3 +141,14 @@ def test_a_corner_runs_plates_are_drawn_at_the_nominal_supply() -> None:
     low = replace(base, vdd=1.08, nominal_vdd=1.2)
     np.testing.assert_array_equal(low.main_f, base.main_f)
     np.testing.assert_allclose(low.ideal_step_v, 0.9 * base.ideal_step_v, rtol=1e-12)
+
+
+def test_the_budget_ratio_and_the_bound_take_the_converters_one_side_where_it_is_slower() -> None:
+    """Both sides settle in 300 ps at most, one side in 320 ps: 320 / 500 ps of the budget. A fast
+    corner whose one side takes 1.1 ns is past settle_ps (1 ns), though both sides there take 300 ps."""
+    typical = settling_of([300e-12, 200e-12], [40e-12, 30e-12], [0.2, 0.1])
+    typical = replace(typical, settle_s=1e-9, budget_s=0.5e-9, side_settling_s=np.asarray([320e-12, 180e-12]))
+    found = metrics(settling=typical)
+    assert found["settling_budget_ratio"] == near(320 / 500, rel=1e-9) and found["settles_in_time"] is True
+    late = replace(typical, side_settling_s=np.asarray([1.1e-9, 180e-12]))
+    assert metrics(settling=typical, fast=late)["settles_in_time"] is False

@@ -1,5 +1,9 @@
-"""The capacitive DAC's driver bands (``subckt._driver_rows``): rows at most, balance, outline."""
+"""The capacitive DAC's driver bands (``subckt._driver_rows``): rows at most, balance, outline; and
+the drivers' sizing against answers derived on paper: a plate's load while its stage's other plate
+steps the other way (``_plate_load``), the plate of the larger drawn R C settling its own step
+(``_keys``), a request drawn at most its on-resistance (``_at_most``)."""
 
+import math
 from types import SimpleNamespace
 
 import hdl21 as h
@@ -7,6 +11,7 @@ import pytest
 
 from . import subckt
 from .params import Params
+from .test_known_answers import near
 
 
 def test_balanced_rows_split_the_widths_as_evenly_as_it_goes() -> None:
@@ -181,7 +186,80 @@ def test_a_small_stages_main_driver_settles_its_own_step_where_its_difference_dr
     monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_TAU_SCALE=1.0))
     weights, loads = [1000.0, 1.0], [(60e-15, 1e-15), (5e-15, 4e-15)]
     plain = subckt._keys(Params(), "synthetic", weights, loads, True)
-    own = subckt._keys(Params(), "synthetic", weights, loads, True, [1000.5, 32.5])
+    own = subckt._keys(Params(), "synthetic", weights, loads, True, [(1000.5, 0.5), (32.5, 31.5)])
     assert own[1][0][0] < 0.5 * plain[1][0][0]  # the small stage's main driver: its own step
     assert own[0][0][0] == pytest.approx(plain[0][0][0], rel=0.02)  # the large one's: about its weight
     assert own[1][1] == plain[1][1]  # the difference drivers as they were
+
+
+# ---- the drivers' sizing against answers derived on paper
+
+
+def test_a_plate_charges_through_the_top_plate_its_stages_other_plate_moves() -> None:
+    """A main plate of 64 fF and a difference plate of 16 fF to a 128 fF top plate, the main
+    stepping V while the difference steps -V: the top plate moves (64 - 16) V / 128 = 0.375 V, so
+    the main plate charges 64 (1 - 0.375) = 40 fF, the difference plate 16 (1 + 0.375) = 22 fF;
+    with the main plate's 3 fF and the difference plate's 2 fF to the shield and 1 fF between them
+    (twice: 2 fF): 45 fF and 26 fF."""
+    stage = [
+        {
+            frozenset(("MAIN", "TOP")): 64e-15,
+            frozenset(("DIFF", "TOP")): 16e-15,
+            frozenset(("MAIN", "SHIELD")): 3e-15,
+            frozenset(("DIFF", "SHIELD")): 2e-15,
+            frozenset(("MAIN", "DIFF")): 1e-15,
+        }
+    ]
+    assert subckt._plate_load(stage, "MAIN", "DIFF", 128e-15) == near(45e-15, rel=1e-12)
+    assert subckt._plate_load(stage, "DIFF", "MAIN", 128e-15) == near(26e-15, rel=1e-12)
+
+
+@pytest.fixture
+def synthetic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A kit of triode resistances 4 and 10 kOhm a unit (N, P), switching 10 and 25 kOhm (rho 2.5),
+    an FO4 of 20 ps, no time-constant scale."""
+    from flow.layout.devices.mosfet.table import MosfetTable
+
+    table = MosfetTable(
+        pdk="synthetic",
+        vdd_v=1.0,
+        switching_ohm={"NMOS/LOW": 10e3, "PMOS/LOW": 25e3},
+        triode_ohm={"NMOS/LOW": 4e3, "PMOS/LOW": 10e3},
+        fo4_delay_s={"LOW": 20e-12},
+    )
+    monkeypatch.setattr(subckt, "mosfet_table", lambda pdk: table)
+    monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
+    monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_TAU_SCALE=1.0))
+    monkeypatch.setattr(h.pdk, "default", lambda: None)  # no kit's row cells: each width as asked
+
+
+def test_a_difference_plate_slower_than_its_main_settles_its_own_step(synthetic: None) -> None:
+    """12 bits, weights 1000 and 1 (W = 1001), the small stage's plates 32.5 and 31.5 units, its
+    main plate's load 1 fF and its difference plate's 8 fF. Sized for the net step, ln(2^13 / 1001)
+    = 2.102 time constants, the difference driver asks 500 ps / (8 fF (2.102 + 1.5 ln 2)) = 19.9
+    kOhm, drawn as one unit each (10 kOhm, the P unit's): 80 ps; the main chain (two inverters, an
+    FO4 of 20 ps first) asks (500 - 20) ps / (1 fF 3.142) = 152.8 kOhm, drawn at the least (10 kOhm):
+    10 ps. The difference plate settles last, so its driver settles its own 31.5 units: ln(2^13
+    31.5 / 1001) = 5.552 time constants, 500 ps / (8 fF (5.552 + 1.5 ln 2)) = 9.481 kOhm (one N, two
+    P units, drawn 5 kOhm: 40 ps, still the slower). The main chain keeps its net step, at the fan-in
+    the larger difference driver leaves (4 less its 1.5 minimum inverters: 2.5)."""
+    weights, loads = [1000.0, 1.0], [(60e-15, 1e-15), (1e-15, 8e-15)]
+    keys = subckt._keys(Params(), "synthetic", weights, loads, True, [(1000.5, 0.5), (32.5, 31.5)])
+    (main_r, _, main_fanin), (diff_r, _, diff_fanin) = keys[1]
+    own = math.log(2**13 * 31.5 / 1001)
+    assert diff_r == near(500e-12 / (8e-15 * (own + 1.5 * math.log(2))), rel=1e-9)
+    assert diff_fanin == 4.0 and main_fanin == 2.5
+    net = math.log(2**13 / 1001)
+    assert main_r == near(480e-12 / (1e-15 * (net + 1.5 * math.log(2))), rel=1e-9)
+
+
+def test_a_request_drawn_weaker_asks_for_less_until_it_is_drawn_at_most_its_resistance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where every request is drawn 1.19 times its on-resistance, a driver of at most 100 Ohm
+    requests 100 / 1.19 = 84.03 Ohm (drawn at 100); one drawn below its request asks for itself."""
+    monkeypatch.setattr(subckt, "drawn_ohm", lambda pdk, request: 1.19 * request.r_ohm)
+    request = subckt._at_most("synthetic", 100.0, False, 4.0)
+    assert request == near(100.0 / 1.19, rel=1e-9) and 1.19 * request <= 100.0 * (1 + 1e-9)
+    monkeypatch.setattr(subckt, "drawn_ohm", lambda pdk, request: 0.9 * request.r_ohm)
+    assert subckt._at_most("synthetic", 100.0, False, 4.0) == 100.0

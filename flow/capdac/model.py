@@ -9,12 +9,11 @@ design that is not characterized, as designed (``Model.design``).
 
 The behavioral ADC (``flow.adc.sim``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
-half an LSB exactly when the testbench's does (both sides switched; one side, as the converter
-switches it, on the same exponential ln 2 time constants sooner). The model holds from that
-instant on: a converter that compares a stage sooner (a LOGIC-to-COMP time below the stage's
-settling, ``settling_s``: above about 50 MS/s for FRIDA-1's 16 stages) sees the exponential's
-residue, not SPICE's, which starts with its difference plate's lead and differs by up to a few LSB
-on the heavy stages. The top plate's load is the DAC's alone: the comparator's input capacitance and
+half an LSB exactly when the testbench's does (both sides switched). The converter's one side
+settles on its own edge (``AnalysisSettling.side_settling_s``), not on this exponential. The model
+holds from that instant on: a converter that compares a stage sooner (a LOGIC-to-COMP time below
+the stage's settling, ``settling_s``) sees the exponential's residue, not SPICE's, which starts
+with its difference plate's lead and differs by up to a few LSB on the heavy stages. The top plate's load is the DAC's alone: the comparator's input capacitance and
 its kickback are the converter's to add. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
 plates are the design's at the reference the netlist draws them for, the PDK's typical supply, at
@@ -174,8 +173,11 @@ class Model:
         #   DAC's (``behavioral``); the states the bench's: P from all 0 (each stage 1 a window), N
         #   from all 1 (each stage 0 a window).
         # Ours against the source: the residual holds the drivers' and sense inverters' own charge,
-        #   the bottom plates' capacitance to their shields and the leakage; one number for every
-        #   stage, the bench's total over its transitions.
+        #   the bottom plates' capacitance to their shields, the drawn plates' capacitance to the top
+        #   plate beyond the behavioral plates (the stubs, and the table's fit beyond the design's
+        #   units) and the leakage; one number for every stage, the bench's total over its
+        #   transitions, two a stage switching (``switch``'s count: a strip's two plates, or a unit
+        #   capacitor's stage counted twice, so there a transition is half a stage's switch).
         # Holds for: the typical corner at the nominal supply; a converter switching each stage once.
         dac = self.behavioral()
         stages = len(self.tau_s)
@@ -195,10 +197,14 @@ class Model:
     @classmethod
     def design(cls, pdk: str, params: Params, *, reference_v: float | None = None) -> Model:
         """``params`` as designed, where it is not characterized in ``pdk``: its top plates loaded by
-        its plates alone (gain 1), not laid out (no area) and no measurement kept; each stage's
-        drivers without delay and of the time constant ``flow.capdac.subckt`` sizes them for, which
-        settles its step to half an LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W)
-        time constants for a stage of weight w of the total W. Its plates are designed at the
+        its plates alone (gain 1: the drawn array's top-plate parasitic is in no design value, so its
+        full scale and LSB are above any drawn array's), not laid out (no area) and no measurement
+        kept; each stage's drivers without delay, settling at the budget, ``settle_ps`` over
+        ``settle_margin``, with the single pole that reaches half an LSB then: ln(2^(N+1) w / W) time
+        constants for a stage of weight w of the total W. That is the budget's upper bound for every
+        stage, not a prediction: not the R C ``flow.capdac.subckt`` draws (its drivers' chains take
+        part of the budget, and the light stages' plates are sized for their own steps), and a drawn
+        array's stages settle sooner, at shorter time constants. Its plates are designed at the
         reference ``reference_v`` and its LSB is at it; where None, the PDK's typical supply, at which
         the netlist draws the plates and the characterization runs. Its drivers' energy is not
         characterized: none."""
@@ -213,11 +219,15 @@ class Model:
             pdk=pdk,
             params=params,
             reference_v=reference_v,
+            # not in the reference texts: every stage settling at the budget, its driver without delay
+            #   (the budget's bound, ``subckt._drive_r_ohm``'s t_s; a drawn chain's delay is within it)
             settling_s=(settling_s,) * len(weights),
             delay_s=(0.0,) * len(weights),
             # [Razavi-ADC] Eq. (8.14), p. 151: tau = t_s / ln(step / half an LSB), the step 2^(N+1) w / W
             #   LSB (both sides', as ``subckt._drive_r_ohm`` sizes); the budget t_s settle_ps / settle_margin
-            # Holds for: drivers without delay settling as one pole (no chain, no difference-plate lead).
+            # Terms: t_s ``settling_s``; w each stage's weight, W their sum; N ``params.bits``.
+            # Holds for: drivers without delay settling as one pole (no chain, no difference-plate lead):
+            #   the single-pole equivalent at the half-LSB instant, an upper bound on a drawn stage's.
             tau_s=tuple(settling_s / math.log(2 ** (params.bits + 1) * weight / sum(weights)) for weight in weights),
             # [Razavi-ADC] Sec. 12.2.1, p. 237: Delta = 2 FS / 2^N, FS the design's (Eq. (11.3), p. 211)
             lsb_v=2 * full_scale_v / 2**params.bits,
@@ -238,6 +248,10 @@ class Model:
         if run not in record.get("waves", {}):
             raise LookupError(f"the capacitive DAC's characterization has no Monte Carlo run {run}")
         result = analyze_mismatch(read_measurement(ROOT / record["waves"][run]))
+        # not in the reference texts: a nearest-rank percentile of the runs, ranked by the gap and the
+        #   INL breaking ties (``np.lexsort``'s last key first): the run at rank round(p / 100 (n - 1))
+        # Terms: p ``percentile``; n the runs; the gap ``gap_lsb``, the INL ``inl_lsb``.
+        # Holds for: one condition's runs (their order statistics; no interpolation between runs).
         ranked = np.lexsort((result.inl_lsb, result.gap_lsb))
         index = int(ranked[round(percentile / 100 * (len(ranked) - 1))])
         return (
@@ -271,7 +285,9 @@ class Model:
         #   the measured one: (s_k / 2) (C_design / g) / V_REF - (main_k - diff_k), the excess over the
         #   design's (a side's step half the differential, [Razavi-ADC] Eq. (11.3), p. 211)
         # Terms: s_k ``step_v``; C_design ``design_f``; g ``gain``; V_REF ``reference_v``.
-        # Holds for: the kept settling measurement's slower direction; none as designed.
+        # Holds for: the kept settling measurement's slower direction; none as designed; the load
+        #   C_design / g the drawn top plate where the gain is common to every stage (no unit at the
+        #   kit's smallest, ``analyze_settling``'s gain).
         excess_f = (
             np.zeros_like(main_f)
             if self.step_v is None
@@ -285,8 +301,12 @@ class Model:
             diff_n_f=tuple(map(float, diff_n)),
             # not in the reference texts: the gain is the design's plates over the whole load, C_design /
             #   g; the rest of it, beside the plates as drawn, is the parasitic: C_design (1 / g - 1) - excess
+            # Holds for: a gain common to every stage (the heavy stages drawn as designed): there
+            #   C_design / g is the drawn top plate; with a unit at the kit's smallest it is not.
             parasitic_f=design_f * (1 / self.gain - 1) - float(excess_f.sum()),
             driver_energy_j=self.driver_energy_j,
+            # not in the reference texts: the single-pole default a converter takes where it reads no
+            #   stage's own (``stage_tau_s``), the slowest stage's: an upper bound for every stage
             settling_tau_s=max(self.tau_s),
             stage_tau_s=self.tau_s,
             stage_delay_s=self.delay_s,
@@ -385,11 +405,16 @@ class Model:
         in, and the converter's logic sets the states alone. 0: with the main plate, adding to it
         (FRIDA-1's array switches either way)."""
         # [Razavi-ADC] Eq. (11.3), p. 211: the floating top plate's step, the switched plates' steps
-        #   over its whole load; [Razavi-ADC] Fig. 16.29, p. 348: a plate charged at the reference
-        #   draws C (dV_bottom - dV_top) from it
+        #   over its whole load, by superposition; [Razavi-ADC] Fig. 16.29, p. 348: the charge a
+        #   source delivers into a capacitor, here own, from charge conservation with (11.3): a
+        #   plate at the reference after the switch draws C (dV_bottom - dV_top) from it
         # Terms: C each main and difference plate; m C_0 + C_L ``total_f`` with ``parasitic_f``;
         #   dV_bottom 0 or +-V_REF ``vref_v``; the plates at the reference after the switch.
-        # Ours against the source: the difference plates follow the state XOR ``diffcaps``.
+        # Ours against the source: the difference plates follow the state XOR ``diffcaps``; the
+        #   bottom plates' own capacitance to ground and the shield and the sense inverters' inputs
+        #   are not among the plates (``Behavioral`` holds none), so the charge is below what the
+        #   drawn array draws from its reference by their C V; the transitions two a stage that
+        #   switches, its two plates' (a unit capacitor's stage counted alike).
         # Holds for: ideal switches settled (the charge of a complete step); linear capacitors.
         total_f = np.sum(main_f) + np.sum(diff_f) + parasitic_f
         main_step = vref_v * (after - before)
@@ -418,7 +443,8 @@ class Model:
         column, a value a conversion): the same top-plate step, charge and transitions in one
         column's work, ``at_vref_f`` the capacitance whose bottom plates sit at the reference after
         the switch (main and difference plates, a value a conversion)."""
-        # [Razavi-ADC] Eq. (11.3), p. 211 and Fig. 16.29, p. 348: ``switch``'s, of one stage
+        # [Razavi-ADC] Eq. (11.3), p. 211 and Fig. 16.29, p. 348: ``switch``'s, of one stage (own, by
+        #   charge conservation as there; the same bottom plates' capacitance left out)
         total_f = np.sum(main_f) + np.sum(diff_f) + parasitic_f
         main_step = vref_v * (after - before)
         diff_after = after ^ diffcaps
