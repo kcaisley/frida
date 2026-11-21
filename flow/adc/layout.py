@@ -477,12 +477,15 @@ def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = Non
         for pin, by_layer in sorted(pins.items()):
             if pin in hidden:
                 continue
+            if pin not in adopted and all((shapes & db.Region(box)).is_empty() for shapes in by_layer.values()):
+                continue  # not this part's
+            # a signal's pin its metal as drawn, past the part's sides too (a landing's overhang, which a
+            # route must meet whole); a supply's within the part (pdngen keeps its rails a space from it)
             inside = {
-                metal: shapes if pin in adopted else shapes & db.Region(box) for metal, shapes in by_layer.items()
+                metal: shapes if pin in adopted else shapes & (db.Region(box) if pin in use else clip)
+                for metal, shapes in by_layer.items()
             }
             inside = {metal: shapes for metal, shapes in inside.items() if not shapes.is_empty()}
-            if not inside:
-                continue
             named.append(pin)
             lines += [f"  PIN {pin}", "    DIRECTION INOUT ;", f"    USE {use.get(pin, 'SIGNAL')} ;", "    PORT"]
             for metal, shapes in inside.items():
