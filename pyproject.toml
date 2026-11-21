@@ -317,6 +317,7 @@ pytest = [
     "flow/layout/test_step.py",
     "flow/layout/test_hdl21align.py",
     "flow/layout/test_pins.py",
+    "flow/layout/test_rails.py",
     "flow/layout/devices/test_devices.py",
     "flow/layout/devices/momcap/test_netlist.py",
     "flow/util/test_netlist2image.py",

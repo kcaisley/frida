@@ -2,8 +2,10 @@
 compiled once in a PDK, its netlists from hdl21 and vlsir in ALIGN's and LVS's contexts
 (``flow.circuit.netlists``), its generator's own layout intent (``flow.layout.hdl21align``) as
 ALIGN's constraint files, and ALIGN (``flow.layout.build``), then the block's pins as the
-converter's top level takes them (``flow.layout.pins``: its edge pins, the rest lifted, the record);
-the signoff is the CLI's drc, lvs and pex steps' (``flow.layout.signoff``, ``extracted``).
+converter's top level takes them (``flow.layout.pins``: its edge pins, the rest lifted, the record)
+and every piece of its supplies' rail lines in that level's reach (``flow.layout.rails``: bridged,
+joined or a strap's site, and checked, ``supply_lines``); the signoff is the CLI's drc, lvs and pex
+steps' (``flow.layout.signoff``, ``extracted``).
 
 - ``lay_out_align``: one instance laid out by ALIGN (the CLI's layout step).
 - ``lay_out_own``: one instance of a block that lays itself out (its ``layout.py``'s ``lay_out``,
@@ -35,6 +37,7 @@ from flow.layout.build import annealed, build_design, other_router, pdk_router, 
 from flow.layout.hdl21align import pnr_input, port_plan
 from flow.layout.kpex import Engine
 from flow.layout.pins import land, plan_path, read_plan
+from flow.layout.rails import join as join_rails
 from flow.layout.signoff import Checker
 from flow.layout.stats import layout_stats
 
@@ -114,46 +117,18 @@ def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
     }
 
 
-def supply_lines(gds: Path, pdk: str) -> list[dict[str, Any]] | None:
+def supply_lines(gds: Path, pdk: str, joined: list[dict[str, Any]] | None = None) -> list[dict[str, Any]] | None:
     """The block's supply rail lines as the layout ``gds`` draws them, apart (each a pin the
-    converter's power grid joins, ``flow.layout.post.rail_pins``): for each line its supply (by its
-    labels), its y and each piece's x extent (um), and whether it runs from the outline's left edge
-    to its right (the layout's extent), where the top level's row rails abut it. None where the
-    layout has no rail labels."""
-    tech = import_module(f"pdk.{pdk}.layout.tech")
-    layout = db.Layout()
-    layout.read(str(gds))
-    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
-    m1 = db.Region(top.begin_shapes_rec(layout.layer(*tech.LAYERS["M1"]))).merged()
-    texts = top.shapes(layout.layer(*tech.PIN_TEXT["M1"]))
-    if not any(s.is_text() and s.text.string.lower() in ("vdd", "vss") for s in texts.each()):
-        return None
-    edge = top.bbox()
-    um, rail = layout.dbu, tech.RAIL
-    lines: dict[int, dict[str, Any]] = {}
-    for shape in texts.each():
-        if not shape.is_text() or shape.text.string.lower() not in ("vdd", "vss"):
-            continue
-        y = shape.text.y
-        line = lines.setdefault(y, {"net": shape.text.string.lower(), "y_um": round(y * um, 3), "pieces_um": []})
-        band = db.Region(db.Box(edge.left, y - rail, edge.right, y + rail))
-        for piece in (
-            (m1 & band).interacting(db.Region(db.Box(shape.text.x - 1, y - 1, shape.text.x + 1, y + 1))).each()
-        ):
-            x = [round(piece.bbox().left * um, 3), round(piece.bbox().right * um, 3)]
-            if x not in line["pieces_um"]:
-                line["pieces_um"].append(x)
-    if not lines:
-        return None
-    left, right = round(edge.left * um, 3), round(edge.right * um, 3)
-    found = []
-    for y in sorted(lines):
-        line = lines[y]
-        line["pieces_um"].sort()
-        line["x_um"] = [line["pieces_um"][0][0], line["pieces_um"][-1][1]]
-        line["edges"] = len(line["pieces_um"]) == 1 and line["x_um"] == [left, right]
-        found.append(line)
-    return found
+    converter's power grid joins, ``flow.layout.post.rail_pins``), and the check that the top level
+    reaches every piece of them (``flow.layout.rails.check``): for each line its supply (by its
+    labels), its y and each piece's x extent (um), whether it runs from the outline's left edge to its
+    right as one conductor (the layout's extent, where the top level's row rails abut it; its pieces
+    joined along it by their bridges), each piece's reach (``edge``, ``joined``, ``site`` or None:
+    out of reach, a warning) and what ``flow.layout.rails.join`` drew on it (``joined``: its bridges,
+    joins to other lines and strap sites). None where the layout has no rail labels."""
+    from flow.layout.rails import check
+
+    return check(gds, pdk, joined)
 
 
 def under_array(gds: Path, pdk: str) -> dict[str, Any] | None:
@@ -445,8 +420,10 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     hour fails (``ALIGN_TIMEOUT``). Then its pins (``flow.layout.pins.land``, by the plan ``inputs``
     wrote: each edge pin's route and landing, each other signal lifted where a landing fits). The
     GDS, its LVS source, ALIGN's netlist, its size, the router, the nets its route joins, each
-    part's seconds (``parts``: the module's compilation, the netlists, the floorplan, ALIGN) and its
-    pins (``pins``: their record, each supply's its rail lines, ``with_supplies``)."""
+    part's seconds (``parts``: the module's compilation, the netlists, the floorplan, ALIGN), its
+    supplies' rail lines, each piece in the top level's reach (``supply_lines``, after
+    ``flow.layout.rails.join``) and its pins (``pins``: their record, each supply's its rail lines,
+    ``with_supplies``)."""
     # ALIGN's placer can search for hours on the larger sizings
     os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     design = design or block
@@ -496,6 +473,9 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     # each port reached from above, the ones its generator lands on the outline there (``flow.layout.pins``)
     plan = read_plan(plan_path(out / "netlist", design))
     pins = land(Path(gds), pdk, plan) if plan else None
+    # then every piece of the rail lines in the top level's reach: each cut bridged along its line, else
+    # the piece joined to another line of its supply, else a strap's site recorded (``flow.layout.rails``)
+    joined = join_rails(Path(gds), pdk)
     # the time after ALIGN's last part: its last records, the GDS written and finished (post.py), its pins
     ended = time.time()
     if timed.starts:
@@ -535,12 +515,18 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         )
         if under["routes_inside"]:
             LOG.warning(f"layout: ALIGN routes under the array below its shield: {under['routes_inside']}")
-    lines = supply_lines(Path(gds), pdk)
+    lines = supply_lines(Path(gds), pdk, joined)
     if lines:
         laid["supply_lines"] = lines
+        drawn = {kind: sum(len(line.get(kind, [])) for line in lines) for kind in ("bridges", "joins", "sites")}
+        if any(drawn.values()):
+            LOG.info(
+                f"layout: rail lines: {drawn['bridges']} cuts bridged, {drawn['joins']} pieces joined to another"
+                f" line, {drawn['sites']} strap sites"
+            )
         short = [f"{line['net']} {line['y_um']}" for line in lines if not line["edges"]]
         if short:
-            LOG.warning(f"layout: supply lines that do not run edge to edge (um): {', '.join(short)}")
+            LOG.info(f"layout: supply lines that do not run edge to edge (um): {', '.join(short)}")
     if pins:
         laid["pins"] = with_supplies(pins, lines)
         for port in pins["ports"]:
@@ -558,8 +544,13 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
 
 def with_supplies(pins: dict[str, Any], lines: list[dict[str, Any]] | None) -> dict[str, Any]:
     """The pin record (``flow.layout.pins.land``) with each supply's rail lines (``supply_lines``) in
-    its frame: each line's y and its pieces' x extents (um), whether it runs edge to edge."""
+    its frame: each line's y and its pieces' x extents (um), whether it runs edge to edge, each
+    piece's reach, and its strap sites (each a cut's box and the metals free over it)."""
     x0, y0 = pins["origin_um"]
+
+    def framed(box: list[float]) -> list[float]:
+        return [round(box[0] - x0, 4), round(box[1] - y0, 4), round(box[2] - x0, 4), round(box[3] - y0, 4)]
+
     for port in pins["ports"]:
         if port.get("made") != "rail lines":
             continue
@@ -572,6 +563,12 @@ def with_supplies(pins: dict[str, Any], lines: list[dict[str, Any]] | None) -> d
                     "y": round(line["y_um"] - y0, 4),
                     "pieces": [[round(a - x0, 4), round(b - x0, 4)] for a, b in line["pieces_um"]],
                     "edges": line["edges"],
+                    **({"reach": line["reach"]} if "reach" in line else {}),
+                    **(
+                        {"sites": [{**site, "site_um": framed(site["site_um"])} for site in line["sites"]]}
+                        if line.get("sites")
+                        else {}
+                    ),
                 }
                 for line in mine
             ],

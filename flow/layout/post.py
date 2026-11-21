@@ -26,10 +26,13 @@
   run on to the layout's extent at both ends where its M1 is free, each piece a pin with its
   supply's label (``rail_pins``): the converter's power grid joins them at its top level, as a
   macro's power pins, and LVS joins a supply's labelled pieces by name
-  (``flow.layout.klayout_lvs``, ``flow.layout.build.route_opens``). A MOM shield tied to a row's
-  VSS rail: by a stack of cuts where it lies over the rail, else by a bar on its metal from its
-  edge to the nearest VSS line (``shield_ties``). In a PDK whose M1 keeps a wider space beside a
-  wide wire, a rail shaved back from ALIGN's M1 (``clear_rails``).
+  (``flow.layout.klayout_lvs``, ``flow.layout.build.route_opens``). The layout step then puts every
+  piece in the top level's reach (``flow.layout.rails``: a cut ALIGN's M1 leaves in a line bridged
+  along it in any kit, a piece no bridge reaches joined to another line of its supply, else a
+  strap's site recorded). A MOM shield tied to a row's VSS rail: by a stack of cuts where it lies
+  over the rail, else by a bar on its metal from its edge to the nearest VSS line
+  (``shield_ties``). In a PDK whose M1 keeps a wider space beside a wide wire, a rail shaved back
+  from ALIGN's M1 (``clear_rails``).
 * Landings: a MOM array's plates' stubs below their channels' bars that no route reached removed
   (``idle_landings``), one a plate left where its route came in.
 * Islands (PMOS on a bulk of their own in a well of their own, ``rows/wellcell.py``): in a PDK whose
