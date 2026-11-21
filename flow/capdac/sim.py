@@ -7,7 +7,10 @@ driver its chain of inverters, each capacitor its MOM unit's capacitances), ``du
 (``TbParams.window_start_s``; the main plates follow the states, the difference plates their
 complement), and bleeds both top plates to mid-supply. ``simulate`` runs it in Spectre and leaves
 Spectre's raw output on disk: both top plates, the P side's states and main bottom plates, a bit per
-stage, every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it.
+stage, the P side's difference bottom plates, and the supply's current (``vvdd``, the drivers'
+and the reference's: the bench's supply is both), every ``TbParams.waveform_sample_interval_s``,
+Spectre's step bounded to it, in classic Spectre (marked ``Accuracy.SMALL_DIFFERENCE``: half a
+14-bit LSB on a step of up to a volt), at the run's process corner and temperature.
 
 A Monte Carlo run (``TbParams.mc_runs``) holds the plates alone, each stage's main and difference
 plates of each side at their design values (``TbParams.main_f``, ``diff_f``), each top plate bled to
@@ -30,7 +33,7 @@ from flow.circuit.ports import testbench_from_ports
 from flow.layout.devices.device import resolve
 from flow.layout.devices.momcap.netlist import mom_cap, variation
 
-from .params import TbParams
+from .params import TbParams, WeightImpl
 from .subckt import netlist
 
 
@@ -70,6 +73,8 @@ def testbench(tb: TbParams) -> h.Module:
     bench.dac_plate_n = h.Signal(width=dut.dac_plate.width)
     bench.vdac_n = h.Signal()
     vss, vdd, edge = bench.vss, tb.vdd, tb.transition_time_s
+    # not in the reference texts: the bench's sources, ideal: the supply (the DAC's reference) and
+    # the top plates' bleed to mid-supply through 1 TOhm, a DC path far slower than any window
     bench.vcm = h.Signal()
     bench.vvdd = Vdc(dc=vdd)(p=bench.vdd, n=vss)
     bench.vvcm = Vdc(dc=vdd / 2)(p=bench.vcm, n=vss)
@@ -103,10 +108,12 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw output, in nutbin, on disk.
 
     The settling run saves both top plates (``vdac_p``, ``vdac_n``), the P side's states
-    (``dac_state_p_<stage>``), main bottom plates (within its side, ``dut_p.main_<stage>``) and
-    sensed plates (``dac_plate_p_<stage>``), strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the run's
-    tolerances. A Monte Carlo run (``tb.mc_runs``): every plate's probe at each run's operating
-    point, from ``tb.mc_seed``.
+    (``dac_state_p_<stage>``), main and difference bottom plates (within its side,
+    ``dut_p.main_<stage>``, ``dut_p.diff_<stage>``) and sensed plates (``dac_plate_p_<stage>``), and
+    the supply's current (``vvdd``), strobed every ``tb.waveform_sample_interval_s``, the step
+    bounded to it, at the run's tolerances, corner and temperature, in classic Spectre. A Monte
+    Carlo run (``tb.mc_runs``): every plate's probe at each run's operating point, from
+    ``tb.mc_seed``.
     """
 
     pdk = importlib.import_module(f"pdk.{tb.pdk}")
@@ -132,11 +139,14 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             options={"savefamilyplots": "yes"},
         )
     else:
+        difference = tb.params.weight_impl is WeightImpl.DIFFERENCE_CAPS
         saves = [
             "xtop.vdac_p",
             "xtop.vdac_n",
+            "xtop.vvdd:p",
             *(f"xtop.dac_state_p_{stage}" for stage in range(tb.stages)),
             *(f"xtop.dut_p.main_{stage}" for stage in range(tb.stages)),
+            *(f"xtop.dut_p.diff_{stage}" for stage in range(tb.stages) if difference),
             *(f"xtop.dac_plate_p_{stage}" for stage in range(tb.stages)),
         ]
         interval = tb.waveform_sample_interval_s
@@ -151,8 +161,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             },
         )
     attrs = [
-        *spectre.includes(install, stdcells=True),
-        *spectre.options(),
+        *spectre.includes(install, tb.corner, stdcells=True),
+        *spectre.options(tb.temperature_c),
         hs.Options(name="reltol", value=tb.reltol),
         hs.Options(name="vabstol", value=tb.vabstol),
         hs.Options(name="iabstol", value=tb.iabstol),
@@ -160,5 +170,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
         hs.Save(saves),
         analysis,
     ]
-    spectre.run(bench, attrs, run_dir, fast=False)
+    # the settling's half LSB is a small difference of large steps: classic Spectre, marked so
+    accuracy = None if tb.mc_runs else spectre.Accuracy.SMALL_DIFFERENCE
+    spectre.run(bench, attrs, run_dir, fast=False, accuracy=accuracy)
     return run_dir / "netlist.raw"

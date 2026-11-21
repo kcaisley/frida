@@ -94,19 +94,12 @@ def unit(label: str) -> str | None:
 # ---- the notation
 
 
-NOT_A_UNIT = pytest.mark.xfail(
-    strict=True,
-    reason="capdac-7: an axis label carries a parenthesis that is no unit (the stage's and the code's "
-    "index axes, the direction bias's '(fraction)')",
-)
-
-
 @pytest.mark.parametrize(
     ("name", "x_label"),
     [
-        *(pytest.param(name, "Stage", marks=NOT_A_UNIT) for name in STAGE_FIGURES),
-        pytest.param("dac_inl", "Code", marks=NOT_A_UNIT),
-        pytest.param("dac_dnl", "Code", marks=NOT_A_UNIT),
+        *((name, "Stage") for name in STAGE_FIGURES),
+        ("dac_inl", "Code"),
+        ("dac_dnl", "Code"),
         ("mismatch_inl", PELGROM),
         ("mismatch_gap", PELGROM),
         ("mismatch_dac_inl", PELGROM),
@@ -118,21 +111,14 @@ def test_each_x_axis_is_the_notations(name: str, x_label: str) -> None:
     assert FIGURES[name].x_label == x_label
 
 
-LINEARITY_LABEL = pytest.mark.xfail(
-    strict=True,
-    reason="capdac-8: the linearity figures' y axes are 'Max |INL|' or in 'DAC LSB', not the "
-    "notation's INL (LSB) and DNL (LSB)",
-)
-
-
 @pytest.mark.parametrize(
     ("name", "y_label"),
     [
         ("settling_stage", SETTLING),
-        pytest.param("mismatch_inl", INL, marks=LINEARITY_LABEL),
-        pytest.param("mismatch_dac_inl", INL, marks=LINEARITY_LABEL),
-        pytest.param("dac_inl", INL, marks=LINEARITY_LABEL),
-        pytest.param("dac_dnl", DNL, marks=LINEARITY_LABEL),
+        ("mismatch_inl", INL),
+        ("mismatch_dac_inl", INL),
+        ("dac_inl", INL),
+        ("dac_dnl", DNL),
     ],
 )
 def test_each_y_axis_of_a_notation_quantity_is_its_label(name: str, y_label: str) -> None:
@@ -142,37 +128,14 @@ def test_each_y_axis_of_a_notation_quantity_is_its_label(name: str, y_label: str
     assert FIGURES[name].y_label == y_label
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(name, marks=LINEARITY_LABEL)
-        if name in ("mismatch_dac_inl", "dac_inl", "dac_dnl")
-        else pytest.param(name, marks=NOT_A_UNIT)
-        if name == "bias_stage"
-        else name
-        for name in sorted(FIGURES)
-    ],
-)
+@pytest.mark.parametrize("name", sorted(FIGURES))
 def test_every_y_axis_is_in_a_notation_unit_or_dimensionless(name: str) -> None:
     """Each y label ends in a unit as the notation writes it, or has none (a fraction)."""
     found = unit(FIGURES[name].y_label)
     assert found is None or found in UNITS, FIGURES[name].y_label
 
 
-SERIES_NAMES = pytest.mark.xfail(
-    strict=True,
-    reason="capdac-9: a series is named by a statistic ('95th percentile'), an upper-case acronym or "
-    "the axis label, not its quantity in lower case",
-)
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        name if name in ("settling_stage", "model_stage") else pytest.param(name, marks=SERIES_NAMES)
-        for name in sorted(FIGURES)
-    ],
-)
+@pytest.mark.parametrize("name", sorted(FIGURES))
 def test_every_series_is_named_by_its_quantity_in_lower_case(name: str) -> None:
     """docs/references.md, composing a name: "A series label is the quantity in lower case"."""
     for label in FIGURES[name].series:

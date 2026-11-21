@@ -32,6 +32,8 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
+from scipy.constants import Boltzmann
+from scipy.stats import binom
 
 from flow import comp
 from flow.analysis import calc
@@ -46,7 +48,10 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
     """Every stage's step, driver delay and settling to half an LSB, both directions. The drawn
     array's gain against its design (its top plates' load beyond the design's plates: the units'
     capacitance to their shields) is the measured rising steps fitted to the design's by least
-    squares; its full scale and LSB, which the settling is measured to, are the design's at that gain."""
+    squares; its full scale is half the sum of its steps (the mean of both directions), the range
+    the converter's decisions span, and the settling is measured to half its LSB. Each stage's P
+    top plate alone, in the direction the converter switches it (``side_settling_s``); the
+    supply's energy over each window; the P side's bottom plates' farthest excursion past the rails."""
 
     tb = meas.param
     vdd, window, time_s = float(tb.vdd), float(tb.window_s), meas.time_s
@@ -68,19 +73,37 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
         for direction, _ in directions
     }
     design = tb.ideal_step_v
+    # not in the reference texts: the drawn array's gain, the least-squares fit g = s . d / d . d of
+    #   the measured rising steps s_k to the design's d_k (the heavy stages, drawn as designed, set it)
+    # Terms: s_k ``step["rise"]``; d_k ``TbParams.ideal_step_v``.
+    # Holds for: a gain common to every stage (the top plate's parasitic); a unit drawn other than
+    #   designed is the step error.
     gain = float(np.dot(step["rise"], design) / np.dot(design, design))
-    lsb = gain * tb.lsb_v
+    # not in the reference texts: the drawn full scale, half the sum of the two-sided steps
+    #   (the steps of the design sum to 2 FS, ``TbParams``), the mean of both directions
+    # Terms: FS ``full_scale``; the steps ``step["rise"]``, ``step["fall"]`` (negative).
+    # Holds for: a converter that switches every stage once (the input range its decisions span).
+    full_scale = float(np.sum(step["rise"]) - np.sum(step["fall"])) / 4
+    # [Razavi-ADC] Sec. 12.2.1, p. 237: Delta = 1 LSB, the differential range 2 FS over 2^N
+    lsb = 2 * full_scale / 2**tb.params.bits
+    side = meas.v["vdac_p"]
     delays: dict[str, list[float]] = {direction: [] for direction, _ in directions}
     settlings: dict[str, list[float]] = {direction: [] for direction, _ in directions}
+    side_settlings: list[float] = []
     for stage in range(tb.stages):
         state, bottom = meas.v[f"dac_state_p_{stage}"], meas.v[f"dut_p.main_{stage}"]
         for direction, edge in directions:
+            # [Baker] Fig. 10.9, p. 333: the delay from the input's 50 % point to the output's
             # the state's edge in this window: the stimulus switches each state once each way
             edge_s, _, delay = calc.delay(
                 state, bottom, time_s, vdd / 2, vdd / 2, trigger_edge=edge, response_edge=edge
             )
             initial, final = ends[stage, direction]
             settling = math.nan
+            # [Razavi-ADC] Sec. 8.2.2, p. 150: the settling time, from the input's change until the
+            #   output stays within +-0.5 LSB of its final value
+            # Terms: the input the state's 50 % crossing ``edge_s``; the output the differential
+            #   top plate; its final value at the window's end.
             if math.isfinite(edge_s):
                 segment, segment_s = calc.clip(differential, time_s, edge_s, spans[stage, direction][1])
                 settled = calc.settlingTime(
@@ -89,12 +112,51 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
                 settling = settled - edge_s
             delays[direction].append(delay)
             settlings[direction].append(settling)
+            # the converter's own condition: one side switching, a stage of A state 0 rising and of
+            # 1 falling ([Razavi-ADC] Sec. 16.2.1, p. 346), its top plate within half the LSB
+            if (direction == "rise") == (tb.astate[stage] == 0):
+                start, stop = spans[stage, direction]
+                one = math.nan
+                if math.isfinite(edge_s):
+                    segment, segment_s = calc.clip(side, time_s, edge_s, stop)
+                    one = (
+                        calc.settlingTime(
+                            segment,
+                            segment_s,
+                            initial=calc.value(side, time_s, start),
+                            final=calc.value(side, time_s, stop),
+                            absolute_tolerance=lsb / 2,
+                        )
+                        - edge_s
+                    )
+                side_settlings.append(one)
+    energies = None
+    if "vdd" in meas.i:
+        # [Razavi-ADC] Fig. 16.29, p. 348: the energy a source delivers, V times its charge, here
+        #   E = V_DD integral of I_DD over each window
+        # Terms: V_DD ``vdd``, the bench's supply (the reference and the drivers'); I_DD ``i["vdd"]``.
+        # Ours against the source: the source's capacitor alone; here both sides' plates, drivers,
+        #   sense inverters and their leakage (``Model.of`` takes the plates' share off).
+        # Holds for: each window, from its start to its end.
+        energies = {
+            direction: np.asarray(
+                [
+                    vdd * calc.integ(*calc.clip(meas.i["vdd"], time_s, *spans[stage, direction]))
+                    for stage in range(tb.stages)
+                ]
+            )
+            for direction, _ in directions
+        }
+    plates = [meas.v[name] for name in meas.v if name.startswith(("dut_p.main_", "dut_p.diff_"))]
+    # not in the reference texts: a bottom plate's farthest excursion past either rail, which
+    #   forward-biases its driver's drain junction (beyond 0.3 V) or stresses its off device
+    excursion = max((max(float(np.max(v)) - vdd, -float(np.min(v))) for v in plates), default=math.nan)
     return AnalysisSettling(
         group=meas.group,
         index=meas.index,
         dut=meas.dut,
         lsb_v=lsb,
-        full_scale_v=gain * tb.full_scale_v,
+        full_scale_v=full_scale,
         gain=gain,
         window_s=window,
         ideal_step_v=gain * design,
@@ -104,6 +166,14 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
         delay_fall_s=np.asarray(delays["fall"]),
         settling_rise_s=np.asarray(settlings["rise"]),
         settling_fall_s=np.asarray(settlings["fall"]),
+        side_settling_s=np.asarray(side_settlings),
+        energy_rise_j=None if energies is None else energies["rise"],
+        energy_fall_j=None if energies is None else energies["fall"],
+        excursion_v=excursion,
+        settle_s=tb.params.settle_ps * 1e-12,
+        budget_s=tb.params.settle_ps * 1e-12 / tb.params.settle_margin,
+        reference_v=vdd,
+        load_f=tb.load_f,
     )
 
 
@@ -127,13 +197,20 @@ def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
     }
     weights = np.asarray(tb.weights, dtype=np.float64)
     code_max = 2**tb.params.bits - 1
+    # not in the reference texts: the decoder's weights, twice each stage's (both sides' step in
+    #   the code) and the last decision's 1, summing to 2^N - 1 (the SAR's own: flow.adc's decoding)
     decoder = np.append(2 * weights, 1.0)
     nominal = (tb.main_f, tb.diff_f)
     values = {name: np.empty(runs) for name in ("dac_inl", "dac_dnl", "dnl", "inl", "missing", "gap")}
     curves = []
     for run in range(runs):
         sides = tuple((drawn[f"main_{side}"][run], drawn[f"diff_{side}"][run]) for side in ("p", "n"))
-        # the DAC alone, each side's: its plates' shares of its top plate over every control word
+        # [Razavi-ADC] Sec. 8.2, p. 145: a DAC's DNL and INL (Example 8.4, p. 146: a heavy MSB),
+        #   each side's DAC alone over every control word, its steps the plates' shares of its top
+        #   plate ([Razavi-ADC] Eq. (11.3), p. 211), against the end points' line (calc_dac_transfer)
+        # Terms: each stage's step (main - diff) / (sum main + sum diff), of the run's drawn plates;
+        #   the codes by the design weights; the LSB the end points' over the total weight.
+        # Holds for: the plates alone (no parasitic, no drivers); the worse side's.
         transfers = [calc_dac_transfer((main - diff) / (main.sum() + diff.sum()), weights) for main, diff in sides]
         worse = max(transfers, key=lambda transfer: float(np.nanmax(np.abs(transfer[1]))))
         curves.append((worse[1], worse[2]))
@@ -142,12 +219,24 @@ def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
         # the converter: every decision path of the drawn sides, from its A state
         a, b = calc_decision_steps(sides, 0.0, code_max, nominal=nominal, astate=tb.astate)
         paths = calc_paths(a, b, decoder, code_max)
-        dnl, inl, missing = calc_paths_linearity(paths, code_max)
+        # [Razavi-ADC] Eq. (12.11), p. 242: DNL_j, each code's width against the mean width (the
+        #   end points' LSB); Eq. (12.12), p. 244: INL_j = V_j - j Delta against the line through the
+        #   end points, the first and the last transition: the DNLs' running sum, every transition's
+        # Terms: V_j each transition of the decision paths; Delta the mean code width.
+        # Holds for: codes 1 to 2^N - 2 (the end codes are unbounded), the design weights decoding.
+        dnl, _, missing = calc_paths_linearity(paths, code_max)
+        inl = calc.inl(dnl, endpoint_correct=False)
         values["dnl"][run], values["inl"][run] = float(np.max(np.abs(dnl))), float(np.max(np.abs(inl)))
+        # not in the reference texts (a paper's: Hsu's missing level): with every decision's true
+        #   weight, the widest decision path over a code's width, less one; the code's width in
+        #   unit steps 2^N / (2 W) (calc_paths_gap)
+        # Terms: W ``weights.sum()``; the paths of the drawn sides from the A state.
+        # Holds for: an ideal calibration of every decision's weight; the plates alone.
         values["missing"][run], values["gap"][run] = (
             missing,
             calc_paths_gap(paths, (code_max + 1) / (2 * weights.sum())),
         )
+    # not in the reference texts: the run shown, the one nearest the 95th percentile of the DAC's INL
     shown = int(np.argmin(np.abs(values["dac_inl"] - np.percentile(values["dac_inl"], 95))))
     return AnalysisMismatch(
         group=meas.group,
@@ -272,6 +361,11 @@ def analyze_cap_mismatch(
     for (side, element, direction, diffcaps), transition in by_curve.items():
         if not 0 <= element < element_count:
             raise ValueError("CDAC measurement element is outside the configured CDAC")
+        # not in the reference texts (the bench's own): a stage's fraction of its side, the input that
+        #   balances its switching against the comparator's offset over the reference,
+        #   (V_OS - V_transition) / V_REF ([Razavi-ADC] Eq. (11.3), p. 211: a step k C_0 / C V_REF)
+        # Terms: V_OS ``comparator.offset_v``; V_transition the curve's 50 % point; V_REF ``vdd_dac_v``.
+        # Holds for: a top plate whose whole load the fraction's denominator counts.
         signed_step = (comparator.offset_v - transition.transition_v) / reference_v if transition.valid else math.nan
         side_sign = 1.0 if side == "p" else -1.0
         direction_sign = 1.0 if direction == "0to1" else -1.0
@@ -299,6 +393,9 @@ def analyze_cap_mismatch(
             # them oppositely.  Normal ADC operation therefore measures
             # main-minus-diff in mode 1; mode 0 supplies main-plus-diff for the
             # component decomposition.
+            # not in the reference texts: mode 0 gives main + diff, mode 1 main - diff, so
+            #   main = (w+ + w-) / 2 and diff = (w+ - w-) / 2; the direction bias half the 1-to-0 less
+            #   the 0-to-1 fraction
             w_plus, w_minus = mode_values
             if math.isfinite(w_minus):
                 effective_fraction[side, element] = w_minus
@@ -319,29 +416,87 @@ def analyze_cap_mismatch(
     )
 
 
-def metrics(*, settling: AnalysisSettling, mismatch: tuple[AnalysisMismatch, ...] = ()) -> dict[str, float]:
-    """The scalar metrics of a characterization: the stages, the full scale, the drawn array's gain
-    against its design and the LSB, the slowest
-    and the MSB's settling, the largest delay and time constant, the window, and the steps' largest
-    error against the design's weights at that gain (a unit drawn other than designed, at the PDK's
-    smallest); and at each Monte Carlo condition (``mc_a<Pelgrom in 0.1 %·sqrt(fF)>``), the 95th
-    percentile over its runs
-    of the DAC's worst INL, the converter's worst INL with its design weights, and what no
-    calibration recovers."""
+def metrics(
+    *,
+    settling: AnalysisSettling,
+    mismatch: tuple[AnalysisMismatch, ...] = (),
+    slow: AnalysisSettling | None = None,
+    fast: AnalysisSettling | None = None,
+) -> dict[str, float]:
+    """The scalar metrics of a characterization (``types.Metrics`` names each and which way is
+    better): the stages, the drawn full scale, its share of the reference and whether it meets
+    frida's 0.80, the drawn array's gain against its design and the LSB, the sampled noise against
+    the quantization noise, the slowest and the MSB's settling (both sides switched), the slowest one
+    side in the converter's direction, the slowest at the slow and fast corners, the slowest over the
+    drivers' budget and whether every stage settles within ``settle_ps`` at every corner run, the
+    largest delay and time constant, the window, the steps' largest error against the design's
+    weights at that gain (a unit drawn other than designed, at the PDK's smallest), the supply's
+    energy and the bottom plates' farthest excursion past the rails; and at each Monte Carlo
+    condition (``mc_a<coefficient in 0.1 %·sqrt(fF)>``, a capacitor's), the 95th percentile over its
+    runs of the DAC's worst INL, the converter's worst INL with its design weights, and what no
+    calibration recovers, each with its 95 % upper confidence bound. A number not measured is NaN,
+    and a maximum over a stage not measured is NaN too."""
     conditions = {
-        f"mc_a{round(result.pelgrom * 1000)}_{name}": getattr(result, name)
+        f"mc_a{round(result.pelgrom * 1000)}_{name}{suffix}": value
         for result in mismatch
-        for name in ("dac_inl_p95_lsb", "inl_p95_lsb", "gap_p95_lsb")
+        for name, values in (
+            ("dac_inl", result.dac_inl_lsb),
+            ("inl", result.inl_lsb),
+            ("gap", result.gap_lsb),
+        )
+        for suffix, value in (
+            ("_p95_lsb", getattr(result, f"{name}_p95_lsb")),
+            ("_p95_upper_lsb", _p95_upper(values)),
+        )
     }
+    corners = [run for run in (slow, fast) if run is not None]
+    slowest = float(np.max(settling.settling_s))
+    side = float(np.max(settling.side_settling_s)) if settling.side_settling_s is not None else math.nan
+    every = [slowest, side, *(float(np.max(run.settling_s)) for run in corners)]
+    fraction = settling.full_scale_v / settling.reference_v
+    # [Razavi-ADC] Eq. (11.52), p. 230: both sides' kT/C over the drawn top plate, C_top / g, against
+    #   Eq. (12.6), p. 239: the quantization noise Delta^2 / 12 of the drawn LSB
+    # Terms: C_top ``load_f`` (the design's plates), g ``gain``; Delta ``lsb_v``; T 300 K (the sizing's).
+    # Holds for: the typical corner's top plate; the comparator's input not on it.
+    ktc = 2 * Boltzmann * 300.0 * settling.gain / settling.load_f / (settling.lsb_v**2 / 12)
+    energies = [e for e in (settling.energy_rise_j, settling.energy_fall_j) if e is not None]
     return conditions | {
         "stages": float(len(settling.settling_s)),
         "full_scale_v": settling.full_scale_v,
+        # not in the reference texts: the full scale over the reference, and frida's rule of at
+        #   least 0.80 of it (the owner's: the converter's input range)
+        "full_scale_fraction": fraction,
+        "full_scale_meets_rule": bool(fraction >= 0.80),
         "gain": settling.gain,
         "lsb_v": settling.lsb_v,
-        "settling_max_s": float(max(settling.settling_s)),
+        "ktc_noise_ratio": ktc,
+        "settling_max_s": slowest,
         "settling_msb_s": float(settling.settling_s[0]),
-        "delay_max_s": float(max(settling.delay_s)),
-        "tau_max_s": float(max(settling.tau_s)),
+        "settling_side_max_s": side,
+        "settling_slow_max_s": float(np.max(slow.settling_s)) if slow is not None else math.nan,
+        "settling_fast_max_s": float(np.max(fast.settling_s)) if fast is not None else math.nan,
+        # not in the reference texts: the slowest typical settling over the drivers' budget
+        #   (settle_ps / settle_margin, ``subckt._drive_r_ohm``), and whether every measured settling,
+        #   at every corner run, is within settle_ps ([Razavi-ADC] Sec. 8.2.2, p. 150: t_s)
+        "settling_budget_ratio": slowest / settling.budget_s,
+        "settles_in_time": bool(all(math.isfinite(t) and t <= settling.settle_s for t in every)),
+        "delay_max_s": float(np.max(settling.delay_s)),
+        "tau_max_s": float(np.max(settling.tau_s)),
         "window_s": settling.window_s,
         "step_error_lsb": settling.step_error_lsb,
+        "supply_energy_j": float(sum(np.sum(e) for e in energies)) if energies else math.nan,
+        "excursion_v": float(np.max([settling.excursion_v, *(run.excursion_v for run in corners)])),
     }
+
+
+def _p95_upper(values: np.ndarray) -> float:
+    """The 95 % upper confidence bound of the 95th percentile of ``values`` (NaN left out): the
+    least order statistic X_(r) with P(Binomial(n, 0.95) <= r - 1) >= 0.95; NaN where n is too few."""
+    # not in the reference texts: a distribution-free confidence bound of a quantile from the order
+    #   statistics, P(X_(r) >= x_0.95) = P(Binomial(n, 0.95) <= r - 1) (100 runs: the second largest)
+    # Terms: n the runs measured; X_(r) the r-th smallest.
+    # Holds for: independent runs of one condition.
+    found = np.sort(np.asarray(values, dtype=np.float64)[np.isfinite(values)])
+    n = len(found)
+    rank = int(binom.ppf(0.95, n, 0.95)) + 1 if n else 0
+    return float(found[rank - 1]) if 0 < rank <= n else math.nan

@@ -334,11 +334,6 @@ def test_one_stage_drawn_large_moves_the_least_squares_gain_and_errs_by_its_exce
     assert result.step_error_lsb == pytest.approx(0.30725, abs=1e-5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-5: analyze_settling's full scale is the design's at the fitted gain, not half the sum "
-    "of the drawn steps (Model.full_scale_v's), once one stage is drawn other than its weight",
-)
 def test_the_drawn_arrays_full_scale_is_half_the_sum_of_its_steps() -> None:
     """The converter's input range is what its decisions' steps span: +-half their sum (as
     ``Model.full_scale_v`` gives it, and the design's, ``TbParams``: the steps sum to 2 FS). C2 drawn
@@ -402,11 +397,6 @@ def test_the_slower_directions_delay_step_and_time_constant_go_together() -> Non
     np.testing.assert_allclose(result.tau_s, [290e-12 / math.log(200), 380e-12 / math.log(400)], rtol=1e-12)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-4: a stage whose driver delay is not measured (NaN) gets a time constant of 0, an "
-    "ideal step, instead of none",
-)
 def test_a_stage_without_a_measured_delay_has_no_time_constant() -> None:
     """tau = (t_s - d) / ln(|s| / h) is undefined where d is: NaN, not 0 (which the behavioral ADC
     reads as a step complete at once)."""
@@ -455,11 +445,6 @@ def test_an_msb_heavy_by_delta_units_errs_only_at_its_major_transition() -> None
     assert result.gap_lsb[0] == near(126 * d / (127 + d), rel=1e-9)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-3: the converter's INL is referred to a line through the first and the last code's "
-    "starts, not through the first and last transitions (the end points)",
-)
 def test_an_msb_heavy_by_delta_units_has_the_inl_of_its_transitions_against_the_end_points() -> None:
     """[Razavi-ADC] Eq. (12.12), p. 244: INL_j = V_j - j Delta against the straight line through the
     characteristic's end points, the first and the last transition (V_1 and V_255 of codes 1 to 254),
@@ -685,11 +670,6 @@ def test_the_metrics_are_their_analyses_numbers() -> None:
     assert with_mc["mc_a5_gap_p95_lsb"] == near(float(np.percentile(mismatch.gap_lsb, 95)))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-4: the metrics' largest delay takes Python's max over an array with a NaN, which keeps "
-    "or drops it by where it stands",
-)
 def test_the_largest_delay_does_not_depend_on_which_stage_lacks_one() -> None:
     """The same three delays, one not measured, in either order: the same largest delay."""
     first = metrics(settling=settling_of([300e-12] * 3, [math.nan, 40e-12, 60e-12], [0.2, 0.1, 0.05]))
@@ -926,11 +906,6 @@ def test_the_netlist_draws_each_stages_weight_and_drives_its_plates_as_the_dac_s
             assert diff.conns["A"].parent is module.ports["dac_state_diff"] and diff.conns["A"].index == stage
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-6: where the drivers and the arrangement do not stand still in three attempts, the "
-    "netlist builds drivers sized for the loads of an arrangement it does not draw, without a word",
-)
 def test_drivers_that_do_not_settle_their_sizing_are_not_built_silently(monkeypatch: pytest.MonkeyPatch) -> None:
     """``netlist``: "until the arrangement, which the drivers' widths choose, stands still". Drawn
     loads that grow 50 % each time they are drawn never stand still: the netlist either raises, or
@@ -953,11 +928,6 @@ def test_drivers_that_do_not_settle_their_sizing_are_not_built_silently(monkeypa
     assert keys[-1] == keys[-2]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="capdac-11: the grid holds 14-bit arrays whose MSB drivers a slow kit cannot size within "
-    "settle_ps (the FO4 chain alone takes the budget): their netlist raises, and no params.valid drops them",
-)
 def test_every_binary_14_bit_array_the_grid_runs_in_gf180_is_sized() -> None:
     """``runs``: each instance's "drivers sized to settle each stage within its settle_ps", in every
     kit a grid runs in (all installed kits whose ``params.valid`` admits the design). In GF180 the

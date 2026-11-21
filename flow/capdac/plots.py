@@ -22,8 +22,8 @@ def plot_settling_stage(settling: AnalysisSettling) -> Plot:
     """Each stage's settling to half an LSB, its slower direction's."""
     return Plot(
         name="settling_stage",
-        title="Settling to half an LSB by stage (the slower direction)",
-        x_label="Stage (C0, the MSB, first)",
+        title="Settling to half an LSB by stage (C0, the MSB, first; the slower direction)",
+        x_label="Stage",
         y_label="Settling time (s)",
         x=list(range(len(settling.settling_s))),
         series={"settling": list(map(float, settling.settling_s))},
@@ -36,8 +36,8 @@ def plot_model_stage(settling: AnalysisSettling) -> Plot:
     time constant."""
     return Plot(
         name="model_stage",
-        title="The behavioral model's step by stage: its start and time constant",
-        x_label="Stage (C0, the MSB, first)",
+        title="The behavioral model's step by stage (C0, the MSB, first): its start and time constant",
+        x_label="Stage",
         y_label="Time (s)",
         x=list(range(len(settling.settling_s))),
         series={"delay": list(map(float, settling.delay_s)), "time constant": list(map(float, settling.tau_s))},
@@ -51,11 +51,11 @@ def plot_mismatch_inl(mismatch: Sequence[AnalysisMismatch]) -> Plot:
     chosen = sorted(mismatch, key=lambda r: r.pelgrom)
     return Plot(
         name="mismatch_inl",
-        title="Worst INL with the design weights (95th percentile) over Pelgrom's coefficient",
+        title="The converter's worst INL with the design weights, 95th percentile, over a capacitor's coefficient",
         x_label="Pelgrom coefficient (%·sqrt(fF))",
-        y_label="Max |INL| (LSB)",
+        y_label="INL (LSB)",
         x=[r.pelgrom * 100 for r in chosen],
-        series={"95th percentile": [r.inl_p95_lsb for r in chosen]},
+        series={"inl": [r.inl_p95_lsb for r in chosen]},
     )
 
 
@@ -65,11 +65,11 @@ def plot_mismatch_gap(mismatch: Sequence[AnalysisMismatch]) -> Plot:
     chosen = sorted(mismatch, key=lambda r: r.pelgrom)
     return Plot(
         name="mismatch_gap",
-        title="Unrecoverable code width after ideal calibration (95th percentile)",
+        title="Unrecoverable code width after ideal calibration, 95th percentile, over a capacitor's coefficient",
         x_label="Pelgrom coefficient (%·sqrt(fF))",
         y_label="Widest code less one (LSB)",
         x=[r.pelgrom * 100 for r in chosen],
-        series={"95th percentile": [r.gap_p95_lsb for r in chosen]},
+        series={"widest code less one": [r.gap_p95_lsb for r in chosen]},
     )
 
 
@@ -80,11 +80,11 @@ def plot_mismatch_dac_inl(mismatch: Sequence[AnalysisMismatch]) -> Plot:
     chosen = sorted(mismatch, key=lambda r: r.pelgrom)
     return Plot(
         name="mismatch_dac_inl",
-        title="DAC's worst INL (95th percentile) over Pelgrom's coefficient",
+        title="The DAC's worst INL in its own LSB, 95th percentile, over a capacitor's coefficient",
         x_label="Pelgrom coefficient (%·sqrt(fF))",
-        y_label="Max |INL| (DAC LSB)",
+        y_label="INL (LSB)",
         x=[r.pelgrom * 100 for r in chosen],
-        series={"95th percentile": [r.dac_inl_p95_lsb for r in chosen]},
+        series={"inl": [r.dac_inl_p95_lsb for r in chosen]},
     )
 
 
@@ -93,11 +93,11 @@ def plot_dac_inl(mismatch: AnalysisMismatch) -> Plot:
     """The DAC's INL by code (each code's worst control word) of the run at the 95th percentile."""
     return Plot(
         name="dac_inl",
-        title="DAC INL by code, the 95th-percentile run at the middle condition",
-        x_label="Code (the control word by its design weights)",
-        y_label="INL (DAC LSB)",
+        title="DAC INL in its own LSB by code (the control word by its design weights), the 95th-percentile run at the middle condition",
+        x_label="Code",
+        y_label="INL (LSB)",
         x=list(range(len(mismatch.dac_inl_curve_lsb))),
-        series={"INL": [float(v) for v in mismatch.dac_inl_curve_lsb]},
+        series={"inl": [float(v) for v in mismatch.dac_inl_curve_lsb]},
         x_ticks="code",
     )
 
@@ -107,11 +107,11 @@ def plot_dac_dnl(mismatch: AnalysisMismatch) -> Plot:
     """The DAC's DNL by code (its words' mean output) of the run at the 95th percentile."""
     return Plot(
         name="dac_dnl",
-        title="DAC DNL by code, the 95th-percentile run at the middle condition",
-        x_label="Code (the control word by its design weights)",
-        y_label="DNL (DAC LSB)",
+        title="DAC DNL in its own LSB by code (the control word by its design weights), the 95th-percentile run at the middle condition",
+        x_label="Code",
+        y_label="DNL (LSB)",
         x=list(range(len(mismatch.dac_dnl_curve_lsb))),
-        series={"DNL": [float(v) for v in mismatch.dac_dnl_curve_lsb]},
+        series={"dnl": [float(v) for v in mismatch.dac_dnl_curve_lsb]},
         x_ticks="code",
     )
 
@@ -121,7 +121,11 @@ def plot_fraction_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
     """Each stage's effective fraction of its side's capacitance, P's and N's mean, from its
     switching curves (``analyze_cap_mismatch``)."""
     return _by_stage(
-        "fraction_stage", "Effective fraction by stage (P and N mean)", "Effective fraction", cap_mismatch.fraction
+        "fraction_stage",
+        "Effective fraction by stage (P and N mean)",
+        "Effective fraction",
+        cap_mismatch.fraction,
+        "effective fraction",
     )
 
 
@@ -134,6 +138,7 @@ def plot_fraction_error_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
         "Effective fraction less the design's by stage",
         "Effective fraction less the design's",
         cap_mismatch.fraction_error,
+        "effective fraction error",
     )
 
 
@@ -145,6 +150,7 @@ def plot_asymmetry_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
         "Effective fraction, P less N, by stage",
         "P less N effective fraction",
         cap_mismatch.asymmetry,
+        "effective fraction asymmetry",
     )
 
 
@@ -157,13 +163,20 @@ def plot_separation_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
         "Difference plates by stage (P and N together)",
         "Difference fraction, P plus N",
         cap_mismatch.separation,
+        "difference fraction",
     )
 
 
 @plot
 def plot_main_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
     """Each stage's main plate's fraction, P's and N's mean."""
-    return _by_stage("main_stage", "Main plate's fraction by stage (P and N mean)", "Main fraction", cap_mismatch.main)
+    return _by_stage(
+        "main_stage",
+        "Main plate's fraction by stage (P and N mean)",
+        "Main fraction",
+        cap_mismatch.main,
+        "main fraction",
+    )
 
 
 @plot
@@ -171,18 +184,23 @@ def plot_bias_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
     """Each stage's switching-direction bias as the converter switches it (main and difference
     plates against each other): half its 1-to-0 less its 0-to-1 fraction, P's and N's mean."""
     return _by_stage(
-        "bias_stage", "Switching-direction bias by stage (P and N mean)", "Direction bias (fraction)", cap_mismatch.bias
+        "bias_stage",
+        "Switching-direction bias by stage (P and N mean), a fraction",
+        "Direction bias",
+        cap_mismatch.bias,
+        "direction bias",
     )
 
 
-def _by_stage(name: str, title: str, y_label: str, values: np.ndarray) -> Plot:
-    """One fraction of each stage (C0, the MSB, first), NaN where its curves gave none."""
+def _by_stage(name: str, title: str, y_label: str, values: np.ndarray, series: str) -> Plot:
+    """One fraction of each stage (C0, the MSB, first), NaN where its curves gave none; its
+    ``series`` the quantity in lower case."""
     return Plot(
         name=name,
-        title=title,
-        x_label="Stage (C0, the MSB, first)",
+        title=f"{title}, C0 (the MSB) first",
+        x_label="Stage",
         y_label=y_label,
         x=[float(stage) for stage in range(len(values))],
-        series={y_label: [float(value) for value in values]},
+        series={series: [float(value) for value in values]},
         x_ticks="step",
     )

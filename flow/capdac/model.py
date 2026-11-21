@@ -9,7 +9,13 @@ design that is not characterized, as designed (``Model.design``).
 
 The behavioral ADC (``flow.adc.sim``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
-half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
+half an LSB exactly when the testbench's does (both sides switched; one side, as the converter
+switches it, on the same exponential ln 2 time constants sooner). The model holds from that
+instant on: a converter that compares a stage sooner (a LOGIC-to-COMP time below the stage's
+settling, ``settling_s``: above about 50 MS/s for FRIDA-1's 16 stages) sees the exponential's
+residue, not SPICE's, which starts with its difference plate's lead and differs by up to a few LSB
+on the heavy stages. The top plate's load is the DAC's alone: the comparator's input capacitance and
+its kickback are the converter's to add. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
 plates are the design's at the reference the netlist draws them for, the PDK's typical supply, at
 which the characterization runs (``Model.reference_v``), each stage's main plate drawn so that its
@@ -38,7 +44,7 @@ from __future__ import annotations
 
 import importlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import hdl21 as h
@@ -82,6 +88,9 @@ class Model:
     # each stage's step in it (V, its slower direction's magnitude, ``Model.measured_steps``); None
     # where none is kept: the design's
     step_v: tuple[float, ...] | None = None
+    # the drivers' energy per bottom-plate transition beyond the plates' charge (``Model.of``); 0
+    # where it is not characterized (a design's, or a record without the supply's energy)
+    driver_energy_j: float = 0.0
 
     @h.paramclass
     class Behavioral:
@@ -118,14 +127,23 @@ class Model:
 
     @classmethod
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
+        """``params`` as its characterization in ``pdk`` measured it (looked up, simulated on first
+        use where ``simulate``): each stage's settling, delay and time constant, the LSB, the gain,
+        the area, the settling run's kept measurement and its steps, and the drivers' energy per
+        transition. A stage whose delay or time constant was not measured raises: the behavioral ADC
+        would read it as a step complete at once."""
         record = characterized("capdac", pdk, params, simulate=simulate)
         metrics = record["metrics"]
         stages = detail(record, "model_stage")["series"]
+        if not all(math.isfinite(float(x)) for x in (*stages["delay"], *stages["time constant"])):
+            raise ValueError(
+                f"the capacitive DAC's characterization in {pdk} has a stage without a delay or time constant"
+            )
         # a record the layout step has not reached has no area
         area = metrics.get("layout_area_um2")
         kept = record.get("waves") or {}
         settling_meas = ROOT / kept["settling"] if "settling" in kept else None
-        return cls(
+        found = cls(
             pdk=pdk,
             params=params,
             reference_v=_supply_v(pdk),
@@ -138,6 +156,41 @@ class Model:
             settling_meas=settling_meas,
             step_v=None if settling_meas is None else tuple(map(float, Model.measured_steps(settling_meas))),
         )
+        energy_j = metrics.get("supply_energy_j")
+        if energy_j is None or not math.isfinite(float(energy_j)):
+            return found
+        return replace(found, driver_energy_j=found.bench_driver_energy_j(float(energy_j)))
+
+    def bench_driver_energy_j(self, supply_energy_j: float) -> float:
+        """The drivers' energy per bottom-plate transition from the settling bench's supply energy
+        ``supply_energy_j`` (both sides, every stage up and back down at the reference): the
+        energy less the charge the plates draw from the reference as ``switch`` books it (the
+        behavioral DAC's plates and parasitic, the bench's states), over the transitions ``switch``
+        counts, two a stage a side each way."""
+        # [Razavi-ADC] Fig. 16.29, p. 348: the energy a reference delivers into the plates, V times
+        #   the charge it draws (``switch``); [Baker] Eq. (11.15), p. 355: a driver's own, C_tot
+        #   V_DD^2 a cycle, here what is left of the supply's energy
+        # Terms: V the bench's supply ``reference_v`` (its reference); the plates the behavioral
+        #   DAC's (``behavioral``); the states the bench's: P from all 0 (each stage 1 a window), N
+        #   from all 1 (each stage 0 a window).
+        # Ours against the source: the residual holds the drivers' and sense inverters' own charge,
+        #   the bottom plates' capacitance to their shields and the leakage; one number for every
+        #   stage, the bench's total over its transitions.
+        # Holds for: the typical corner at the nominal supply; a converter switching each stage once.
+        dac = self.behavioral()
+        stages = len(self.tau_s)
+        main_f, diff_f = np.asarray(dac.main_p_f), np.asarray(dac.diff_p_f)
+        lone = np.eye(stages, dtype=np.int64)
+        rest = np.zeros((stages, stages), dtype=np.int64)
+        charge = 0.0
+        for before, after in ((rest, lone), (lone, rest)):
+            # the P side from its states, the N side from their complement
+            for p_before, p_after in ((before, after), (1 - before, 1 - after)):
+                charge += float(
+                    np.sum(Model.switch(main_f, diff_f, dac.parasitic_f, self.reference_v, 1, p_before, p_after)[1])
+                )
+        transitions = 2 * 2 * 2 * stages
+        return (supply_energy_j - self.reference_v * charge) / transitions
 
     @classmethod
     def design(cls, pdk: str, params: Params, *, reference_v: float | None = None) -> Model:
@@ -147,12 +200,14 @@ class Model:
         settles its step to half an LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W)
         time constants for a stage of weight w of the total W. Its plates are designed at the
         reference ``reference_v`` and its LSB is at it; where None, the PDK's typical supply, at which
-        the netlist draws the plates and the characterization runs."""
+        the netlist draws the plates and the characterization runs. Its drivers' energy is not
+        characterized: none."""
         if reference_v is None:
             reference_v = _supply_v(pdk)
         weights = _weights(params)
         settling_s = params.settle_ps * 1e-12 / params.settle_margin
         main_f, diff_f = _design_plates(params, reference_v)
+        # [Razavi-ADC] Eq. (11.3), p. 211: the switched plates over the design's top plate (gain 1)
         full_scale_v = reference_v * float(main_f.sum() - diff_f.sum()) / float(main_f.sum() + diff_f.sum())
         return cls(
             pdk=pdk,
@@ -160,7 +215,11 @@ class Model:
             reference_v=reference_v,
             settling_s=(settling_s,) * len(weights),
             delay_s=(0.0,) * len(weights),
+            # [Razavi-ADC] Eq. (8.14), p. 151: tau = t_s / ln(step / half an LSB), the step 2^(N+1) w / W
+            #   LSB (both sides', as ``subckt._drive_r_ohm`` sizes); the budget t_s settle_ps / settle_margin
+            # Holds for: drivers without delay settling as one pole (no chain, no difference-plate lead).
             tau_s=tuple(settling_s / math.log(2 ** (params.bits + 1) * weight / sum(weights)) for weight in weights),
+            # [Razavi-ADC] Sec. 12.2.1, p. 237: Delta = 2 FS / 2^N, FS the design's (Eq. (11.3), p. 211)
             lsb_v=2 * full_scale_v / 2**params.bits,
             gain=1.0,
             area_um2=None,
@@ -200,12 +259,19 @@ class Model:
         the differential step): the plates give the measured steps, so their full scale is half the
         steps' sum and their weights are the extracted ones a converter decodes with; the rest of the
         load the parasitic. Each stage's delay and time constant, ``settling_tau_s`` the slowest's.
-        The drivers' energy is not characterized: none. The reference is ideal: the converter sets
-        its departures (``reference_*``) and scales the time constants."""
+        The drivers' energy per transition beyond the plates' charge, ``driver_energy_j``. The
+        reference is ideal: the converter sets its departures (``reference_*``) and scales the time
+        constants. The top plate carries the DAC alone: the comparator's input capacitance and its
+        kickback are not in ``parasitic_f`` (the converter adds them)."""
         main_f, diff_f = Model.plates(self.params, self.reference_v)
         design_f = float(main_f.sum() + diff_f.sum())
         # each stage's switched plate whose step at the load the gain gives is its measured one (each
         # side's half), less the design's: none as designed
+        # not in the reference texts: each stage's main plate drawn so its step at the drawn load is
+        #   the measured one: (s_k / 2) (C_design / g) / V_REF - (main_k - diff_k), the excess over the
+        #   design's (a side's step half the differential, [Razavi-ADC] Eq. (11.3), p. 211)
+        # Terms: s_k ``step_v``; C_design ``design_f``; g ``gain``; V_REF ``reference_v``.
+        # Holds for: the kept settling measurement's slower direction; none as designed.
         excess_f = (
             np.zeros_like(main_f)
             if self.step_v is None
@@ -217,9 +283,10 @@ class Model:
             diff_p_f=tuple(map(float, diff_p)),
             main_n_f=tuple(map(float, np.asarray(main_n) + excess_f)),
             diff_n_f=tuple(map(float, diff_n)),
-            # the gain is the design's plates over the whole load: the rest of it, beside the plates
-            # as drawn, is the parasitic
+            # not in the reference texts: the gain is the design's plates over the whole load, C_design /
+            #   g; the rest of it, beside the plates as drawn, is the parasitic: C_design (1 / g - 1) - excess
             parasitic_f=design_f * (1 / self.gain - 1) - float(excess_f.sum()),
+            driver_energy_j=self.driver_energy_j,
             settling_tau_s=max(self.tau_s),
             stage_tau_s=self.tau_s,
             stage_delay_s=self.delay_s,
@@ -231,6 +298,11 @@ class Model:
         (``behavioral``), main less difference with the difference plates in use; half the sum of
         the measured steps where its characterization keeps them."""
         dac = self.behavioral()
+        # [Razavi-ADC] Eq. (11.3), p. 211: the switched plates over the top plate's whole load, times
+        #   the reference
+        # Terms: k C_0 the main less difference plates; m C_0 + C_L every plate and the parasitic;
+        #   V_REF ``supply_v``.
+        # Holds for: the behavioral DAC's plates (the measured steps where kept: half their sum).
         load_f = float(np.sum(dac.main_p_f) + np.sum(dac.diff_p_f)) + dac.parasitic_f
         effective = float(np.sum(dac.main_p_f) - np.sum(dac.diff_p_f))
         return supply_v * effective / load_f
@@ -276,9 +348,17 @@ class Model:
     @staticmethod
     def draw(capacitance_f: np.ndarray, *, pelgrom: float, rng: np.random.Generator) -> np.ndarray:
         """One Pelgrom draw of each capacitor of ``capacitance_f`` (F): sigma_C = ``pelgrom`` sqrt(C 1
-        fF), Pelgrom's coefficient a fraction (0.001 is 0.1 %·sqrt(fF)), as the characterization's
-        Monte Carlo draws a plate (``flow.layout.devices.momcap.netlist``); a capacitor of none stays
-        none. Every capacitor draws from ``rng``, whatever the coefficient."""
+        fF), the coefficient a fraction (0.001 is 0.1 %·sqrt(fF)) and one capacitor's, as the
+        characterization's Monte Carlo draws a plate (``flow.layout.devices.momcap.netlist``): two
+        like capacitors then differ by sqrt(2) ``pelgrom`` sqrt(C 1 fF), so Pelgrom's coefficient
+        A_C, a pair's, is sqrt(2) times ``pelgrom``. A capacitor of none stays none. Every capacitor
+        draws from ``rng``, whatever the coefficient."""
+        # [Pelgrom] Eq. (4.34), p. 144: sigma_C / C = A_C / sqrt(C), C in fF; Eq. (6.10), p. 283: the
+        #   variance of the difference of two instances
+        # Terms: C ``capacitance_f`` in fF; A_C ``pelgrom`` (a fraction of a capacitor, not a pair).
+        # Ours against the source: the source's A_C is the pair's difference; here each capacitor
+        #   is drawn at it alone, sqrt(2) times wider a pair (the coefficient named for one).
+        # Holds for: area mismatch alone, independent capacitors (no gradient).
         capacitance_f = np.asarray(capacitance_f, dtype=np.float64)
         return capacitance_f + rng.normal(0.0, pelgrom * np.sqrt(capacitance_f * 1e-15))
 
@@ -304,6 +384,13 @@ class Model:
         and main drivers do not (an odd and an even chain of inverters): the subtraction is wired
         in, and the converter's logic sets the states alone. 0: with the main plate, adding to it
         (FRIDA-1's array switches either way)."""
+        # [Razavi-ADC] Eq. (11.3), p. 211: the floating top plate's step, the switched plates' steps
+        #   over its whole load; [Razavi-ADC] Fig. 16.29, p. 348: a plate charged at the reference
+        #   draws C (dV_bottom - dV_top) from it
+        # Terms: C each main and difference plate; m C_0 + C_L ``total_f`` with ``parasitic_f``;
+        #   dV_bottom 0 or +-V_REF ``vref_v``; the plates at the reference after the switch.
+        # Ours against the source: the difference plates follow the state XOR ``diffcaps``.
+        # Holds for: ideal switches settled (the charge of a complete step); linear capacitors.
         total_f = np.sum(main_f) + np.sum(diff_f) + parasitic_f
         main_step = vref_v * (after - before)
         diff_after = after ^ diffcaps
@@ -331,6 +418,7 @@ class Model:
         column, a value a conversion): the same top-plate step, charge and transitions in one
         column's work, ``at_vref_f`` the capacitance whose bottom plates sit at the reference after
         the switch (main and difference plates, a value a conversion)."""
+        # [Razavi-ADC] Eq. (11.3), p. 211 and Fig. 16.29, p. 348: ``switch``'s, of one stage
         total_f = np.sum(main_f) + np.sum(diff_f) + parasitic_f
         main_step = vref_v * (after - before)
         diff_after = after ^ diffcaps

@@ -314,6 +314,7 @@ pytest = [
     "flow/capdac/test_model.py",
     "flow/capdac/test_plots.py",
     "flow/capdac/test_subckt.py",
+    "flow/capdac/test_runs.py",
     "flow/layout/test_step.py",
     "flow/layout/test_hdl21align.py",
     "flow/layout/test_pins.py",

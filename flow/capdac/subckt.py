@@ -13,8 +13,9 @@ and that only the redundancy absorbs.
 The array (``params._weights``, the arithmetic a run's ``TbParams`` reads too) is the N - 1 binary
 steps of an N-bit converter, spent over its extra cycles by its ``Redundancy``, C0 the heaviest.
 Each side switches ``scale`` times the least capacitance at which the sampled noise equals the
-quantization noise (``params._switched_f``), at a full scale of the DAC's reference, the PDK's
-supply; a unit of weight is its share of it.
+quantization noise (``params._switched_f``), at a full scale of the DAC's whole reference, the
+PDK's supply (the side's own full scale is below it: ``params.Params``); a unit of weight is its
+share of it.
 
 A stage's weight is built in pieces (``params._pieces``), whole increments of ``coarse_weight`` and the
 remainder below it, each a main and a difference plate (DIFFERENCE_CAPS: a whole piece's plates a
@@ -29,7 +30,9 @@ several, in a column array of so many rows. A stage's main bottom plates follow 
 difference plates the complement, each through a request for a driver
 (``flow.layout.devices.mosfet``) of the on-resistance that settles the stage's step to half an LSB
 within ``settle_ps`` over ``settle_margin`` (``_drive_r_ohm``: past its chain of FO4 delays, for its
-plate's load as the table draws it, ``_plate_loads``). A minimum-strength flip-flop drives each state at FO4:
+plate's load as the table draws it, ``_plate_loads``). The step sized for is the testbench's, both
+sides switched at once (``flow.capdac.sim``); the converter switches one side a decision, half the
+step in its LSB, which the same drivers settle ln 2 time constants sooner. A minimum-strength flip-flop drives each state at FO4:
 the difference driver one inverter (the complement), the main driver's chain loading it with what
 is left of four minimum inverters (``shared_fanin``); the difference drivers take the states on
 an input of their own (``dac_state_diff``), the same flip-flops' outputs brought from outside the
@@ -110,30 +113,54 @@ def _drive_r_ohm(params: Params, share: float, load_f: float, pdk: str, invert: 
     LSB within ``settle_ps`` over ``settle_margin`` of its state's edge (the tables are the typical
     corner's). The step at the top plates, both sides', is 2 V w C_unit / C_top; half an LSB is
     FS / 2^N, FS = V W C_unit / C_top for the array's total weight W, so it takes k = ln(2^(N+1) w /
-    W) time constants, about ln 4w: N ln 2 for the binary MSB, ln 4 for a unit. The edge passes the
-    driver's chain first, each inner inverter one FO4 delay (it tapers at FO4; ``DriverRequest``);
-    its last inverter swings the plate to mid-supply in ln 2 time constants of its switching
-    resistance and settles the rest, k - ln 2 of them, at its on-resistance (in triode by then). A
-    main and a difference driver at one time constant settle together, their residues cancelling as
-    their steps do."""
+    W) time constants, about ln 4w: N ln 2 for the binary MSB, ln 4 for a unit. That is the
+    testbench's step, both sides switched at once; the converter switches one side a decision
+    ([Razavi-ADC] Sec. 16.2.1, p. 346), a step of 2^N w / W LSB that takes ln 2 time constants fewer,
+    so the drivers are sized conservatively for it (by up to twice the time constants a unit stage
+    needs). The edge passes the driver's chain first, each inner inverter one FO4 delay (it tapers
+    at FO4; ``DriverRequest``); its last inverter swings the plate to mid-supply in ln 2 time
+    constants of its switching resistance and settles the rest, k - ln 2 of them, at its
+    on-resistance (in triode by then). A main and a difference driver sized so each settles its own
+    plate's step to the same fraction at the budget, their delays taken off it, leave residues that
+    cancel there as their steps do."""
     table = mosfet_table(pdk)
-    # [Razavi-ADC] Sec. 8.2.2, p. 150: the DAC's settling time, here its budget
+    # [Razavi-ADC] Sec. 8.2.2, p. 150: the DAC's settling time t_s, into an error band of +-0.5 LSB
+    # Terms: t_s ``budget_s`` = settle_ps / settle_margin, the typical corner's share of settle_ps.
+    # Holds for: the typical corner of the kit's tables; settle_ps is the limit at every corner,
+    #   which the slow and fast corner runs judge (``flow.capdac.runs``).
     budget_s = params.settle_ps * 1e-12 / params.settle_margin
-    # [Razavi-Analog] Eq. (13.31), p. 552: a step settling as exp(-t / tau), k time constants to
-    # come from the step to half an LSB
+    # [Razavi-ADC] Eq. (8.14), p. 151; Eqs. (9.6)-(9.8), p. 161: a single-pole step settles into
+    #   half an LSB in tau ln(step / half an LSB) time constants
+    # Terms: the step 2 V_REF w C_0 / C_top, both sides' (``TbParams.ideal_step_v``); half an LSB
+    #   V_REF W C_0 / (C_top 2^N); their ratio 2^(N+1) w / W, ``share`` = w / W.
+    # Ours against the source: the bench's two-sided step; the converter's one side, 2^N w / W,
+    #   needs ln 2 fewer (sized conservatively for it).
+    # Holds for: a step that settles as one pole once its last inverter is in triode.
     constants = log(2 ** (params.bits + 1) * share)
-    # not in the reference texts: a step through a switch is half done after ln 2 time constants;
-    # the switch's resistance there its switching resistance, the kit's ``rho`` times its
-    # on-resistance ([Razavi-Analog] Eq. (2.11), p. 15), the slower type's
+    # [Baker] Eq. (10.17), p. 333; Eq. (10.19), p. 334: an RC step half done after 0.7 (ln 2) RC,
+    #   t_PHL = 0.7 R_n C_tot at the switching resistance R_n; [Razavi-Analog] Eq. (2.11), p. 15:
+    #   R_on, the triode resistance the rest settles at
+    # Terms: R_n the kit's switching resistance ``table.switching_ohm``, R_on ``table.triode_ohm``,
+    #   rho their ratio, the slower type's; C_tot the plate's load ``load_f``.
+    # Ours against the source: the source's delay alone; here ln 2 of the k time constants at R_n,
+    #   the other k - ln 2 at R_on, both scaled by the driver's own on-resistance.
+    # Holds for: the last inverter of the chain driving the plate; the low-threshold devices.
     rho = max(
         table.switching_ohm[flavor(tp, MosVth.LOW)] / table.triode_ohm[flavor(tp, MosVth.LOW)]
         for tp in (MosType.NMOS, MosType.PMOS)
     )
-    # the kit's own scale of the time constants, where the model misses its devices (its tech's
-    # ``DRIVER_TAU_SCALE``, measured over modelled; 1 where it gives none)
+    # fitted, not derived: the kit's scale of the time constants (its tech's ``DRIVER_TAU_SCALE``;
+    #   1 where it gives none), fitted per kit to FRIDA-1's array's settling (mostly post-layout,
+    #   some kits pre-layout) against the budget, so it holds the layout's routing and top-plate
+    #   load as well as the device model's departure, and is checked on that one array only
     scale = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_TAU_SCALE", 1.0)
     per_ohm = load_f * (constants - log(2) + log(2) * rho) * scale
-    # [Razavi-PLL] Sec. 1.4.1, p. 12: each inner inverter's gate delay, the kit's FO4 delay
+    # [Baker] Sec. 11.4, Eqs. (11.17)-(11.21), pp. 359-360: a chain tapered by A, each inverter
+    #   the same delay; here A = 4 (FO4: ``DriverRequest``), each inner inverter the kit's FO4 delay
+    # Terms: the delay of each inner inverter ``gate_s`` = the kit's FO4 delay ``table.fo4``.
+    # Ours against the source: the source's chain ends in the load; here the last inverter's own
+    #   delay is in the k time constants above, so a chain of n takes n - 1 delays first.
+    # Holds for: a chain from a minimum flip-flop at FO4 (``shared_fanin``).
     gate_s = table.fo4(MosVth.LOW)
     r_ohm, chain = budget_s / per_ohm, 0
     while (count := len(DriverRequest(r_ohm, invert, fanin=fanin).stages(pdk))) != chain:
@@ -156,6 +183,8 @@ def _plate_loads(
     inverter's input. A difference plate is a strip's stub at the least where its piece is whole,
     the plates' share of the table's, not the design's."""
     table = momcap_table(pdk)
+    # each piece's capacitances between its terminals as the kit's momcap table draws it (the
+    # table's: a fitted model of the drawn units, not in the reference texts)
     drawn = [
         [
             {
@@ -170,14 +199,18 @@ def _plate_loads(
         ]
         for stage in strips
     ]
+    # not in the reference texts: the top plate's capacitance, every piece's to it (main, difference
+    #   or inner plate, and its own shield and ground), summed over the side
     top_f = sum(c_f for stage in drawn for piece in stage for pair, c_f in piece.items() if "TOP" in pair)
 
-    # not in the reference texts: each plate's wiring from its driver to its landing, a load the
+    # fitted, not derived: each plate's wiring from its driver to its landing, a load the
     # table's plates leave out and the same for every plate whatever its size (the kit's
-    # ``DRIVER_ROUTE_F``, from its extraction; 0 where it gives none), which a small stage's
+    # ``DRIVER_ROUTE_F``, fitted to its extraction; 0 where it gives none), which a small stage's
     # driver, sized for its plate alone, otherwise settles slowly through
     route_f = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_ROUTE_F", 0.0)
-    # and on each main (or inner) plate its sense inverter's input (``dac_plate``)
+    # [Baker] Eq. (11.12), p. 355: an inverter's input capacitance C_in, here the sense inverter's
+    #   (the least the kit draws; the mosfet table's input_f, from the kit's devices) on each main
+    #   (inner) plate
     sense_f = input_f(pdk, least_inverter(pdk))
     if not difference:
         return [(_plate_load(stage, "INNER", None, top_f) + route_f + sense_f, None) for stage in drawn]
@@ -197,8 +230,14 @@ def _plate_load(stage: list[dict[frozenset[str], float]], plate: str, other: str
     to_top = sum(piece.get(frozenset((plate, "TOP")), 0.0) for piece in stage)
     fixed = sum(piece.get(frozenset((plate, ground)), 0.0) for piece in stage for ground in ("SHIELD", "GROUND"))
     apart = sum(piece.get(frozenset((plate, other)), 0.0) for piece in stage) if other else 0.0
-    # not in the reference texts: capacitors in series, and a coupling to a node swinging the
-    # other way charged through twice the swing
+    # [Razavi-ADC] Eq. (11.10), p. 215: a switched k C_0 sees the rest of the array's (m - k) C_0 in
+    #   series, k C_0 (m - k) C_0 / (m C_0); [Razavi-Analog] Eq. (6.2), p. 174: a capacitance to a
+    #   node swinging the other way (A_v = -1) loads as twice itself (Miller)
+    # Terms: k C_0 ``to_top``; m C_0 ``top_f``; the shield's and ground's ``fixed``; the coupling to
+    #   the stage's other plate ``apart`` (main and difference switch opposite).
+    # Ours against the source: the source's rest of the array is ideally grounded; here every other
+    #   plate's driver holds it (at its own on-resistance), and the top plate floats on a 1 TOhm bleed.
+    # Holds for: a stage switching alone, its two plates opposite (DIFFERENCE_CAPS), or one (UNIT_CAPS).
     return to_top * (top_f - to_top) / top_f + fixed + 2 * apart
 
 
@@ -846,10 +885,11 @@ def _keys(
         main_r = _drive_r_ohm(params, share, main_f, pdk, False, fanin)
         if beside and diff_f is not None and mains is not None and drawn_ohm(pdk, beside[0]) * diff_f < main_r * main_f:
             # not in the reference texts: the two plates' residues cancel at the top plate only
-            # while they settle together; the difference plate's settled first, the main plate's
-            # whole step is left (a small stage's two plates each tens of LSB: capdac frida1's
-            # last stages in GF180, its main plates' sense inverters more load than its difference
-            # plates', 0.64 ns post-layout)
+            # while they settle together; where the difference plate's drawn driver settles first
+            # (its R C below the main's), the main plate's own step is left, so the main driver
+            # also settles that step, its main plates' units ``mains`` over W, to half an LSB
+            # Terms: R C of each plate, ``drawn_ohm`` times its load; ``mains[stage]`` in units.
+            # Holds for: a small stage whose difference driver is the kit's least inverter.
             main_r = min(main_r, _drive_r_ohm(params, mains[stage] / sum(weights), main_f, pdk, False, fanin))
         keys.append(((main_r, False, fanin), diff_key))
     return keys
@@ -862,11 +902,14 @@ def netlist(params: Params) -> h.Module:
     drivers of its main and (DIFFERENCE_CAPS) difference plates, and its main plate's sense
     inverter. A plate drawn as a difference stub alone has a driver sized for a unit of load."""
     weights = _weights(params)
+    # [Razavi-ADC] Sec. 11.8, p. 229: the unit capacitance C_0, the side's switched capacitance at
+    #   the kit's supply over the total weight (``params._design_plates``'s)
     unit_f = _switched_f(params, _reference_v()) / sum(weights)
     whole_f = params.coarse_weight * unit_f
     pieces = [_pieces(params, weight) for weight in weights]
     plates = [[_plates(params, piece) for piece in stage] for stage in pieces]
     mains = [sum(main for main, _diff in stage) for stage in plates]  # each stage's main plates (units)
+    # not in the reference texts: the design's top plate, every plate's units of C_0 (``TbParams.load_f``)
     top_f = unit_f * sum(main + diff for stage in plates for main, diff in stage)
     difference = params.weight_impl is WeightImpl.DIFFERENCE_CAPS
 
@@ -902,6 +945,9 @@ def netlist(params: Params) -> h.Module:
     # with the rest of the top plate), then those the drawn arrangement gives (``_plate_loads``: its
     # stubs and parasitics), until the arrangement, which the drivers' widths choose, stands still
     designed = [[max(unit_f, unit_f * sum(plate)) for plate in zip(*stage, strict=True)] for stage in plates]
+    # [Razavi-ADC] Eq. (11.10), p. 215: the first sizing's load, each plate (a unit of load at the
+    #   least: a stub) in series with the rest of the design's top plate (``_plate_load``'s, without
+    #   the drawn parasitics)
     loads: list[tuple[float, float | None]] = [
         (main_f * (top_f - main_f) / top_f, diff_f * (top_f - diff_f) / top_f) for main_f, diff_f in designed
     ]
@@ -947,6 +993,11 @@ def netlist(params: Params) -> h.Module:
         if _keys(params, pdk, weights, drawn, difference, mains) == keys:
             break
         loads = drawn
+    else:
+        # the drivers would be sized for loads the arrangement they choose does not draw
+        raise RuntimeError(
+            f"{params}: the drivers and the arrangement they choose did not stand still in three sizings"
+        )
     at = {piece: (col, row) for col, column in enumerate(columns) for row, piece in enumerate(column)}
     wide, tall = (len(columns), max(map(len, columns))) if columns else (sum(map(len, strips)), 1)
     # where the kit's rails carry no taps (its row ends' tie cells alone tie the wells), a side wider

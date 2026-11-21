@@ -1051,7 +1051,7 @@ class _Converter:
             tb=tb,
             samp=samp,
             comp=comp,
-            # its drivers draw no energy: capdac does not characterize it
+            # its drivers' energy per transition, capdac's characterization's (none as designed)
             cdac=capdac.Model.Behavioral(
                 **{
                     **dac.__dict__,

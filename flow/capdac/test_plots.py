@@ -81,5 +81,5 @@ def test_each_converter_draws_its_own_and_a_missing_stage_is_a_gap(tmp_path: Pat
             result = replace(result, effective_fraction=effective)
         figure = capdac.plot_fraction_stage(result)
         canvas(figure, tmp_path / f"adc{index:02d}_{figure.name}", monkeypatch)
-    assert np.isnan(figure.series["Effective fraction"][5])
+    assert np.isnan(figure.series["effective fraction"][5])
     assert sorted(path.name for path in tmp_path.glob("*.pdf")) == [f"adc{i:02d}_fraction_stage.pdf" for i in range(4)]
