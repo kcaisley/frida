@@ -82,6 +82,11 @@ class AnalysisSettling(Analysis):
         measurement's validity; the settling's limit is ``settle_s``, ``analysis.metrics``)."""
         # not in the reference texts: a step that settles in its window's first half has its final
         #   value at the window's end, so the measured step is the settled one
+        # Terms: each stage's settling time, both directions (``settling_rise_s``,
+        #   ``settling_fall_s``); ``window_s`` a stage and direction's window.
+        # Holds for: the bench's windows, 4 settle_ps each rounded up to 100 ps (``runs.testbenches``),
+        #   so a valid record's steps settle within half of one; the limit at settle_ps is
+        #   ``settles_in_time``'s.
         times = np.concatenate([self.settling_rise_s, self.settling_fall_s])
         return bool(np.all(np.isfinite(times)) and np.all(times < self.window_s / 2))
 
@@ -101,6 +106,9 @@ class AnalysisSettling(Analysis):
     def settling_s(self) -> np.ndarray:
         """Each stage's settling time, the slower direction's."""
         # not in the reference texts: each stage's slower direction, max(t_s rise, t_s fall)
+        # Terms: t_s rise ``settling_rise_s``, t_s fall ``settling_fall_s``, each stage's, both sides
+        #   switched (the P side's main plate rising, then falling).
+        # Holds for: the bench's two directions; NaN where either is unmeasured (it propagates).
         return np.maximum(self.settling_rise_s, self.settling_fall_s)
 
     @property
@@ -304,6 +312,10 @@ class AnalysisMismatch(Analysis):
         """The DAC's worst INL, its 95th percentile over the runs."""
         # not in the reference texts: the 95th percentile of the runs' worst |INL| (linear
         #   interpolation between order statistics, NumPy's), a sample of ``runs`` draws
+        # Terms: each run's worst |INL| of the DAC in its own LSB ``dac_inl_lsb`` (the converter's
+        #   ``inl_lsb`` and the gap ``gap_lsb`` alike below); ``runs`` the Monte Carlo runs.
+        # Holds for: one coefficient's runs, a sample whose own spread the 95 % upper bound states
+        #   (``analysis.metrics``' ``_p95_upper``); NaN runs left out.
         return float(np.nanpercentile(self.dac_inl_lsb, 95))
 
     @property
@@ -386,18 +398,26 @@ class AnalysisCapMismatch(Analysis):
     def fraction(self) -> np.ndarray:
         """Each stage's effective fraction, P's and N's mean (what the converter's decision weighs)."""
         # not in the reference texts: the two sides' mean of C_k / C_total (the bench's own)
+        # Terms: ``effective_fraction[0]``, ``[1]`` the P and N sides' fraction of each stage, from
+        #   its switching curves (``analyze_cap_mismatch``).
+        # Holds for: two sides drawn as mirror images; NaN where a side's stage has no curves.
         return (self.effective_fraction[0] + self.effective_fraction[1]) / 2.0
 
     @property
     def fraction_error(self) -> np.ndarray:
         """Each stage's effective fraction (P's and N's mean) less the design's expectation."""
         # not in the reference texts: the measured fraction less the design's
+        # Terms: ``fraction`` the sides' mean; ``expected_fraction`` the design's weight over the
+        #   array's total and its top plate's load (the capture's, ``flow.adc``'s analysis).
+        # Holds for: the captures of one design (one expectation a stage).
         return self.fraction - self.expected_fraction
 
     @property
     def asymmetry(self) -> np.ndarray:
         """Each stage's effective fraction, P's less N's."""
         # not in the reference texts: the sides' difference of C_k / C_total
+        # Terms: ``effective_fraction[0]``, ``[1]`` the P and N sides' fractions.
+        # Holds for: as ``fraction``; zero for two sides drawn alike.
         return self.effective_fraction[0] - self.effective_fraction[1]
 
     @property
@@ -406,12 +426,16 @@ class AnalysisCapMismatch(Analysis):
         difference less main-less-difference fractions."""
         # not in the reference texts: mode 0 (main plus difference) less mode 1 (main less
         #   difference), halved a side and summed over both: twice the difference fraction's mean
+        # Terms: ``diff_fraction[0]``, ``[1]`` each side's (w+ - w-) / 2 (``analyze_cap_mismatch``).
+        # Holds for: a stage measured in both modes on both sides.
         return self.diff_fraction[0] + self.diff_fraction[1]
 
     @property
     def main(self) -> np.ndarray:
         """Each stage's main plate's fraction, P's and N's mean."""
         # not in the reference texts: the sides' mean of (mode 0 + mode 1) / 2
+        # Terms: ``main_fraction[0]``, ``[1]`` each side's (w+ + w-) / 2 (``analyze_cap_mismatch``).
+        # Holds for: a stage measured in both modes on both sides.
         return (self.main_fraction[0] + self.main_fraction[1]) / 2.0
 
     @property
@@ -419,4 +443,6 @@ class AnalysisCapMismatch(Analysis):
         """Each stage's direction bias as the converter switches it (main and difference plates
         against each other), P's and N's mean."""
         # not in the reference texts: half the 1-to-0 less the 0-to-1 fraction, mode 1, the sides' mean
+        # Terms: ``direction_bias[side, stage, 1]`` mode 1's half difference of its two directions.
+        # Holds for: mode 1, the converter's (main and difference plates opposite).
         return (self.direction_bias[0, :, 1] + self.direction_bias[1, :, 1]) / 2.0

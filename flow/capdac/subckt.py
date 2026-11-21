@@ -29,16 +29,17 @@ stage's last strip in the row's ring where it holds less; unit capacitors each i
 several, in a column array of so many rows. A stage's main bottom plates follow its state and its
 difference plates the complement, each through a request for a driver
 (``flow.layout.devices.mosfet``) of the on-resistance that settles the stage's step to half an LSB
-within ``settle_ps`` over ``settle_margin`` (``_drive_r_ohm``: past its chain of FO4 delays, for its
-plate's load as the table draws it, ``_plate_loads``; where a stage's two plates are driven at
+within ``settle_ps`` over ``settle_margin`` (``_drive_r_ohm``: past the FO4 delays of the chain its
+drawn request has, for its plate's load as the table draws it, ``_plate_loads``; where a stage's two plates are driven at
 unequal R C, the slower one for its own plate's step, ``_keys``). The step sized for is the
 testbench's, both sides switched at once (``flow.capdac.sim``); the converter switches one side a
 decision, half the step in its LSB, on one edge alone (its A state's direction), which on a heavy
 stage rising is no faster than the bench's (the record's ``settling_side_max_s`` judges it). A
-minimum-strength flip-flop drives each state at FO4: the difference driver one inverter (the complement), the main driver's chain loading it with what
-is left of four minimum inverters (``shared_fanin``); the difference drivers take the states on
-an input of their own (``dac_state_diff``), the same flip-flops' outputs brought from outside the
-side, so that the side's two bands of drivers share no wire. Each stage's main plate is sensed by
+minimum-strength flip-flop drives each state at FO4: the difference driver one inverter (the
+complement), the main driver's chain loading it with what is left of four minimum inverters
+(``shared_fanin``); the difference drivers take the states on an input of their own
+(``dac_state_diff``), the same flip-flops' outputs brought from outside the side, so that the
+side's two bands of drivers share no wire. Each stage's main plate is sensed by
 the least inverter the kit draws (``least_inverter``), the sense inverters in a row of their own at
 the main band's outer edge: each one's output the side's ``dac_plate`` port (the plate's complement
 at full swing, landed on the side's bottom edge), its input part of the plate's load.
@@ -115,16 +116,17 @@ class _SizingError(ValueError):
 
 
 def _drive_r_ohm(params: Params, share: float, load_f: float, pdk: str, invert: bool, fanin: float) -> float:
-    """The on-resistance at most of a driver whose plate, of drawn load ``load_f`` (``_plate_loads``),
-    is in a stage of ``share`` of the array's weight, so that the stage's step settles to half an
-    LSB within ``settle_ps`` over ``settle_margin`` of its state's edge (the tables are the typical
-    corner's). The step at the top plates, both sides', is 2 V w C_unit / C_top; half an LSB is
-    FS / 2^N, FS = V W C_unit / C_top for the array's total weight W, so it takes k = ln(2^(N+1) w /
-    W) time constants, about ln 4w: N ln 2 for the binary MSB, ln 4 for a unit. That is the
-    testbench's step, both sides switched at once; the converter switches one side a decision
-    ([Razavi-ADC] Sec. 16.2.1, p. 346), a step of 2^N w / W of its LSB on one edge alone, which is
-    no margin: on a heavy stage rising it settles no sooner than the bench's (``settling_side_max_s``
-    judges it). The edge passes the driver's chain first, each inner inverter counted one FO4 delay
+    """The on-resistance at most of the last inverter of a driver whose plate, of drawn load
+    ``load_f`` (``_plate_loads``), is in a stage of ``share`` of the array's weight, so that the
+    stage's step settles to half an LSB within ``settle_ps`` over ``settle_margin`` of its state's
+    edge (the tables are the typical corner's), its chain counted as the request drawn at it
+    (``_at_most``) draws it. The step at the top plates, both sides', is 2 V w C_unit / C_top; half
+    an LSB is FS / 2^N, FS = V W C_unit / C_top for the array's total weight W, so it takes
+    k = ln(2^(N+1) w / W) time constants, about ln 4w: N ln 2 for the binary MSB, ln 4 for a unit.
+    That is the testbench's step, both sides switched at once; the converter switches one side a
+    decision ([Razavi-ADC] Sec. 16.2.1, p. 346), a step of 2^N w / W of its LSB on one edge alone,
+    which is no margin: on a heavy stage rising it settles no sooner than the bench's
+    (``settling_side_max_s`` judges it). The edge passes the driver's chain first, each inner inverter counted one FO4 delay
     (it tapers at most at FO4, ``DriverRequest``: an upper bound, a chain that tapers less runs
     faster); its last inverter swings the plate to mid-supply in ln 2 time constants of its
     switching resistance and settles the rest, k - ln 2 of them, at its on-resistance (in triode by
@@ -166,10 +168,12 @@ def _drive_r_ohm(params: Params, share: float, load_f: float, pdk: str, invert: 
     scale = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_TAU_SCALE", 1.0)
     # own, from the two above: t = (n - 1) t_FO4 + R C_tot ((k - ln 2) + rho ln 2) scale, solved
     #   for R at t = ``budget_s``
-    # Terms: R the request's on-resistance; C_tot ``load_f``; k ``constants``; rho; scale.
+    # Terms: R the drawn last inverter's on-resistance at most; C_tot ``load_f``; k ``constants``;
+    #   rho; scale; n the chain's inverters; t_FO4 ``gate_s``.
     # Ours against the source: the driver's own drain capacitance on the plate is not in C_tot (the
     #   kit's mosfet table holds none).
-    # Holds for: as the two above; R the request's, which the drawn inverter meets (``_at_most``).
+    # Holds for: as the two above; R the bound the drawn last inverter meets (``_at_most``), and n
+    #   the chain of the request drawn at it, not of R asked as it is.
     per_ohm = load_f * (constants - log(2) + log(2) * rho) * scale
     # [Baker] Sec. 11.4, Eqs. (11.17)-(11.21), pp. 359-360: a chain tapered by A, each inverter
     #   the same delay; here A = 4 (FO4: ``DriverRequest``), each inner inverter the kit's FO4 delay
@@ -180,8 +184,14 @@ def _drive_r_ohm(params: Params, share: float, load_f: float, pdk: str, invert: 
     #   stage's) is faster than one FO4, so (n - 1) FO4 bounds the chain's delay from above.
     # Holds for: a chain from a minimum flip-flop at FO4 (``shared_fanin``).
     gate_s = table.fo4(MosVth.LOW)
-    r_ohm, chain = budget_s / per_ohm, 0
-    while (count := len(DriverRequest(r_ohm, invert, fanin=fanin).stages(pdk))) != chain:
+    # the chain counted from the request drawn: a request lowered to be drawn at its on-resistance
+    # (``_at_most``) can cross a step of the taper and draw two inverters more, so R is solved again
+    # for the longer chain until the request drawn at it has no more inverters than counted (the
+    # count only grows, and ``DriverRequest.stages`` draws fewer than 16, so the loop ends); the
+    # chain is not monotone in the request, so the one drawn can be shorter than counted, and then
+    # it settles sooner than the budget
+    chain, r_ohm = 0, budget_s / per_ohm
+    while (count := len(DriverRequest(_at_most(pdk, r_ohm, invert, fanin), invert, fanin=fanin).stages(pdk))) > chain:
         chain = count
         if budget_s <= (chain - 1) * gate_s:
             raise _SizingError(
@@ -289,13 +299,14 @@ def _plate_load(stage: list[dict[frozenset[str], float]], plate: str, other: str
     # Terms: k C_0 = C_pt ``to_top``; m C_0 = C_T ``top_f``; C_qt ``other_to_top``; the shield's and
     #   ground's ``fixed``; the coupling to q ``apart`` (main and difference switch opposite).
     # Ours against the source: only (11.10)'s series capacitance is kept; its resistance, Ron / k of
-    #   the switched group and Ron / (m - k) of the rest's switches, is the driver's alone here (the
-    #   other plates' drivers' resistance is left out: the fitted DRIVER_TAU_SCALE carries it), the
-    #   rest of the array held at its rails. The source's top plate settles at once where the
-    #   branches' time constants match (p. 215); here its residue is the plates' R C mismatch
-    #   (``_keys``). The top plate floats on a 1 TOhm bleed.
+    #   the switched group and Ron / (m - k) of the rest's switches, is the driver's alone here, the
+    #   rest of the array held at its rails: the other plates' drivers' resistance is left out, which
+    #   the fitted DRIVER_TAU_SCALE carries on FRIDA-1's array only (its fit) and nothing accounts for
+    #   on another array, where a heavy stage settles later than sized. The source's top plate
+    #   settles at once where the branches' time constants match (p. 215); here its residue is the
+    #   plates' R C mismatch (``_keys``). The top plate floats on a 1 TOhm bleed.
     # Holds for: a stage switching alone, its two plates opposite (DIFFERENCE_CAPS), or one (UNIT_CAPS:
-    #   no q); the rest of the array still.
+    #   no q); the rest of the array still, its drivers ideal (FRIDA-1's array: the fitted scale).
     return to_top * (top_f - to_top + other_to_top) / top_f + fixed + 2 * apart
 
 
@@ -932,7 +943,8 @@ def _keys(
     its own plate's step is left at the top plate, so that plate's driver settles its own step
     (``units``: each stage's main and difference plates, in units of weight) to half an LSB too,
     and then the other's the same where it becomes the slower. Each request is the one drawn at
-    most its on-resistance (``_at_most``)."""
+    most the on-resistance its budget leaves past its chain (``_at_most``), the chain the one that
+    request draws (``_drive_r_ohm``)."""
     total = sum(weights)
     keys = []
     for stage, (weight, (main_f, diff_f)) in enumerate(zip(weights, loads, strict=True)):
@@ -946,8 +958,15 @@ def _keys(
         diff_key = None
         for _ in range(3):
             if difference and diff_f is not None:
-                # [Baker] Sec. 11.4, Eqs. (11.17)-(11.21), pp. 359-360: the flip-flop's FO4: four
-                #   minimum inverters of load, the difference driver's first (``shared_fanin``)
+                # [Baker] Sec. 11.4, Eqs. (11.17)-(11.18), p. 359: each stage of a chain loads the one
+                #   before it with A times that one's input, every stage the same delay
+                # Terms: the stage before the first, the state's minimum-strength flip-flop (driving as
+                #   a minimum inverter); its load, the difference driver's input and the main chain's.
+                # Ours against the source: A = 4 (FO4) is the code's own choice, not the source's
+                #   (which picks A and N for the least delay, Eqs. (11.20), (11.25)); the flip-flop
+                #   drives two chains, so it is loaded with four minimum inverters between them, the
+                #   difference driver's first and the main chain on what is left (``shared_fanin``).
+                # Holds for: one minimum flip-flop a state, both drivers of the stage on it.
                 fanin = shared_fanin(pdk, [])
                 r_ohm = _drive_r_ohm(params, own_diff if diff_own else share, diff_f, pdk, True, fanin)
                 diff_key = (_at_most(pdk, r_ohm, True, fanin), True, fanin)
@@ -965,6 +984,10 @@ def _keys(
             # Holds for: two plates switching opposite (DIFFERENCE_CAPS); R C compared, not the chains'
             #   delays (the main chain's is the longer); a plate sized for its own step settles its
             #   share of the net one too.
+            # A step, not a blend: a plate whose drawn R C is larger by any margin is sized for its
+            #   whole own step (on a light stage several time constants more than the net step's), so
+            #   two plates of nearly equal R C can trade the case from one sizing to the next, which
+            #   moves the arrangement (``netlist``'s stand-still loop); it oversizes, never undersizes.
             main_rc = drawn_ohm(pdk, DriverRequest(main_key[0], False, fanin=fanin)) * main_f
             diff_rc = drawn_ohm(pdk, beside[0]) * diff_f
             if main_rc > diff_rc and not main_own and own_main > share:

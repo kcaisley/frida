@@ -1,7 +1,8 @@
 """The capacitive DAC's driver bands (``subckt._driver_rows``): rows at most, balance, outline; and
 the drivers' sizing against answers derived on paper: a plate's load while its stage's other plate
 steps the other way (``_plate_load``), the plate of the larger drawn R C settling its own step
-(``_keys``), a request drawn at most its on-resistance (``_at_most``)."""
+(``_keys``), a request drawn at most its on-resistance (``_at_most``) and its chain counted as
+drawn where lowering it lengthens the chain (``_drive_r_ohm``)."""
 
 import math
 from types import SimpleNamespace
@@ -120,6 +121,7 @@ def test_a_driver_settles_its_stage_within_its_budget_past_its_chain(monkeypatch
     )
     monkeypatch.setattr(subckt, "mosfet_table", lambda pdk: table)
     monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
+    monkeypatch.setattr(h.pdk, "default", lambda: None)  # no kit's row cells: each width as asked
     params, load_f, share = Params(), 100e-15, 0.375
     for scale in (1.0, 0.5):
         monkeypatch.setattr(subckt, "import_module", lambda name, scale=scale: SimpleNamespace(DRIVER_TAU_SCALE=scale))
@@ -184,6 +186,7 @@ def test_a_small_stages_main_driver_settles_its_own_step_where_its_difference_dr
     monkeypatch.setattr(subckt, "mosfet_table", lambda pdk: table)
     monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
     monkeypatch.setattr(subckt, "import_module", lambda name: SimpleNamespace(DRIVER_TAU_SCALE=1.0))
+    monkeypatch.setattr(h.pdk, "default", lambda: None)  # no kit's row cells: each width as asked
     weights, loads = [1000.0, 1.0], [(60e-15, 1e-15), (5e-15, 4e-15)]
     plain = subckt._keys(Params(), "synthetic", weights, loads, True)
     own = subckt._keys(Params(), "synthetic", weights, loads, True, [(1000.5, 0.5), (32.5, 31.5)])
@@ -263,3 +266,31 @@ def test_a_request_drawn_weaker_asks_for_less_until_it_is_drawn_at_most_its_resi
     assert request == near(100.0 / 1.19, rel=1e-9) and 1.19 * request <= 100.0 * (1 + 1e-9)
     monkeypatch.setattr(subckt, "drawn_ohm", lambda pdk, request: 0.9 * request.r_ohm)
     assert subckt._at_most("synthetic", 100.0, False, 4.0) == 100.0
+
+
+def test_a_request_lowered_past_a_step_of_the_taper_counts_the_longer_chain(
+    synthetic: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_drive_r_ohm``, 12 bits (a 500 ps budget), half the array's weight (k = ln(2^13 / 2) = 12
+    ln 2), 100 fF of load, rho 2.5: R 100 fF (12 ln 2 - ln 2 + 2.5 ln 2) = R 100 fF 13.5 ln 2 =
+    R 0.9357 ps / Ohm. Every request drawn 1.19 times its on-resistance (``_at_most`` asks for
+    1 / 1.19 of R), a buffer of two inverters asked at 440 Ohm or more and of four below. No chain:
+    534.3 Ohm, asked as 449.0 Ohm, two inverters, one FO4 (20 ps): 480 ps / 0.9357 = 513.0 Ohm,
+    asked as 431.1 Ohm, which draws four. Counted again for four, three FO4 delays: 440 ps /
+    0.9357 = 470.2 Ohm, asked as 395.1 Ohm, still four: drawn at 470.2 Ohm, 60 ps + 440 ps =
+    500 ps. Where the taper's step is at 400 Ohm, 431.1 Ohm keeps two inverters: 513.0 Ohm."""
+    monkeypatch.setattr(subckt, "drawn_ohm", lambda pdk, request: 1.19 * request.r_ohm)
+    per_ohm = 100e-15 * 13.5 * math.log(2)
+    for step_ohm, chain, expected in ((440.0, 4, 440e-12), (400.0, 2, 480e-12)):
+        monkeypatch.setattr(
+            subckt.DriverRequest,
+            "stages",
+            lambda self, pdk, step_ohm=step_ohm: [(1, 1)] * (2 if self.r_ohm >= step_ohm else 4),
+        )
+        r_ohm = subckt._drive_r_ohm(Params(), 0.5, 100e-15, "synthetic", False, 4.0)
+        assert r_ohm == near(expected / per_ohm, rel=1e-9)
+        request = subckt.DriverRequest(subckt._at_most("synthetic", r_ohm, False, 4.0), False)
+        assert len(request.stages("synthetic")) == chain
+        drawn = subckt.drawn_ohm("synthetic", request)
+        assert drawn == near(r_ohm, rel=1e-9)
+        assert (chain - 1) * 20e-12 + drawn * per_ohm == near(500e-12, rel=1e-9)

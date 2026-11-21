@@ -300,8 +300,10 @@ def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
     ``drawn``, a bound fitted on GF180's 14-bit arrays. It does not check what only the netlist
     finds: a drawn load beyond ``drawn`` times the design's (a 10-bit array's small MSB, other kits'
     stubs and shields), the drivers and the arrangement standing still, a difference driver sized
-    for its own plate's step (``subckt._keys``), a light stage's driver, or a unit below the kit's
-    smallest (drawn at that, its weights then not the design's). An array it admits may still fail
+    for its own plate's step (``subckt._keys``), a light stage's driver, the chain of the request as
+    drawn (the netlist lowers a request to its drawn on-resistance and counts that one's chain, which
+    can be two inverters longer than the one counted here), or a unit below the kit's smallest
+    (drawn at that, its weights then not the design's). An array it admits may still fail
     to build (the run records it so), and one it refuses may build."""
     import importlib
 
@@ -347,7 +349,8 @@ def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
         while (count := len(DriverRequest(r_ohm, False, fanin=fanin).stages(pdk))) != chain:
             chain = count
             # [Baker] Sec. 11.4, Eqs. (11.17)-(11.21), pp. 359-360: a chain tapered by A, each
-            #   inverter the same delay (A = 4 here, FO4): its inner inverters' delays first
+            #   inverter the same delay (A = 4 here, FO4, the code's): its inner inverters' delays
+            #   first, the chain of the request as asked (the netlist's is the drawn request's)
             if budget_s <= (chain - 1) * gate_s:
                 return False
             r_ohm = (budget_s - (chain - 1) * gate_s) / per_ohm
@@ -384,6 +387,12 @@ class TbParams(pipeline.TbParams):
     # not in the reference texts: the bench's own constants: 30 ps state edges (an ideal flip-flop's,
     #   faster than any driver chain), a 1 TOhm bleed (a time constant of seconds on the top plate),
     #   and Spectre's tolerances (vabstol 1 nV against a 14-bit half LSB of tens of uV)
+    # Terms: ``transition_time_s`` each state's rise and fall (the flip-flops' outputs, ideal sources);
+    #   ``bleed_ohm`` the top plate's resistance to ground (its DC path, vdac to vss); ``reltol``,
+    #   ``vabstol``, ``iabstol`` Spectre's relative, voltage and current tolerances.
+    # Holds for: a chain's first inverter, slower than a 30 ps edge; a window far shorter than the
+    #   bleed's time constant on the top plate; 8 to 14 bits at a supply of about a volt (a half
+    #   LSB tens of uV or more).
     transition_time_s: float = 30e-12
     bleed_ohm: float = 1e12
     reltol: float = 1e-4

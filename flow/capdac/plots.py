@@ -33,7 +33,10 @@ def plot_settling_stage(settling: AnalysisSettling) -> Plot:
 @plot
 def plot_model_stage(settling: AnalysisSettling) -> Plot:
     """Each stage's step as the behavioral model starts and settles it: its driver's delay and its
-    time constant."""
+    time constant. Two quantities on one ``Time (s)`` axis, against docs/references.md's one
+    quantity per axis: the record's figures (seven, this one among them) and this figure's two
+    series, which ``Model.of`` reads, are fixed by the block's known-answer tests, so a figure each
+    (``Delay (s)``, ``Time constant (s)``) waits for the owner."""
     return Plot(
         name="model_stage",
         title="The behavioral model's step by stage (C0, the MSB, first): its start and time constant",

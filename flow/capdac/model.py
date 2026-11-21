@@ -201,10 +201,12 @@ class Model:
         full scale and LSB are above any drawn array's), not laid out (no area) and no measurement
         kept; each stage's drivers without delay, settling at the budget, ``settle_ps`` over
         ``settle_margin``, with the single pole that reaches half an LSB then: ln(2^(N+1) w / W) time
-        constants for a stage of weight w of the total W. That is the budget's upper bound for every
-        stage, not a prediction: not the R C ``flow.capdac.subckt`` draws (its drivers' chains take
-        part of the budget, and the light stages' plates are sized for their own steps), and a drawn
-        array's stages settle sooner, at shorter time constants. Its plates are designed at the
+        constants for a stage of weight w of the total W. That bounds a drawn stage's time constant
+        from above wherever the drawn stage settles within the budget (the record's
+        ``settling_budget_ratio`` at most 1: its tau, (t_s - d) / k, then at most the budget over k),
+        and is no prediction: not the R C ``flow.capdac.subckt`` draws (its drivers' chains take part
+        of the budget, and the light stages' plates are sized for their own steps). A drawn stage
+        past the budget has a longer time constant than this. Its plates are designed at the
         reference ``reference_v`` and its LSB is at it; where None, the PDK's typical supply, at which
         the netlist draws the plates and the characterization runs. Its drivers' energy is not
         characterized: none."""
@@ -221,13 +223,16 @@ class Model:
             reference_v=reference_v,
             # not in the reference texts: every stage settling at the budget, its driver without delay
             #   (the budget's bound, ``subckt._drive_r_ohm``'s t_s; a drawn chain's delay is within it)
+            # Terms: t_s ``settling_s`` = settle_ps / settle_margin; the delay 0.
+            # Holds for: a design not characterized; a drawn stage within the budget settles sooner.
             settling_s=(settling_s,) * len(weights),
             delay_s=(0.0,) * len(weights),
             # [Razavi-ADC] Eq. (8.14), p. 151: tau = t_s / ln(step / half an LSB), the step 2^(N+1) w / W
             #   LSB (both sides', as ``subckt._drive_r_ohm`` sizes); the budget t_s settle_ps / settle_margin
             # Terms: t_s ``settling_s``; w each stage's weight, W their sum; N ``params.bits``.
             # Holds for: drivers without delay settling as one pole (no chain, no difference-plate lead):
-            #   the single-pole equivalent at the half-LSB instant, an upper bound on a drawn stage's.
+            #   the single-pole equivalent at the half-LSB instant, an upper bound on a drawn stage's
+            #   where that stage settles within the budget (``settling_budget_ratio`` <= 1).
             tau_s=tuple(settling_s / math.log(2 ** (params.bits + 1) * weight / sum(weights)) for weight in weights),
             # [Razavi-ADC] Sec. 12.2.1, p. 237: Delta = 2 FS / 2^N, FS the design's (Eq. (11.3), p. 211)
             lsb_v=2 * full_scale_v / 2**params.bits,
@@ -307,6 +312,8 @@ class Model:
             driver_energy_j=self.driver_energy_j,
             # not in the reference texts: the single-pole default a converter takes where it reads no
             #   stage's own (``stage_tau_s``), the slowest stage's: an upper bound for every stage
+            # Terms: ``tau_s`` each stage's time constant (characterized or designed).
+            # Holds for: a converter that reads no stage's own time constant.
             settling_tau_s=max(self.tau_s),
             stage_tau_s=self.tau_s,
             stage_delay_s=self.delay_s,
@@ -445,6 +452,9 @@ class Model:
         the switch (main and difference plates, a value a conversion)."""
         # [Razavi-ADC] Eq. (11.3), p. 211 and Fig. 16.29, p. 348: ``switch``'s, of one stage (own, by
         #   charge conservation as there; the same bottom plates' capacitance left out)
+        # Terms: as ``switch``'s; ``stage`` the one switching; ``at_vref_f`` the capacitance whose
+        #   bottom plates sit at the reference after the switch.
+        # Holds for: one stage switching a conversion column; as ``switch``.
         total_f = np.sum(main_f) + np.sum(diff_f) + parasitic_f
         main_step = vref_v * (after - before)
         diff_after = after ^ diffcaps

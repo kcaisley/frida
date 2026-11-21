@@ -157,8 +157,10 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
     # [Razavi-Analog] Sec. 15.4.2, p. 641: a forward bias of 300 mV draws negligible junction current,
     #   the limit an excursion past a rail is held to here
     # own: a bottom plate's farthest excursion past either rail, max(V - V_DD, -V) over the P
-    #   side's main and difference plates, which forward-biases its driver's drain junction or
-    #   stresses its off device (the stress limit frida's own, 1.1 V_DD)
+    #   side's main and difference plates, which forward-biases its driver's drain junction and
+    #   puts V_DD plus it across its off device; the guards' terminal limit, 1.1 times the nominal
+    #   supply (``flow.circuit.oppoint.stress``), is the fast corner's supply itself, so there any
+    #   excursion passes it: ``excursion_v`` reports it, nothing here judges it against that limit
     # Terms: V each saved bottom plate ``dut_p.main_<k>``, ``dut_p.diff_<k>``; V_DD ``vdd``.
     # Holds for: the P side (the N side its mirror, the opposite edges).
     excursion = max((max(float(np.max(v)) - vdd, -float(np.min(v))) for v in plates), default=math.nan)
@@ -254,6 +256,8 @@ def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
             calc_paths_gap(paths, (code_max + 1) / (2 * weights.sum())),
         )
     # not in the reference texts: the run shown, the one nearest the 95th percentile of the DAC's INL
+    # Terms: ``values["dac_inl"]`` each run's worst |INL| of the DAC in its own LSB.
+    # Holds for: one coefficient's runs; the record's DAC curves (``dac_inl``, ``dac_dnl``) are its.
     shown = int(np.argmin(np.abs(values["dac_inl"] - np.percentile(values["dac_inl"], 95))))
     return AnalysisMismatch(
         group=meas.group,
@@ -390,6 +394,9 @@ def analyze_cap_mismatch(
         # not in the reference texts: the fraction's sign, + for the P side and - for the N side (a
         #   stage moves its side's top plate, the differential the other way on N), + for 0 to 1 and
         #   - for 1 to 0 (the plate falls), so every stage's fraction is positive as designed
+        # Terms: ``side`` p or n; ``direction`` 0to1 or 1to0; ``signed_step`` the curve's fraction.
+        # Holds for: the bench's comparator between the two sides (an N side's step moves its input
+        #   the other way).
         side_sign = 1.0 if side == "p" else -1.0
         direction_sign = 1.0 if direction == "0to1" else -1.0
         per_mode_direction[0 if side == "p" else 1, element, diffcaps, 0 if direction == "1to0" else 1] = (
@@ -409,6 +416,8 @@ def analyze_cap_mismatch(
                 if np.all(np.isfinite(directions)):
                     # not in the reference texts: a mode's fraction the mean of its two directions'
                     #   (their difference, halved, the direction bias)
+                    # Terms: ``directions`` the mode's 1-to-0 and 0-to-1 fractions.
+                    # Holds for: a mode with both directions measured (NaN otherwise).
                     mode_values.append(calc.average(directions))
                     direction_bias[side, element, diffcaps] = float((directions[0] - directions[1]) / 2.0)
                 else:
@@ -477,10 +486,15 @@ def metrics(
     corners = [run for run in (slow, fast) if run is not None]
     # not in the reference texts: the reductions over the stages, the slowest stage's settling (NaN
     #   where a stage's is not measured), both sides' and one side's in the converter's direction
+    # Terms: ``settling_s`` each stage's slower direction, both sides switched; ``side_settling_s``
+    #   the P side's alone in the converter's direction (``analyze_settling``).
+    # Holds for: the typical corner's run; NaN propagates where a stage is unmeasured.
     slowest = float(np.max(settling.settling_s))
     side = float(np.max(settling.side_settling_s)) if settling.side_settling_s is not None else math.nan
-    # every settling judged against settle_ps: the typical run's and each corner run's, both sides'
-    # and one side's (where a run measures it)
+    # not in the reference texts: every settling judged against settle_ps: the typical run's and
+    #   each corner run's, both sides' and one side's (where a run measures it)
+    # Terms: ``slowest``, ``side``; each corner run's (``slow``, ``fast``) slowest stage, both ways.
+    # Holds for: the runs its level ran (the search's: the typical run alone).
     every = [
         slowest,
         side,
@@ -507,7 +521,9 @@ def metrics(
         "lsb_v": settling.lsb_v,
         "ktc_noise_ratio": ktc,
         "settling_max_s": slowest,
-        # C0's, the heaviest stage's (with its weight redistributed it is not the slowest)
+        # not in the reference texts: C0's settling, the heaviest stage's (with its weight
+        #   redistributed it is not the slowest)
+        # Terms: ``settling_s[0]``, C0 first (``params._weights``). Holds for: the typical run.
         "settling_msb_s": float(settling.settling_s[0]),
         "settling_side_max_s": side,
         "settling_slow_max_s": float(np.max(slow.settling_s)) if slow is not None else math.nan,
@@ -518,14 +534,22 @@ def metrics(
         #   settle_ps ([Razavi-ADC] Sec. 8.2.2, p. 150: t_s)
         "settling_budget_ratio": float(np.max([slowest, side])) / settling.budget_s,
         "settles_in_time": bool(all(math.isfinite(t) and t <= settling.settle_s for t in every)),
-        # the largest delay and time constant over the stages (NaN where a stage's is not measured)
+        # not in the reference texts: the largest delay and time constant over the stages (NaN
+        #   where a stage's is not measured)
+        # Terms: ``delay_s`` each stage's driver delay, state to main plate at 50 %; ``tau_s`` the
+        #   model's time constants (``AnalysisSettling.tau_s``). Holds for: the typical run.
         "delay_max_s": float(np.max(settling.delay_s)),
         "tau_max_s": float(np.max(settling.tau_s)),
         "window_s": settling.window_s,
         "step_error_lsb": settling.step_error_lsb,
-        # the supply's energy summed over every window, both directions (``energy_*_j``)
+        # not in the reference texts: the supply's energy summed over every window, both directions
+        # Terms: ``energy_rise_j``, ``energy_fall_j`` each window's V_DD integral of I_DD
+        #   (``analyze_settling``). Holds for: the typical run, both sides on the one supply; NaN
+        #   where the run saved no supply current.
         "supply_energy_j": float(sum(np.sum(e) for e in energies)) if energies else math.nan,
-        # the farthest excursion of the typical run's and the corner runs' (NaN where one is unmeasured)
+        # not in the reference texts: the farthest excursion of the typical run's and the corner
+        #   runs' (NaN where one is unmeasured)
+        # Terms: each run's ``excursion_v`` (``analyze_settling``). Holds for: the P side's plates.
         "excursion_v": float(np.max([settling.excursion_v, *(run.excursion_v for run in corners)])),
     }
 

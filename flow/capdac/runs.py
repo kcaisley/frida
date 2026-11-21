@@ -40,6 +40,9 @@ from .plots import (
 # not in the reference texts: the bound every instance is judged by, each stage settling within
 # settle_ps at every corner run ([Razavi-ADC] Sec. 8.2.2, p. 150: t_s), from its pre-layout
 # simulation on (the layout adds the plates' parasitics)
+# Terms: ``settles_in_time`` (``analysis.metrics``); ``Evidence.PRELAYOUT`` the earliest record it
+#   judges.
+# Holds for: the grid's arrays and FRIDA-1's alike; a record of the flow's level (both corners).
 
 
 @grid(bounds=(Bound("settles_in_time", True, since=Evidence.PRELAYOUT),))
@@ -71,12 +74,15 @@ def testbenches(pdk: str, params: Params, level: Level = Level.SEARCH) -> dict[s
     ``Level.FULL`` (the flow's), the settling run at the slow corner at 90 % of the supply and hot
     (``settling_slow``) and at the fast corner at 110 % (``settling_fast``). A call without a level
     is the search's: the typical corner's runs alone."""
-    # the bench's supply, the kit's typical rounded to 0.1 mV (a netlist's value; the netlist draws
-    # its plates at the unrounded one, a difference below 0.05 mV)
+    # not in the reference texts: the bench's supply, the kit's typical rounded to 0.1 mV (a
+    #   netlist's value; the netlist draws its plates at the unrounded one, a difference below 0.05 mV)
+    # Terms: the kit's typical supply ``supply_voltage(Corner.TYP)``. Holds for: every kit.
     supply = round(importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP), 4)
     # not in the reference texts: the window, four times settle_ps rounded up to 100 ps, so a step
     #   that settles within twice settle_ps does so in the window's first half (``settled``); its
     #   output every 2000th of it (2 ps at 1000 ps), well below the stages' settling
+    # Terms: ``params.settle_ps``; the sample interval ``window / 2000``.
+    # Holds for: settle_ps 100 to 5000 ps (``Params``' range).
     window = math.ceil(4 * params.settle_ps / 100) * 100e-12
     settling = TbParams(pdk=pdk, params=params, vdd=supply, window_s=window, waveform_sample_interval_s=window / 2000)
     # [Pelgrom] Table 4.7, p. 144: indicative matching of a process's capacitors (a pair's, as Eq.
@@ -92,6 +98,9 @@ def testbenches(pdk: str, params: Params, level: Level = Level.SEARCH) -> dict[s
         # not in the reference texts: the supply corners 90 and 110 % of the nominal supply (within
         #   the kits' limits), the slow corner hot at 125 C and the fast one at 25 C; the plates drawn
         #   at the nominal supply (``nominal_vdd``)
+        # Terms: ``supply`` the nominal; ``Corner.SLOW``, ``Corner.FAST`` the kit's process corners;
+        #   ``temperature_c``.
+        # Holds for: ``Level.FULL`` (the flow's); a kit whose install includes both corners.
         benches |= {
             "settling_slow": replace(
                 settling, vdd=0.9 * supply, nominal_vdd=supply, corner=h.pdk.Corner.SLOW, temperature_c=125.0
