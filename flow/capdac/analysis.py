@@ -156,7 +156,8 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
     plates = [meas.v[name] for name in meas.v if name.startswith(("dut_p.main_", "dut_p.diff_"))]
     # [Razavi-Analog] Sec. 15.4.2, p. 641: a forward bias of 300 mV draws negligible junction current,
     #   the limit an excursion past a rail is held to here
-    # own: a bottom plate's farthest excursion past either rail, max(V - V_DD, -V) over the P
+    # not in the reference texts: the code's own derivation, from the rails a driver's drain junctions
+    #   sit between: a bottom plate's farthest excursion past either rail, max(V - V_DD, -V) over the P
     #   side's main and difference plates, which forward-biases its driver's drain junction and
     #   puts V_DD plus it across its off device; the guards' terminal limit, 1.1 times the nominal
     #   supply (``flow.circuit.oppoint.stress``), is the fast corner's supply itself, so there any
@@ -246,7 +247,7 @@ def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
         dnl, _, missing = calc_paths_linearity(paths, code_max)
         inl = calc.inl(dnl, endpoint_correct=False)
         values["dnl"][run], values["inl"][run] = float(np.max(np.abs(dnl))), float(np.max(np.abs(inl)))
-        # not in the reference texts (a paper's: Hsu's missing level): with every decision's true
+        # not in the reference texts: a paper's, Hsu's missing level: with every decision's true
         #   weight, the widest decision path over a code's width, less one; the code's width in
         #   unit steps 2^N / (2 W) (calc_paths_gap)
         # Terms: W ``weights.sum()``; the paths of the drawn sides from the A state.
@@ -285,6 +286,9 @@ def analyze_decisions(switching: Sequence[AnalysisSwitching]) -> comp.AnalysisDe
     the comparator's S-curve fit (``comp.analyze_offset_noise``): each trial's differential input,
     common mode and decision."""
 
+    # not in the reference texts: bookkeeping, no quantity computed: one curve's captures concatenated,
+    #   each trial's differential input, common mode and decision as the comparator's S-curve fit
+    #   (``comp.analyze_offset_noise``) reads them
     identity = measurement_identity(switching)
     first = switching[0]
     return comp.AnalysisDecisions(
@@ -385,7 +389,7 @@ def analyze_cap_mismatch(
     for (side, element, direction, diffcaps), transition in by_curve.items():
         if not 0 <= element < element_count:
             raise ValueError("CDAC measurement element is outside the configured CDAC")
-        # not in the reference texts (the bench's own): a stage's fraction of its side, the input that
+        # not in the reference texts: the bench's own, a stage's fraction of its side, the input that
         #   balances its switching against the comparator's offset over the reference,
         #   (V_OS - V_transition) / V_REF ([Razavi-ADC] Eq. (11.3), p. 211: a step k C_0 / C V_REF)
         # Terms: V_OS ``comparator.offset_v``; V_transition the curve's 50 % point; V_REF ``vdd_dac_v``.

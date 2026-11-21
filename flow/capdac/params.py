@@ -320,9 +320,9 @@ def valid(params: Params, pdk: str, drawn: float = 2.2) -> bool:
     #   source's resistance of the rest's switches left to the fitted DRIVER_TAU_SCALE), its stage's
     #   difference plate stepping the other way; [Razavi-ADC] Eq. (8.14), p. 151: ln(step / half an
     #   LSB) time constants; [Baker] Eq. (10.19), p. 334: the half swing at the switching resistance
-    # Terms: k C_0 main_f[0], its difference plate diff_f[0], m C_0 ``top_f``; the step 2^(N+1) w_0 / W
-    #   LSB (both sides', as ``_drive_r_ohm``); rho the kit's switching over triode resistance; the
-    #   kit's DRIVER_TAU_SCALE.
+    # Terms: k C_0 main_f[0], its difference plate diff_f[0], m C_0 ``top_f``; the step 2^N w_0 / W LSB
+    #   (both sides', as ``_drive_r_ohm``), 2^(N+1) w_0 / W its ratio to half an LSB; rho the kit's
+    #   switching over triode resistance; the kit's DRIVER_TAU_SCALE.
     # Ours against the source: as ``_drive_r_ohm``, the drawn load bounded by the design's times
     #   ``drawn``.
     # Holds for: the heaviest stage (C0), the slowest to size where the budget binds (12 and 14

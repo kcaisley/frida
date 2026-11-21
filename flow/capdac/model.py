@@ -227,8 +227,9 @@ class Model:
             # Holds for: a design not characterized; a drawn stage within the budget settles sooner.
             settling_s=(settling_s,) * len(weights),
             delay_s=(0.0,) * len(weights),
-            # [Razavi-ADC] Eq. (8.14), p. 151: tau = t_s / ln(step / half an LSB), the step 2^(N+1) w / W
-            #   LSB (both sides', as ``subckt._drive_r_ohm`` sizes); the budget t_s settle_ps / settle_margin
+            # [Razavi-ADC] Eq. (8.14), p. 151: tau = t_s / ln(step / half an LSB), the step 2^N w / W LSB
+            #   (both sides', as ``subckt._drive_r_ohm`` sizes), 2^(N+1) w / W its ratio to half an LSB;
+            #   the budget t_s settle_ps / settle_margin
             # Terms: t_s ``settling_s``; w each stage's weight, W their sum; N ``params.bits``.
             # Holds for: drivers without delay settling as one pole (no chain, no difference-plate lead):
             #   the single-pole equivalent at the half-LSB instant, an upper bound on a drawn stage's

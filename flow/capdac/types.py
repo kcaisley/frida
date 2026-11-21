@@ -134,7 +134,7 @@ class AnalysisSettling(Analysis):
         """Each stage's time constant: started at its driver's delay, its step comes within half an
         LSB when it settles (its slower direction); 0 where the step never leaves the tolerance or
         settles before the delay, NaN where its delay or settling was not measured."""
-        # not in the reference texts (the behavioral model's own): tau = (t_s - t_d) / ln(|s| / (LSB / 2)),
+        # not in the reference texts: the behavioral model's own, tau = (t_s - t_d) / ln(|s| / (LSB / 2)),
         #   from [Razavi-ADC] Eq. (8.14), p. 151 (t_s = tau ln(step / half an LSB) for one pole) started
         #   at the driver's delay instead of the edge
         # Terms: t_s ``settling_s``; t_d ``delay_s`` (the main bottom plate's 50 %); s ``step_v``.
