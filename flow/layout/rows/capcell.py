@@ -96,6 +96,29 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
     }
 
 
+def space_beside(metal: int, width: int) -> int:
+    """The space (nm) beside a piece of M``metal`` ``width`` wide along a long run: the metal's
+    plain space, or a wide metal's where the piece is wider than the rule's width (``RULES``
+    ``parallel_space``: space, above width, above parallel run length): the wider of two pieces
+    sets the space between them, the kit's wide-metal rule."""
+
+    rule = tech.RULES[f"M{metal}"]
+    return max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if width > above)])
+
+
+def clear_of_track(side: int, outward: int, space: int, pitch: int, offset: int, half: int) -> int:
+    """A piece's ``side`` (nm; ``outward`` 1: its top, -1: its bottom) drawn back, where needed, to
+    ``space`` short of the wire on the first track beyond it (tracks ``pitch`` apart from
+    ``offset``, a wire ``half`` its height about its track) that it does not overlap: a router that
+    keeps a smaller space from it takes that track, and the wire lands no closer than ``space``."""
+
+    if outward > 0:
+        track = offset + -(-(side + half - offset) // pitch) * pitch
+        return min(side, track - half - space)
+    track = offset + (side - half - offset) // pitch * pitch
+    return max(side, track + half + space)
+
+
 def mom_access(layers: int, space: int = 0) -> dict:
     """An array unit's access to its inner plates (nm), on the shield's metal inside the ring: a
     strip under each inner finger as wide as it, the cut between them, the strip's spacing to the
@@ -110,7 +133,7 @@ def mom_access(layers: int, space: int = 0) -> dict:
     cut, (end, side) = via["cut"], via["enclosure"][:2]
     if width < max(rule["width"], cut + 2 * side):
         raise ValueError(f"a {width} nm finger is too narrow for its M{metal} access and its V{metal} cut")
-    beside = max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if width > above)])
+    beside = space_beside(metal, width)
     at_end = max([rule["space"], *(gap for gap, below, _ext in rule.get("end_of_line", ()) if width < below)])
     if g["space"] < beside or g["end_gap"] < at_end:
         raise ValueError(f"the ring's spacing is below M{metal}'s: no access strip fits inside it")
@@ -137,7 +160,7 @@ def mom_channel(layers: int, space: int = 0) -> dict:
     bar = _snap(max(a["via_cut"] + 2 * a["via_end"], -(-rule.get("area", 0) // shortest)), 2 * g["grid"])
     if any(bar < below for _gap, below, _ext in rule.get("end_of_line", ())):
         raise ValueError(f"a {bar} nm bar meets M{a['metal']}'s line-end rule: no channel fits a unit")
-    wide = max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if bar > above)])
+    wide = space_beside(a["metal"], bar)
     reach = a["via_end"] + a["via_cut"] // 2
     finger = _snap(reach + max(reach, wide + bar // 2 - g["end_gap"]) + tech.PITCH - 1, g["grid"])
     return {**a, "space": rule["space"], "wide": wide, "bar": bar, "area": rule.get("area", 0), "finger": finger}

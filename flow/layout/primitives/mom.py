@@ -430,7 +430,7 @@ class MomUnit(_Fabric):
         (its shield on a metal they route on, ``_routing_top``) and the plates' routes there keep to
         the metals up to the one over the shield (the kit's ``MOM_PLATES_ROUTED_LOW``), the frame a
         track wider, past the ring's bars: those routes keep a track from under the top plate, the
-        frame between them."""
+        frame between them; a frame that wide keeps the metal's wide space (``_frame_side``)."""
         c = capcell.mom_channel(layers, space)
         w, layer = g["width"], f"M{c['metal']}"
         pitch, offset = self._tracks(c["metal"])
@@ -460,20 +460,34 @@ class MomUnit(_Fabric):
         # shield
         low = getattr(tech, "MOM_PLATES_ROUTED_LOW", True)
         guard = pitch if low and c["metal"] <= self._routing_top() else 0
-        self.rect(layer, "SHIELD", 0, -guard if below == "edge" else 0, outer, w)
-        self.rect(layer, "SHIELD", 0, height - w, outer, height + (guard if above == "edge" else 0))
+        guards = {"below": guard if below == "edge" else 0, "above": guard if above == "edge" else 0}
+        # a frame piece that wide can take the metal's wide space beside it (``capcell.space_beside``):
+        # a channel's bar keeps it (or the bar's own, where wider) from the piece, and at the array's
+        # top the piece's outward side keeps it from the first track beyond (``_frame_side``); its
+        # bottom side is the outline's, on a track, a track's clearance from the next
+        frame = {side: capcell.space_beside(c["metal"], w + guards[side]) for side in guards}
+        beside = {side: max(wide, frame[side]) for side in guards}
+        bottom_side, top_side = -guards["below"], height + guards["above"]
+        if below == "edge" and self._frame_side(c["metal"], bottom_side, -1, frame["below"]) != bottom_side:
+            raise ValueError(f"M{c['metal']}'s {frame['below']} nm space beside the frame reaches the track below it")
+        if above == "edge":
+            top_side = self._frame_side(c["metal"], top_side, 1, frame["above"])
+            if top_side < height:
+                raise ValueError(f"M{c['metal']}'s {frame['above']} nm space beside the frame uncovers the ring's bar")
+        self.rect(layer, "SHIELD", 0, bottom_side, outer, w)
+        self.rect(layer, "SHIELD", 0, height - w, outer, top_side)
         low, high = 0, height  # the grid's ends: the frame, or a channel's inner bar
         for terminal, column, y0, y1, centre in columns:
             if column != 1:
                 continue
             bottom = centre < (y0 + y1) / 2  # the finger rooted at the unit's bottom
             if bottom:
-                track = up(max(w + wide + bar // 2, y0 + reach))
+                track = up(max(w + beside["below"] + bar // 2, y0 + reach))
                 ground = up(track + bar // 2 + wide + w // 2)  # the channel's inner bar
                 band = (0, ground + w // 2)
                 low = ground - w // 2
             else:
-                track = down(min(height - w - wide - bar // 2, y1 - reach))
+                track = down(min(height - w - beside["above"] - bar // 2, y1 - reach))
                 ground = down(track - bar // 2 - wide - w // 2)
                 band = (ground - w // 2, height)
                 high = ground + w // 2
@@ -507,6 +521,22 @@ class MomUnit(_Fabric):
             raise ValueError(f"no {layer} shield line fits between holes {rule.get('hole_width')} nm wide")
         for x in (0, inner_x, outer - w):
             self.rect(layer, "SHIELD", x + trim, low, x + w - trim, high)
+
+    def _frame_side(self, metal, side, outward, space):
+        """A frame piece's outward ``side`` (``outward`` 1 up, -1 down) kept ``space`` from the wire
+        on the first routing track beyond it (``capcell.clear_of_track``: the metal's wire or its
+        vias' pads, ``layers.json``), where that is a wide space past the metal's plain one: ALIGN's
+        router keeps its own space from drawn metal, a track pitch less a wire, never a wide metal's
+        (IHP130's frame of FRIDA-1's array drawn 225 nm from a route, its Mn.e 240 nm).
+        Ref: ALIGN PnRDB ReadDesignRuleJson.cpp (a metal's dist_ss, Pitch - Width)."""
+        if space <= capcell.tech.RULES[f"M{metal}"]["space"]:
+            return side
+        pitch, offset = self._tracks(metal)
+        heights = [self.pdk[f"M{metal}"]["Width"]]
+        for via, end in ((f"V{metal - 1}", "H"), (f"V{metal}", "L")):
+            if via in self.pdk:
+                heights.append(self.pdk[via]["WidthY"] + 2 * self.pdk[via][f"VencP_{end}"])
+        return capcell.clear_of_track(side, outward, space, pitch, offset, max(heights) // 2)
 
     def _recognition(self, g, outer, height, y0, y1, side):
         """One U on the ring's inner halves (the bar at the finger's root and both walls to half
